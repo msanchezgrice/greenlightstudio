@@ -8,20 +8,50 @@ import { logPhase0Failure, runPhase0 } from "@/lib/phase0";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
+type LaunchTaskRow = {
+  description: string;
+  status: string;
+  created_at: string;
+};
+
 async function hasRecentActiveLaunch(projectId: string) {
   const db = createServiceSupabase();
   const { data, error } = await withRetry(() =>
     db
       .from("tasks")
-      .select("id")
+      .select("description,status,created_at")
       .eq("project_id", projectId)
-      .in("description", ["phase0_init", "phase0_research", "phase0_synthesis"])
-      .eq("status", "running")
-      .gte("created_at", new Date(Date.now() - 10 * 60 * 1000).toISOString())
-      .limit(1),
+      .in("description", ["phase0_init", "phase0_research", "phase0_synthesis", "phase0_complete", "phase0_failed"])
+      .gte("created_at", new Date(Date.now() - 20 * 60 * 1000).toISOString())
+      .order("created_at", { ascending: false })
+      .limit(120),
   );
   if (error) throw new Error(error.message);
-  return Boolean(data?.length);
+  const tasks = (data ?? []) as LaunchTaskRow[];
+  if (!tasks.length) return false;
+
+  const ordered = tasks
+    .map((task) => ({ ...task, createdAtMs: Date.parse(task.created_at) }))
+    .filter((task) => Number.isFinite(task.createdAtMs))
+    .sort((left, right) => left.createdAtMs - right.createdAtMs);
+
+  const latestInit = [...ordered].reverse().find((task) => task.description === "phase0_init" && task.status === "running");
+  if (!latestInit) return false;
+
+  const threshold = latestInit.createdAtMs - 5_000;
+  const currentAttemptTasks = ordered.filter((task) => task.createdAtMs >= threshold);
+  const hasTerminal = currentAttemptTasks.some(
+    (task) =>
+      (task.description === "phase0_complete" && task.status === "completed") ||
+      (task.description === "phase0_failed" && task.status === "failed"),
+  );
+  if (hasTerminal) return false;
+
+  return currentAttemptTasks.some(
+    (task) =>
+      ["phase0_init", "phase0_research", "phase0_synthesis"].includes(task.description) &&
+      task.status === "running",
+  );
 }
 
 const launchRequestSchema = z.object({
