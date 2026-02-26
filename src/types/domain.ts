@@ -47,13 +47,32 @@ export const packetSchema = z.object({
   reasoning_synopsis: reasoningSynopsisSchema,
 });
 
+export const competitorSchema = z.object({
+  name: z.string(),
+  url: z.string().url().optional(),
+  snippet: z.string().optional(),
+});
+
+export const repoSummarySchema = z.object({
+  provider: z.enum(["github", "gitlab"]).nullable().optional(),
+  repo: z.string().nullable().optional(),
+  framework: z.string().nullable(),
+  language: z.string().nullable(),
+  loc: z.number().int().min(0).nullable(),
+  last_commit: z.string().nullable(),
+  key_files: z.array(z.string()),
+  error: z.string().optional(),
+});
+
 export const scanResultSchema = z.object({
+  domain: z.string().nullable().optional(),
   dns: z.enum(["live", "parked", "none"]).nullable(),
   http_status: z.number().nullable(),
   tech_stack: z.array(z.string()).nullable(),
   meta: z.object({ title: z.string().nullable(), desc: z.string().nullable(), og_image: z.string().nullable() }).nullable(),
   existing_content: z.enum(["site", "parked", "none"]),
-  competitors_found: z.array(z.object({ name: z.string(), url: z.string().optional() })),
+  repo_summary: repoSummarySchema.nullable().optional(),
+  competitors_found: z.array(competitorSchema),
   error: z.string().optional(),
 });
 
@@ -61,11 +80,24 @@ export const onboardingSchema = z.object({
   domain: z.string().optional().nullable(),
   idea_description: z.string().min(20),
   repo_url: z.string().url().optional().nullable(),
+  uploaded_files: z
+    .array(
+      z.object({
+        name: z.string(),
+        size: z.number().int().min(0),
+        type: z.string(),
+        last_modified: z.number().int().optional(),
+      }),
+    )
+    .max(5)
+    .optional()
+    .default([]),
   runtime_mode: z.enum(["shared", "attached"]),
   permissions: z.object({
     repo_write: z.boolean(),
     deploy: z.boolean(),
     ads_budget_cap: z.number().min(0),
+    ads_enabled: z.boolean().optional().default(false),
     email_send: z.boolean(),
   }),
   night_shift: z.boolean(),
@@ -76,3 +108,4 @@ export const onboardingSchema = z.object({
 export type Packet = z.infer<typeof packetSchema>;
 export type OnboardingInput = z.infer<typeof onboardingSchema>;
 export type ScanResult = z.infer<typeof scanResultSchema>;
+export type RepoSummary = z.infer<typeof repoSummarySchema>;

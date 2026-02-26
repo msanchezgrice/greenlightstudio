@@ -28,7 +28,7 @@ export async function POST(req: Request) {
         nightShift: body.night_shift,
         focusAreas: body.focus_areas,
         scanResults: body.scan_results,
-        wizardState: { step: "confirm" },
+        wizardState: { step: "confirm", uploaded_files: body.uploaded_files ?? [] },
       }),
     );
 

@@ -5,6 +5,7 @@ import { withRetry } from "@/lib/retry";
 type Permissions = {
   repo_write: boolean;
   deploy: boolean;
+  ads_enabled?: boolean;
   ads_budget_cap: number;
   email_send: boolean;
 };
