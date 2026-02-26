@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useMemo, FormEvent } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, FormEvent, ReactNode } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 
@@ -10,6 +10,7 @@ type Project = {
   domain: string | null;
   phase: number;
   night_shift: boolean;
+  confidence?: number | null;
 };
 
 type Message = {
@@ -69,6 +70,121 @@ function formatTime(iso: string): string {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Content rendering: detect data cards, artifact links, and structured data
+// ---------------------------------------------------------------------------
+
+function renderMessageContent(content: string, role: string): ReactNode {
+  if (role === "system") {
+    return <div className="chat-msg-text">{content}</div>;
+  }
+
+  const parts: ReactNode[] = [];
+  const lines = content.split("\n");
+  let i = 0;
+  let keyCounter = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Detect artifact-style links: [View packet ->](/projects/ID/packet)
+    const artifactMatch = line.match(/^\[(.+?)\]\((\/.+?)\)\s*$/);
+    if (artifactMatch) {
+      parts.push(
+        <Link key={`art-${keyCounter++}`} href={artifactMatch[2]} className="chat-msg-artifact green">
+          {artifactMatch[1]}
+        </Link>,
+      );
+      i++;
+      continue;
+    }
+
+    // Detect card blocks: a line with an emoji + title, followed by "Key: Value" lines
+    const cardTitleMatch = line.match(/^(.{1,4})\s+(.+)$/);
+    const hasEmojiPrefix = cardTitleMatch && /[\p{Emoji}]/u.test(cardTitleMatch[1]);
+
+    if (hasEmojiPrefix && i + 1 < lines.length) {
+      // Look ahead to see if next lines are key: value pairs
+      const kvLines: { key: string; value: string }[] = [];
+      let j = i + 1;
+      while (j < lines.length) {
+        const kvMatch = lines[j].match(/^([^:]{1,40}):\s+(.+)$/);
+        if (kvMatch) {
+          kvLines.push({ key: kvMatch[1].trim(), value: kvMatch[2].trim() });
+          j++;
+        } else if (lines[j].trim() === "") {
+          j++;
+          break;
+        } else {
+          break;
+        }
+      }
+
+      if (kvLines.length >= 2) {
+        parts.push(
+          <div key={`card-${keyCounter++}`} className="msg-card">
+            <div className="msg-card-title">{line}</div>
+            {kvLines.map((kv, idx) => (
+              <div key={idx} className="msg-card-row">
+                <span>{kv.key}</span>
+                <span>{kv.value}</span>
+              </div>
+            ))}
+          </div>,
+        );
+        i = j;
+        continue;
+      }
+    }
+
+    // Detect markdown-style bold key: value patterns like **Key:** Value
+    const boldKvMatch = line.match(/^\*\*(.+?)\*\*:?\s+(.+)$/);
+    if (boldKvMatch) {
+      // Collect consecutive bold-kv lines into a card
+      const kvLines: { key: string; value: string }[] = [];
+      let j = i;
+      while (j < lines.length) {
+        const m = lines[j].match(/^\*\*(.+?)\*\*:?\s+(.+)$/);
+        if (m) {
+          kvLines.push({ key: m[1], value: m[2] });
+          j++;
+        } else {
+          break;
+        }
+      }
+
+      if (kvLines.length >= 2) {
+        parts.push(
+          <div key={`bcard-${keyCounter++}`} className="msg-card">
+            {kvLines.map((kv, idx) => (
+              <div key={idx} className="msg-card-row">
+                <span>{kv.key}</span>
+                <span>{kv.value}</span>
+              </div>
+            ))}
+          </div>,
+        );
+        i = j;
+        continue;
+      }
+    }
+
+    // Default: plain text line
+    if (line.trim() === "" && parts.length > 0) {
+      parts.push(<br key={`br-${keyCounter++}`} />);
+    } else if (line.trim() !== "") {
+      parts.push(<span key={`txt-${keyCounter++}`}>{line}{"\n"}</span>);
+    }
+    i++;
+  }
+
+  return <div className="chat-msg-text" style={{ whiteSpace: "pre-wrap" }}>{parts}</div>;
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
 export function ChatPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -86,6 +202,9 @@ export function ChatPage() {
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // --- Feature 1: Client-side message cache ---
+  const messageCacheRef = useRef<Map<string, Message[]>>(new Map());
 
   const selectedProject = useMemo(
     () => projects.find((p) => p.id === selectedId) ?? null,
@@ -116,9 +235,17 @@ export function ChatPage() {
     };
   }, []);
 
-  // Load messages when project changes
+  // Load messages when project changes (with cache)
   const loadMessages = useCallback(async (projectId: string) => {
-    setLoadingMessages(true);
+    // Show cached messages instantly if available
+    const cached = messageCacheRef.current.get(projectId);
+    if (cached) {
+      setMessages(cached);
+      setLoadingMessages(false);
+    } else {
+      setLoadingMessages(true);
+    }
+
     setError(null);
 
     try {
@@ -132,10 +259,12 @@ export function ChatPage() {
         throw new Error(json?.error ?? `Failed to load chat (HTTP ${res.status})`);
       }
 
-      setMessages(Array.isArray(json?.messages) ? json.messages : []);
+      const freshMessages = Array.isArray(json?.messages) ? json.messages : [];
+      messageCacheRef.current.set(projectId, freshMessages);
+      setMessages(freshMessages);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load messages");
-      setMessages([]);
+      if (!cached) setMessages([]);
     } finally {
       setLoadingMessages(false);
     }
@@ -242,13 +371,15 @@ export function ChatPage() {
             ))
           )}
         </div>
+
+        {/* --- Feature 5: Updated Quick Actions --- */}
         <div className="chat-quick-actions">
           <div className="chat-sidebar-header">Quick Actions</div>
-          <Link href="/" className="chat-project-item">
+          <Link href="/onboarding?new=1" className="chat-project-item">
             <span className="chat-project-name" style={{ fontSize: 12 }}>+ New Project</span>
           </Link>
-          <Link href="/inbox" className="chat-project-item">
-            <span className="chat-project-name" style={{ fontSize: 12 }}>Inbox</span>
+          <Link href="/bulk-import" className="chat-project-item">
+            <span className="chat-project-name" style={{ fontSize: 12 }}>Bulk Import</span>
           </Link>
           <Link href="/board" className="chat-project-item">
             <span className="chat-project-name" style={{ fontSize: 12 }}>Board</span>
@@ -260,7 +391,7 @@ export function ChatPage() {
       <main className="chat-main">
         {selectedProject ? (
           <>
-            {/* Header */}
+            {/* --- Feature 4: Improved header with confidence + new buttons --- */}
             <div className="chat-header">
               <div className="chat-header-info">
                 <div className="chat-header-icon">
@@ -271,21 +402,30 @@ export function ChatPage() {
                   <div className="chat-header-phase">
                     {selectedProject.domain ? `${selectedProject.domain} \u00B7 ` : ""}
                     Phase {selectedProject.phase} &middot; {phaseLabel(selectedProject.phase)}
+                    {selectedProject.confidence != null && (
+                      <> &middot; Confidence {selectedProject.confidence}</>
+                    )}
                   </div>
                 </div>
               </div>
               <div className="chat-header-actions">
                 <Link
-                  href={`/projects/${selectedProject.id}`}
+                  href={`/projects/${selectedProject.id}/packet`}
                   className="chat-header-btn"
                 >
-                  Open Project
+                  Packet
                 </Link>
                 <Link
-                  href={`/projects/${selectedProject.id}/packet`}
+                  href={`/inbox?project=${selectedProject.id}`}
+                  className="chat-header-btn"
+                >
+                  Inbox
+                </Link>
+                <Link
+                  href={`/projects/${selectedProject.id}/phases`}
                   className="chat-header-btn green"
                 >
-                  View Packet
+                  Phases
                 </Link>
               </div>
             </div>
@@ -294,7 +434,7 @@ export function ChatPage() {
             <div className="chat-body">
               {error && <p className="alert error">{error}</p>}
 
-              {loadingMessages ? (
+              {loadingMessages && messages.length === 0 ? (
                 <p className="meta-line" style={{ padding: "24px", textAlign: "center" }}>
                   Loading messages...
                 </p>
@@ -308,28 +448,45 @@ export function ChatPage() {
                   </p>
                 </div>
               ) : (
-                messages.map((msg) => (
-                  <div key={msg.id} className={`chat-msg ${msg.role}`}>
-                    <div
-                      className={`chat-msg-avatar ${msg.role === "assistant" ? "agent" : msg.role}`}
-                    >
-                      {msg.role === "assistant"
-                        ? "\u{1F9E0}"
-                        : msg.role === "user"
-                          ? "\u{1F464}"
-                          : "\u2699"}
-                    </div>
-                    <div className="chat-msg-content">
-                      <div className="chat-msg-header">
-                        <span className="chat-msg-name" style={{ color: roleColor(msg.role) }}>
-                          {roleLabel(msg.role)}
-                        </span>
-                        <span className="chat-msg-time">{formatTime(msg.created_at)}</span>
+                messages.map((msg) => {
+                  // --- Feature 2: System messages render differently ---
+                  if (msg.role === "system") {
+                    return (
+                      <div key={msg.id} className="chat-msg system">
+                        <div className="chat-msg-content">
+                          <div className="chat-msg-header">
+                            <span className="chat-msg-time">{formatTime(msg.created_at)}</span>
+                          </div>
+                          <div className="chat-msg-text">
+                            <span style={{ fontSize: 14 }}>{"\u2699\uFE0F"}</span> {msg.content}
+                          </div>
+                        </div>
                       </div>
-                      <div className="chat-msg-text">{msg.content}</div>
+                    );
+                  }
+
+                  return (
+                    <div key={msg.id} className={`chat-msg ${msg.role}`}>
+                      <div
+                        className={`chat-msg-avatar ${msg.role === "assistant" ? "agent" : msg.role}`}
+                      >
+                        {msg.role === "assistant"
+                          ? "\u{1F9E0}"
+                          : "\u{1F464}"}
+                      </div>
+                      <div className="chat-msg-content">
+                        <div className="chat-msg-header">
+                          <span className="chat-msg-name" style={{ color: roleColor(msg.role) }}>
+                            {roleLabel(msg.role)}
+                          </span>
+                          <span className="chat-msg-time">{formatTime(msg.created_at)}</span>
+                        </div>
+                        {/* --- Feature 3: Rich message content rendering --- */}
+                        {renderMessageContent(msg.content, msg.role)}
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
 
               {sending && (
