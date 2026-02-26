@@ -2,7 +2,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { requireEnv } from "@/lib/env";
-import { packetSchema, type OnboardingInput, type Packet } from "@/types/domain";
+import { packetSchema, type OnboardingInput, type Packet, type ProjectAsset } from "@/types/domain";
 import {
   phase1PacketSchema,
   phase2PacketSchema,
@@ -473,13 +473,27 @@ function normalizePhase0PacketCandidate(value: unknown) {
   return next;
 }
 
-async function runResearchAgent(input: OnboardingInput, revisionGuidance?: string | null) {
+function formatAttachedFilesBlock(assets: ProjectAsset[]) {
+  if (!assets.length) return "";
+  const fileList = assets
+    .map((asset) => {
+      const sizeKb = Math.round(asset.size_bytes / 1024);
+      return `- ${asset.filename} (${asset.mime_type}, ${sizeKb} KB)`;
+    })
+    .join("\n");
+  return `\nAttached documents uploaded by the user:
+${fileList}
+These files were provided as supporting materials for this project. Factor their existence and types into your analysis. Reference them by filename when relevant.`;
+}
+
+async function runResearchAgent(input: OnboardingInput, revisionGuidance?: string | null, assets?: ProjectAsset[]) {
   const guidanceBlock = revisionGuidance?.trim()
     ? `\nRevision guidance from user:\n${revisionGuidance.trim()}\nPrioritize this guidance in your research framing.`
     : "";
+  const attachedFilesBlock = formatAttachedFilesBlock(assets ?? []);
   const prompt = `You are Research Agent. Return STRICT JSON only.
 Input:\n${JSON.stringify({ domain: input.domain, idea_description: input.idea_description })}
-${guidanceBlock}
+${guidanceBlock}${attachedFilesBlock}
 
 Required JSON shape:
 {
@@ -500,8 +514,11 @@ export async function generatePhase0Packet(
   input: OnboardingInput,
   revisionGuidance?: string | null,
   priorPacket?: Packet | null,
+  assets?: ProjectAsset[],
 ): Promise<Packet> {
   const trimmedGuidance = revisionGuidance?.trim() || "";
+  const attachedFilesBlock = formatAttachedFilesBlock(assets ?? []);
+
   if (trimmedGuidance && priorPacket) {
     const revisionPrompt = `You are CEO Agent. Create a minimal JSON patch for a Phase 0 packet revision.
 Return STRICT JSON only. Include only fields that must change based on guidance.
@@ -520,6 +537,7 @@ Allowed keys:
 
 Project context:
 ${JSON.stringify({ domain: input.domain, idea_description: input.idea_description, repo_url: input.repo_url }, null, 2)}
+${attachedFilesBlock}
 
 User revision guidance:
 ${trimmedGuidance}
@@ -566,7 +584,7 @@ Rules:
 
   let research: z.infer<typeof researchSchema>;
   try {
-    research = await runResearchAgent(input, trimmedGuidance);
+    research = await runResearchAgent(input, trimmedGuidance, assets);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown research failure";
     throw new Error(`phase0_research_query: ${message}`);
@@ -578,7 +596,7 @@ Rules:
   const prompt = `You are CEO Agent. Generate STRICT JSON for a Phase 0 packet.
 Use this onboarding input:\n${JSON.stringify(input)}
 Use this research brief:\n${JSON.stringify(research)}
-${guidanceBlock}
+${guidanceBlock}${attachedFilesBlock}
 
 Return only JSON with these keys:
 - tagline

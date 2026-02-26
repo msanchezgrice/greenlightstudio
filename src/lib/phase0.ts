@@ -1,6 +1,6 @@
 import { createServiceSupabase } from "@/lib/supabase";
 import { generatePhase0Packet } from "@/lib/agent";
-import { onboardingSchema, packetSchema, type Packet } from "@/types/domain";
+import { onboardingSchema, packetSchema, projectAssetSchema, type Packet, type ProjectAsset } from "@/types/domain";
 import { save_packet, log_task } from "@/lib/supabase-mcp";
 import { withRetry } from "@/lib/retry";
 
@@ -71,6 +71,28 @@ export async function runPhase0({ projectId, userId, revisionGuidance, forceNewA
 
     const input = onboardingSchema.parse(project);
 
+    // Fetch uploaded project assets so the agent can analyze them
+    let projectAssets: ProjectAsset[] = [];
+    try {
+      const { data: assetRows } = await withRetry(() =>
+        db
+          .from("project_assets")
+          .select("id,filename,mime_type,size_bytes,status,storage_path")
+          .eq("project_id", projectId)
+          .in("status", ["uploaded", "completed"])
+          .order("created_at", { ascending: true }),
+      );
+      if (assetRows && assetRows.length > 0) {
+        projectAssets = assetRows
+          .map((row) => projectAssetSchema.safeParse(row))
+          .filter((result): result is { success: true; data: ProjectAsset } => result.success)
+          .map((result) => result.data);
+      }
+    } catch (assetError) {
+      // Non-fatal: log but continue without assets
+      console.warn("Failed to fetch project assets for phase0, continuing without them:", assetError);
+    }
+
     if (trimmedGuidance) {
       const { data: priorPacketRow, error: priorPacketError } = await withRetry(() =>
         db
@@ -94,7 +116,7 @@ export async function runPhase0({ projectId, userId, revisionGuidance, forceNewA
 
     await logPhaseTask(projectId, "research_agent", "phase0_research", "running", "Researching competitors and market");
     researchRunning = true;
-    const packet = await generatePhase0Packet(input, trimmedGuidance, priorPacket);
+    const packet = await generatePhase0Packet(input, trimmedGuidance, priorPacket, projectAssets);
     const confidence = packet.reasoning_synopsis.confidence;
     await logPhaseTask(projectId, "research_agent", "phase0_research", "completed", `Research complete (${confidence}/100 confidence)`);
     researchRunning = false;

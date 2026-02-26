@@ -1,12 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SignInButton, useAuth } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
 import { onboardingSchema, scanResultSchema, type ScanResult } from "@/types/domain";
 import { createBrowserSupabase } from "@/lib/supabase-browser";
 
 type Step = "import" | "discover" | "results" | "error" | "clarify" | "confirm" | "launched";
+
+type ScanItemStatus = "queued" | "running" | "done" | "skipped";
+
+type GitHubConnection = {
+  connected: boolean;
+  username?: string;
+  avatar_url?: string;
+};
 
 type UploadMeta = {
   name: string;
@@ -203,7 +211,11 @@ export function OnboardingWizard() {
   const [launchProgress, setLaunchProgress] = useState<LaunchTask[]>([]);
   const [form, setForm] = useState<FormState>(createInitialForm);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [scanItemStatuses, setScanItemStatuses] = useState<ScanItemStatus[]>(["queued", "queued", "queued", "queued", "queued"]);
+  const [githubConnection, setGithubConnection] = useState<GitHubConnection>({ connected: false });
+  const [githubLoading, setGithubLoading] = useState(false);
   const resetRequested = searchParams.get("new") === "1";
+  const githubConnectParam = searchParams.get("github");
 
   useEffect(() => {
     try {
@@ -290,6 +302,90 @@ export function OnboardingWizard() {
     writeStorage(wizardStorageKey, window.localStorage, serialized);
     writeStorage(wizardSessionStorageKey, window.sessionStorage, serialized);
   }, [step, projectId, projectIds, cacheHit, form]);
+
+  // Check GitHub connection status on mount and after OAuth callback
+  const checkGitHubConnection = useCallback(async () => {
+    try {
+      const res = await fetch("/api/auth/github/status");
+      if (res.ok) {
+        const data = await res.json() as GitHubConnection;
+        setGithubConnection(data);
+      }
+    } catch {
+      // Silently fail - GitHub connection is optional
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isSignedIn) {
+      checkGitHubConnection();
+    }
+  }, [isSignedIn, checkGitHubConnection]);
+
+  useEffect(() => {
+    if (githubConnectParam === "connected") {
+      checkGitHubConnection();
+      // Clean up URL param
+      const url = new URL(window.location.href);
+      url.searchParams.delete("github");
+      window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    }
+  }, [githubConnectParam, checkGitHubConnection]);
+
+  // Animate scan items progressively when in discover step
+  useEffect(() => {
+    if (step !== "discover") {
+      setScanItemStatuses(["queued", "queued", "queued", "queued", "queued"]);
+      return;
+    }
+
+    const hasDomain = Boolean(primaryDomain);
+    const hasRepo = Boolean(form.repo_url.trim());
+
+    // Build scan item list with skip logic
+    const targetStatuses: ScanItemStatus[] = [
+      hasDomain ? "done" : "skipped", // DNS Lookup
+      hasDomain ? "done" : "skipped", // HTTP Probe
+      hasDomain ? "done" : "skipped", // Meta & Content Scrape
+      hasRepo ? "done" : "skipped",   // Repository Scan
+      "done",                          // Competitor Quick-Scan
+    ];
+
+    // Set initial state: first applicable item running, rest queued
+    const initial: ScanItemStatus[] = targetStatuses.map((target, i) => {
+      if (target === "skipped") return "skipped";
+      if (i === 0 || targetStatuses.slice(0, i).every(s => s === "skipped")) return "running";
+      return "queued";
+    });
+    setScanItemStatuses(initial);
+
+    // Progressively animate items to done
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    let delay = 800;
+    const nonSkippedIndices = targetStatuses
+      .map((s, i) => (s !== "skipped" ? i : -1))
+      .filter(i => i >= 0);
+
+    nonSkippedIndices.forEach((itemIndex, seqIndex) => {
+      const completeTimer = setTimeout(() => {
+        setScanItemStatuses(prev => {
+          const next = [...prev];
+          next[itemIndex] = "done";
+          // Start next non-skipped item
+          const nextItem = nonSkippedIndices[seqIndex + 1];
+          if (nextItem !== undefined) {
+            next[nextItem] = "running";
+          }
+          return next;
+        });
+      }, delay);
+      timers.push(completeTimer);
+      delay += 600 + Math.random() * 800;
+    });
+
+    return () => timers.forEach(clearTimeout);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
 
   const parsedDomains = useMemo(() => parseDomains(form.domain), [form.domain]);
   const primaryDomain = parsedDomains[0] ?? "";
@@ -850,48 +946,43 @@ export function OnboardingWizard() {
             <h2>Scanning Your Assets…</h2>
             <span className="pill green">S1</span>
           </div>
-          <p className="wizard-desc">Running Pre-Phase 0 asset discovery. This usually takes 10-30 seconds.</p>
+          <p className="wizard-desc">We are checking what already exists. This takes 10-30 seconds.</p>
 
           <div className="loading-bar">
             <div className="fill" />
           </div>
 
+          <p className="field-note" style={{ marginTop: 0, marginBottom: 12 }}>Running Pre-Phase 0 Asset Discovery</p>
+
           <div className="scan-list">
-            <div className="scan-result">
-              <div className="scan-icon live">✓</div>
-              <div className="scan-main">
-                <div className="scan-label">DNS Lookup</div>
-                <div className="scan-sub">{primaryDomain || "No domain supplied"}</div>
-              </div>
-              <div className="scan-badge live">{primaryDomain ? "RUNNING" : "SKIPPED"}</div>
-            </div>
-            <div className="scan-result">
-              <div className="scan-icon live">✓</div>
-              <div className="scan-main">
-                <div className="scan-label">HTTP Probe</div>
-                <div className="scan-sub">{primaryDomain ? "Checking status, TLS, and redirects" : "No domain supplied"}</div>
-              </div>
-              <div className="scan-badge live">{primaryDomain ? "RUNNING" : "SKIPPED"}</div>
-            </div>
-            <div className="scan-result">
-              <div className="scan-icon repo">⟳</div>
-              <div className="scan-main">
-                <div className="scan-label">Repository Scan</div>
-                <div className="scan-sub">{form.repo_url ? normalizeRepo(form.repo_url) : "No repository supplied"}</div>
-              </div>
-              <div className="scan-badge found">{form.repo_url ? "RUNNING" : "SKIPPED"}</div>
-            </div>
-            <div className="scan-result">
-              <div className="scan-icon repo">⟳</div>
-              <div className="scan-main">
-                <div className="scan-label">Competitor Quick-Scan</div>
-                <div className="scan-sub">Searching top similar products and domains</div>
-              </div>
-              <div className="scan-badge found">RUNNING</div>
-            </div>
+            {[
+              { label: "DNS Lookup", sub: primaryDomain ? `${primaryDomain}` : "No domain supplied", skipIf: !primaryDomain },
+              { label: "HTTP Probe", sub: primaryDomain ? "Checking status, TLS, and redirects" : "No domain supplied", skipIf: !primaryDomain },
+              { label: "Meta & Content Scrape", sub: primaryDomain ? "Extracting title, description, OG tags" : "No domain supplied", skipIf: !primaryDomain },
+              { label: "Repository Scan", sub: form.repo_url ? normalizeRepo(form.repo_url) : "No repository supplied", skipIf: !form.repo_url.trim() },
+              { label: "Competitor Quick-Scan", sub: "Searching related domains and products", skipIf: false },
+            ].map((item, index) => {
+              const status = scanItemStatuses[index] ?? "queued";
+              const iconClass = status === "done" ? "live" : status === "running" ? "repo" : "none";
+              const icon = status === "done" ? "✓" : status === "running" ? "⟳" : status === "skipped" ? "—" : "○";
+              const badgeClass = status === "done" ? "live" : status === "running" ? "found" : "none";
+              const badgeText = status === "done" ? "RESOLVED" : status === "running" ? "RUNNING" : status === "skipped" ? "SKIPPED" : "QUEUED";
+              const opacity = status === "queued" ? 0.5 : 1;
+              return (
+                <div key={item.label} className="scan-result" style={{ opacity, transition: "opacity 0.3s ease" }}>
+                  <div className={`scan-icon ${iconClass}`}>{icon}</div>
+                  <div className="scan-main">
+                    <div className="scan-label">{item.label}</div>
+                    <div className="scan-sub">{item.sub}</div>
+                  </div>
+                  <div className={`scan-badge ${badgeClass}`}>{badgeText}</div>
+                </div>
+              );
+            })}
           </div>
 
           <div className="button-row">
+            <button className="mock-btn disabled" disabled>Waiting…</button>
             <button
               className="mock-btn secondary"
               onClick={() => {
@@ -1094,6 +1185,48 @@ export function OnboardingWizard() {
               </span>
             </button>
           </div>
+
+          {form.runtime_mode === "attached" && form.repo_url.trim() && (
+            <div className="github-connect-section" style={{ marginBottom: 12 }}>
+              {githubConnection.connected ? (
+                <div className="success-state">
+                  <p className="success-text" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {githubConnection.avatar_url && (
+                      <img
+                        src={githubConnection.avatar_url}
+                        alt=""
+                        width={20}
+                        height={20}
+                        style={{ borderRadius: "50%" }}
+                      />
+                    )}
+                    GitHub connected as <strong style={{ marginLeft: 4 }}>{githubConnection.username}</strong>
+                  </p>
+                </div>
+              ) : (
+                <div className="warning-state">
+                  <p className="warning-text" style={{ marginBottom: 8 }}>
+                    Connect your GitHub account to allow agents to read your repo and open PRs.
+                  </p>
+                  <button
+                    type="button"
+                    className="mock-btn primary"
+                    style={{ fontSize: 12, padding: "8px 16px" }}
+                    disabled={githubLoading || !isSignedIn}
+                    onClick={() => {
+                      setGithubLoading(true);
+                      window.location.href = `/api/auth/github?redirect_uri=${encodeURIComponent("/onboarding")}`;
+                    }}
+                  >
+                    {githubLoading ? "Connecting…" : "Connect GitHub"}
+                  </button>
+                  {!isSignedIn && (
+                    <p className="field-note" style={{ marginTop: 6 }}>Sign in first to connect GitHub.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           <label className="field-label">Permissions (safe by default)</label>
           <div className="toggle-stack">
@@ -1330,12 +1463,38 @@ export function OnboardingWizard() {
       )}
 
       {step === "launched" && (
-        <section className="wizard-card">
-          <div className="wizard-title-row">
-            <h2>Project Launched</h2>
-            <span className="pill green">Done</span>
+        <section className="wizard-card launched-card">
+          <div className="launched-icon-wrap">
+            <div className="launched-icon">
+              <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                <circle cx="24" cy="24" r="24" fill="#22C55E" opacity="0.15" />
+                <circle cx="24" cy="24" r="16" fill="#22C55E" opacity="0.25" />
+                <path d="M16 24.5L21.5 30L32 18" stroke="#22C55E" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
           </div>
-          <p className="wizard-desc">Phase 0 generation started. Redirecting to your project workspace…</p>
+          <div className="wizard-title-row" style={{ justifyContent: "center" }}>
+            <h2>Project Launched</h2>
+          </div>
+          <p className="wizard-desc" style={{ textAlign: "center" }}>
+            Your CEO agent is now generating the Phase 0 greenlight packet.
+          </p>
+
+          {launchProgress.length > 0 && (
+            <div className="task-progress" style={{ marginTop: 12 }}>
+              {launchProgress.map((task, index) => (
+                <div key={`${task.created_at}-${index}`} className="task-item">
+                  <span>{task.description}{task.detail ? ` — ${task.detail}` : ""}</span>
+                  <span className={`task-status ${task.status}`}>{task.status}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="launched-redirect">
+            <div className="launched-spinner" />
+            <span>Redirecting to your project workspace…</span>
+          </div>
         </section>
       )}
     </div>

@@ -106,6 +106,16 @@ export const onboardingSchema = z.object({
   scan_results: scanResultSchema.nullable(),
 });
 
+export const projectAssetSchema = z.object({
+  id: z.string().uuid(),
+  filename: z.string(),
+  mime_type: z.string(),
+  size_bytes: z.number().int().min(0),
+  status: z.string(),
+  storage_path: z.string(),
+});
+
+export type ProjectAsset = z.infer<typeof projectAssetSchema>;
 export type Packet = z.infer<typeof packetSchema>;
 export type OnboardingInput = z.infer<typeof onboardingSchema>;
 export type ScanResult = z.infer<typeof scanResultSchema>;
