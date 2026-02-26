@@ -3500,6 +3500,141 @@ a {
   50% { opacity: 0.4; }
 }
 
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes growWidth {
+  from { width: 0%; }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.85); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(34,197,94,0.3); }
+  50% { box-shadow: 0 0 12px rgba(34,197,94,0.6); }
+}
+
+@keyframes pipFill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.7); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* --- Stats cards entrance --- */
+.studio-stat {
+  animation: fadeInUp 0.5s ease both;
+}
+
+/* Batch summary stagger */
+.batch-summary .studio-stat:nth-child(1) { animation-delay: 0s; }
+.batch-summary .studio-stat:nth-child(2) { animation-delay: 0.06s; }
+.batch-summary .studio-stat:nth-child(3) { animation-delay: 0.12s; }
+.batch-summary .studio-stat:nth-child(4) { animation-delay: 0.18s; }
+.batch-summary .studio-stat:nth-child(5) { animation-delay: 0.24s; }
+
+/* Board stats stagger */
+.studio-stats .studio-stat:nth-child(1) { animation-delay: 0s; }
+.studio-stats .studio-stat:nth-child(2) { animation-delay: 0.06s; }
+.studio-stats .studio-stat:nth-child(3) { animation-delay: 0.12s; }
+.studio-stats .studio-stat:nth-child(4) { animation-delay: 0.18s; }
+.studio-stats .studio-stat:nth-child(5) { animation-delay: 0.24s; }
+
+/* --- Progress bars animate width from 0 --- */
+.batch-progress-fill,
+.board-progress-fill {
+  animation: growWidth 0.8s ease both;
+  animation-delay: 0.3s;
+}
+
+/* Active batch progress bar glow */
+.batch-progress-fill.active-glow {
+  animation: growWidth 0.8s ease both, glowPulse 2s ease-in-out 0.8s infinite;
+}
+
+/* --- Table row stagger (batch-table) --- */
+.batch-table tbody tr {
+  animation: fadeInUp 0.4s ease both;
+}
+.batch-table tbody tr:nth-child(1) { animation-delay: 0.1s; }
+.batch-table tbody tr:nth-child(2) { animation-delay: 0.15s; }
+.batch-table tbody tr:nth-child(3) { animation-delay: 0.2s; }
+.batch-table tbody tr:nth-child(4) { animation-delay: 0.25s; }
+.batch-table tbody tr:nth-child(5) { animation-delay: 0.3s; }
+.batch-table tbody tr:nth-child(6) { animation-delay: 0.35s; }
+.batch-table tbody tr:nth-child(7) { animation-delay: 0.4s; }
+.batch-table tbody tr:nth-child(8) { animation-delay: 0.45s; }
+.batch-table tbody tr:nth-child(9) { animation-delay: 0.5s; }
+.batch-table tbody tr:nth-child(10) { animation-delay: 0.55s; }
+.batch-table tbody tr:nth-child(n+11) { animation-delay: 0.55s; }
+
+/* --- Table row stagger (board only — scoped to .board-animated wrapper) --- */
+.board-animated .studio-table tbody tr {
+  animation: fadeInUp 0.4s ease both;
+}
+.board-animated .studio-table tbody tr:nth-child(1) { animation-delay: 0.1s; }
+.board-animated .studio-table tbody tr:nth-child(2) { animation-delay: 0.15s; }
+.board-animated .studio-table tbody tr:nth-child(3) { animation-delay: 0.2s; }
+.board-animated .studio-table tbody tr:nth-child(4) { animation-delay: 0.25s; }
+.board-animated .studio-table tbody tr:nth-child(5) { animation-delay: 0.3s; }
+.board-animated .studio-table tbody tr:nth-child(6) { animation-delay: 0.35s; }
+.board-animated .studio-table tbody tr:nth-child(7) { animation-delay: 0.4s; }
+.board-animated .studio-table tbody tr:nth-child(8) { animation-delay: 0.45s; }
+.board-animated .studio-table tbody tr:nth-child(9) { animation-delay: 0.5s; }
+.board-animated .studio-table tbody tr:nth-child(10) { animation-delay: 0.55s; }
+.board-animated .studio-table tbody tr:nth-child(n+11) { animation-delay: 0.55s; }
+
+/* --- Night shift card --- */
+.batch-night {
+  animation: scaleIn 0.5s ease both;
+  animation-delay: 0.4s;
+}
+
+/* --- Board filter bar fade --- */
+.board-filter-bar {
+  animation: fadeIn 0.4s ease both;
+}
+
+/* --- Running status glow ring --- */
+.board-status-dot.running {
+  box-shadow: 0 0 6px rgba(34,197,94,0.5);
+}
+
+/* --- Pipeline pips sequential fill --- */
+.batch-pip.done {
+  transform-origin: left;
+  animation: pipFill 0.3s ease both;
+}
+.batch-pip.done:nth-child(1) { animation-delay: 0.1s; }
+.batch-pip.done:nth-child(2) { animation-delay: 0.2s; }
+.batch-pip.done:nth-child(3) { animation-delay: 0.3s; }
+.batch-pip.done:nth-child(4) { animation-delay: 0.4s; }
+
+/* --- Phase badge pop-in (board) --- */
+.board-phase-badge {
+  animation: popIn 0.35s ease both;
+  animation-delay: 0.15s;
+}
+
+/* --- Board table row hover enhancement --- */
+.board-table tbody tr,
+.board-animated .studio-table tbody tr {
+  transition: background 0.2s ease;
+}
+
 @media (max-width: 900px) {
   .stats {
     grid-template-columns: repeat(2, 1fr);

@@ -1,7 +1,35 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import Link from "next/link";
+
+/* ---------- AnimatedNumber ---------- */
+
+function AnimatedNumber({ value, duration = 800 }: { value: number; duration?: number }) {
+  const [display, setDisplay] = useState(0);
+  const raf = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (value === 0) {
+      setDisplay(0);
+      return;
+    }
+    const start = performance.now();
+    function tick(now: number) {
+      const elapsed = now - start;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
+      setDisplay(Math.round(value * eased));
+      if (progress < 1) raf.current = requestAnimationFrame(tick);
+    }
+    raf.current = requestAnimationFrame(tick);
+    return () => {
+      if (raf.current) cancelAnimationFrame(raf.current);
+    };
+  }, [value, duration]);
+
+  return <>{display}</>;
+}
 
 export type ProjectRow = {
   id: string;
@@ -155,7 +183,7 @@ export function BoardContent({
         </select>
       </div>
 
-      <div className="table-shell" style={{ marginBottom: 28 }}>
+      <div className="table-shell board-animated" style={{ marginBottom: 28 }}>
         <table className="studio-table">
           <thead>
             <tr>
@@ -215,6 +243,7 @@ export function BoardContent({
                   {/* Phase badge */}
                   <td>
                     <span
+                      className="board-phase-badge"
                       style={{
                         display: "inline-flex",
                         padding: "3px 9px",
@@ -261,7 +290,7 @@ export function BoardContent({
                         }}
                       />
                       <span style={{ fontSize: 13, fontWeight: 600, color: confColor }}>
-                        {p.confidence ?? "--"}
+                        {p.confidence !== null ? <AnimatedNumber value={p.confidence} /> : "--"}
                       </span>
                     </div>
                   </td>

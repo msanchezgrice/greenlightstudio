@@ -44,6 +44,34 @@ type ProjectRow = {
   actionType: "review" | "feedback" | "retry" | "tasks" | "none";
 };
 
+/* ---------- AnimatedNumber ---------- */
+
+function AnimatedNumber({ value, duration = 800 }: { value: number; duration?: number }) {
+  const [display, setDisplay] = useState(0);
+  const raf = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (value === 0) {
+      setDisplay(0);
+      return;
+    }
+    const start = performance.now();
+    function tick(now: number) {
+      const elapsed = now - start;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
+      setDisplay(Math.round(value * eased));
+      if (progress < 1) raf.current = requestAnimationFrame(tick);
+    }
+    raf.current = requestAnimationFrame(tick);
+    return () => {
+      if (raf.current) cancelAnimationFrame(raf.current);
+    };
+  }, [value, duration]);
+
+  return <>{display}</>;
+}
+
 /* ---------- Helpers ---------- */
 
 const stageLabels = ["Scan", "Research", "Synthesis", "Packet"];
@@ -187,23 +215,23 @@ export function BatchProgress({ batchId }: { batchId: string }) {
       {/* Summary cards */}
       <div className="batch-summary">
         <div className="studio-stat">
-          <div className="studio-stat-value" style={{ color: "var(--green)" }}>{readyCount}</div>
+          <div className="studio-stat-value" style={{ color: "var(--green)" }}><AnimatedNumber value={readyCount} /></div>
           <div className="studio-stat-label">Packets Ready</div>
         </div>
         <div className="studio-stat">
-          <div className="studio-stat-value" style={{ color: "#3B82F6" }}>{runningCount}</div>
+          <div className="studio-stat-value" style={{ color: "#3B82F6" }}><AnimatedNumber value={runningCount} /></div>
           <div className="studio-stat-label">Running</div>
         </div>
         <div className="studio-stat">
-          <div className="studio-stat-value" style={{ color: "var(--yellow)" }}>{refiningCount}</div>
+          <div className="studio-stat-value" style={{ color: "var(--yellow)" }}><AnimatedNumber value={refiningCount} /></div>
           <div className="studio-stat-label">Refining</div>
         </div>
         <div className="studio-stat">
-          <div className="studio-stat-value" style={{ color: "var(--text2)" }}>{queuedCount}</div>
+          <div className="studio-stat-value" style={{ color: "var(--text2)" }}><AnimatedNumber value={queuedCount} /></div>
           <div className="studio-stat-label">Queued</div>
         </div>
         <div className="studio-stat">
-          <div className="studio-stat-value" style={{ color: "var(--red)" }}>{failedCount}</div>
+          <div className="studio-stat-value" style={{ color: "var(--red)" }}><AnimatedNumber value={failedCount} /></div>
           <div className="studio-stat-label">Failed</div>
         </div>
       </div>
@@ -212,10 +240,13 @@ export function BatchProgress({ batchId }: { batchId: string }) {
       <div className="batch-progress-bar">
         <div className="batch-progress-top">
           <div className="batch-progress-title">Overall Batch Progress</div>
-          <div className="batch-progress-text">{progressPct}%</div>
+          <div className="batch-progress-text"><AnimatedNumber value={progressPct} />%</div>
         </div>
         <div className="batch-progress-bg">
-          <div className="batch-progress-fill" style={{ width: `${progressPct}%` }} />
+          <div
+            className={`batch-progress-fill${batch.status === "running" ? " active-glow" : ""}`}
+            style={{ width: `${progressPct}%` }}
+          />
         </div>
         <div className="batch-progress-sub">
           <span>{readyCount} of {totalProjects} packets ready</span>

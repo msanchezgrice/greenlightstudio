@@ -198,6 +198,7 @@ type AgentProfile = {
   tools: string[];
   allowedTools: string[];
   maxTurns: number;
+  timeoutMs: number;
   permissionMode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'dontAsk';
 };
 
@@ -206,35 +207,40 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     name: 'ceo_agent',
     tools: ['WebSearch', 'WebFetch'],
     allowedTools: ['WebSearch', 'WebFetch'],
-    maxTurns: 12,
+    maxTurns: 25,
+    timeoutMs: 270_000,
     permissionMode: 'dontAsk',
   },
   research: {
     name: 'research_agent',
     tools: ['WebSearch', 'WebFetch'],
     allowedTools: ['WebSearch', 'WebFetch'],
-    maxTurns: 8,
+    maxTurns: 20,
+    timeoutMs: 270_000,
     permissionMode: 'dontAsk',
   },
   design: {
     name: 'design_agent',
     tools: ['WebSearch', 'WebFetch'],
     allowedTools: ['WebSearch', 'WebFetch'],
-    maxTurns: 10,
+    maxTurns: 25,
+    timeoutMs: 270_000,
     permissionMode: 'dontAsk',
   },
   chat: {
     name: 'ceo_chat',
     tools: ['WebSearch', 'WebFetch'],
     allowedTools: ['WebSearch', 'WebFetch'],
-    maxTurns: 6,
+    maxTurns: 15,
+    timeoutMs: 270_000,
     permissionMode: 'dontAsk',
   },
   none: {
     name: 'default',
     tools: [],
     allowedTools: [],
-    maxTurns: 12,
+    maxTurns: 25,
+    timeoutMs: 270_000,
     permissionMode: 'default',
   },
 };
@@ -357,10 +363,11 @@ async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptio
     sawResult: false,
   };
 
+  const effectiveTimeoutMs = agentProfile.timeoutMs || AGENT_QUERY_TIMEOUT_MS;
   const timeout = setTimeout(() => {
     timedOut = true;
     stream.close();
-  }, AGENT_QUERY_TIMEOUT_MS);
+  }, effectiveTimeoutMs);
 
   try {
     for await (const message of stream) {
@@ -417,7 +424,7 @@ async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptio
     }
     const stderrTail = summarizeStderr(stderrChunks);
     throw new Error(
-      `Agent query timed out after ${Math.round(AGENT_QUERY_TIMEOUT_MS / 1000)}s | ${describeQueryState(state)}${
+      `Agent query timed out after ${Math.round(effectiveTimeoutMs / 1000)}s | ${describeQueryState(state)}${
         stderrTail ? ` | stderr=${stderrTail}` : ""
       }`,
     );
@@ -987,6 +994,8 @@ export async function generatePhase1LandingHtml(input: {
   waitlist_fields: string[];
 }): Promise<string> {
   const prompt = `You are the Greenlight Studio Design Agent. Generate a complete, production-ready HTML landing page.
+
+You have access to WebSearch and WebFetch — use them to research modern landing page design patterns, competitive layouts, and current design trends before generating the HTML. Take your time to produce outstanding work.
 
 Return STRICT JSON only:
 {
