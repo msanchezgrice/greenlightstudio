@@ -58,6 +58,7 @@ async function runTextQuery(prompt: string) {
 
     let raw = "";
     let resultText = "";
+    let resultError: string | null = null;
     for await (const message of stream) {
       if (message.type === "assistant") {
         for (const block of message.message.content) {
@@ -66,12 +67,23 @@ async function runTextQuery(prompt: string) {
         continue;
       }
 
-      if (message.type === "result" && typeof message.result === "string") {
-        resultText += message.result;
+      if (message.type === "result") {
+        if (message.is_error) {
+          const detail = Array.isArray((message as { errors?: unknown }).errors)
+            ? ((message as { errors: unknown[] }).errors.filter((item): item is string => typeof item === "string").join(" | ") || null)
+            : null;
+          resultError = detail ?? `Agent query failed (${message.subtype})`;
+          continue;
+        }
+
+        if (typeof message.result === "string") {
+          resultText += message.result;
+        }
       }
     }
 
     const finalText = raw.trim() || resultText.trim();
+    if (resultError && !finalText) throw new Error(resultError);
     if (!finalText) throw new Error("Agent returned empty response");
     return finalText;
   }, { retries: 1, baseDelayMs: 600 });
@@ -84,10 +96,14 @@ function stripMarkdownCodeFence(value: string) {
 }
 
 function parseAgentJson<T>(raw: string) {
-  const candidates = [raw.trim(), stripMarkdownCodeFence(raw)];
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1]?.trim() ?? null;
+  const objectCandidateMatch = raw.match(/\{[\s\S]*\}/);
+  const objectCandidate = objectCandidateMatch?.[0]?.trim() ?? null;
+  const candidates = [raw.trim(), stripMarkdownCodeFence(raw), fenced, objectCandidate].filter((candidate): candidate is string =>
+    Boolean(candidate && candidate.trim()),
+  );
 
   for (const candidate of candidates) {
-    if (!candidate) continue;
     try {
       return JSON.parse(candidate) as T;
     } catch {

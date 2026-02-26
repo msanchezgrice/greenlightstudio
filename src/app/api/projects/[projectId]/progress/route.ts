@@ -23,8 +23,8 @@ export async function GET(_: Request, context: { params: Promise<{ projectId: st
       .from("tasks")
       .select("agent,description,status,detail,created_at")
       .eq("project_id", projectId)
-      .order("created_at", { ascending: true })
-      .limit(20),
+      .order("created_at", { ascending: false })
+      .limit(50),
   );
 
   if (tasksError) {

@@ -395,19 +395,33 @@ export function OnboardingWizard() {
     try {
       const id = projectId ?? (await createProject());
       setProjectId(id);
+      const launchStartedAt = Date.now();
+      const launchTimeoutMs = 120_000;
+      const launchController = new AbortController();
+      const launchTimeout = window.setTimeout(() => launchController.abort(), launchTimeoutMs);
 
       const pollProgress = async () => {
         const progressRes = await fetch(`/api/projects/${id}/progress`, { cache: "no-store" });
-        if (!progressRes.ok) return;
-        const progressJson = await progressRes.json();
-        setLaunchProgress(progressJson.tasks ?? []);
+        if (!progressRes.ok) return [] as Array<{ agent: string; description: string; status: string; detail: string | null; created_at: string }>;
+        const progressJson = await parseResponseJson(progressRes);
+        const tasks = Array.isArray(progressJson?.tasks)
+          ? (progressJson.tasks as Array<{
+              agent: string;
+              description: string;
+              status: string;
+              detail: string | null;
+              created_at: string;
+            }>)
+          : [];
+        setLaunchProgress(tasks);
+        return tasks;
       };
 
       await pollProgress();
 
       let finished = false;
       let launchError: Error | null = null;
-      const launchRequest = fetch(`/api/projects/${id}/launch`, { method: "POST" })
+      const launchRequest = fetch(`/api/projects/${id}/launch`, { method: "POST", signal: launchController.signal })
         .then(async (res) => {
           const json = await parseResponseJson(res);
           if (!res.ok) {
@@ -416,15 +430,27 @@ export function OnboardingWizard() {
           }
         })
         .catch((err: unknown) => {
+          if (err instanceof Error && err.name === "AbortError") {
+            launchError = new Error("Launch is taking too long. Please refresh to check latest status.");
+            return;
+          }
           launchError = err instanceof Error ? err : new Error("Launch failed");
         })
         .finally(() => {
+          window.clearTimeout(launchTimeout);
           finished = true;
         });
 
       while (!finished) {
         await new Promise((resolve) => setTimeout(resolve, 800));
-        await pollProgress();
+        const tasks = await pollProgress();
+        const recentTasks = tasks.filter((task) => Date.parse(task.created_at) >= launchStartedAt - 5_000);
+        const failedTask = recentTasks.find((task) => task.status === "failed");
+        if (failedTask) {
+          launchError = new Error(failedTask.detail ?? `${failedTask.description} failed`);
+          launchController.abort();
+          break;
+        }
       }
 
       await launchRequest;
@@ -1004,7 +1030,7 @@ export function OnboardingWizard() {
               <div className="field-label">Packet Generation Progress</div>
               {launchProgress.map((task, index) => (
                 <div key={`${task.created_at}-${index}`} className="task-item">
-                  <span>{task.description}</span>
+                  <span>{task.description}{task.detail ? ` — ${task.detail}` : ""}</span>
                   <span className={`task-status ${task.status}`}>{task.status}</span>
                 </div>
               ))}
