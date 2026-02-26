@@ -80,9 +80,13 @@ export async function POST(_: Request, context: { params: Promise<{ projectId: s
     await runPhase0(projectId, userId);
     return NextResponse.json({ ok: true });
   } catch (error) {
-    await withRetry(() =>
-      log_task(projectId, "ceo_agent", "phase0_failed", "failed", error instanceof Error ? error.message : "Unknown launch error"),
-    );
+    try {
+      await withRetry(() =>
+        log_task(projectId, "ceo_agent", "phase0_failed", "failed", error instanceof Error ? error.message : "Unknown launch error"),
+      );
+    } catch (loggingError) {
+      console.error("Failed to persist phase0_failed task log", loggingError);
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed generating Phase 0 packet" },
       { status: 400 },

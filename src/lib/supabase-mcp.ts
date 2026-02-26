@@ -125,17 +125,16 @@ export async function get_approval_queue(projectIds: string[]) {
 
 export async function log_task(projectId: string, agent: string, description: string, status: string, detail?: string) {
   const db = createServiceSupabase();
-  const payload = {
+  const taskPayload = {
     project_id: projectId,
     agent,
     description,
     status,
     detail: detail ?? null,
-    step: description,
   };
 
   const [{ error: taskError }, { error: logError }] = await withRetry(async () => {
-    const taskResult = await db.from("tasks").insert(payload);
+    const taskResult = await db.from("tasks").insert(taskPayload);
     const logResult = await db.from("task_log").insert({ project_id: projectId, step: description, status, detail });
     return [taskResult, logResult] as const;
   });
