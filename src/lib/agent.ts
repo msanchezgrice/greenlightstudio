@@ -12,7 +12,6 @@ import {
   type Phase3Packet,
 } from "@/types/phase-packets";
 import { z } from "zod";
-import { withRetry } from "@/lib/retry";
 
 const AGENT_QUERY_TIMEOUT_MS = 55_000;
 const AGENT_QUERY_MAX_TURNS = 12;
@@ -106,83 +105,163 @@ function parseResultErrors(value: unknown) {
   return errors.length ? errors.join(" | ") : null;
 }
 
-async function runJsonQuery<T>(prompt: string, schema: z.ZodType<T>) {
-  return withRetry(async () => {
-    const executablePath = resolveClaudeCodeExecutablePath();
-    const stream = query({
-      prompt,
-      options: {
-        model: "sonnet",
-        env: sdkEnv(),
-        pathToClaudeCodeExecutable: executablePath,
-        outputFormat: {
-          type: "json_schema",
-          schema: z.toJSONSchema(schema),
-        },
-        maxTurns: AGENT_QUERY_MAX_TURNS,
-      },
-    });
+type QueryProfile = {
+  name: "structured_bypass" | "structured_default" | "text_default";
+  useOutputFormat: boolean;
+  bypassPermissions: boolean;
+};
 
-    let raw = "";
-    let streamedRaw = "";
-    let resultText = "";
-    let structuredOutput: unknown = undefined;
-    let resultError: string | null = null;
-    let timedOut = false;
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      stream.close();
-    }, AGENT_QUERY_TIMEOUT_MS);
+type QueryState = {
+  messageCounts: Map<string, number>;
+  resultSubtypes: string[];
+  sawResult: boolean;
+};
 
-    try {
-      for await (const message of stream) {
-        if (message.type === "assistant") {
-          for (const block of message.message.content) {
-            if (block.type === "text") raw += block.text;
+function bumpCount(map: Map<string, number>, key: string) {
+  map.set(key, (map.get(key) ?? 0) + 1);
+}
+
+function describeQueryState(state: QueryState) {
+  const counts = Array.from(state.messageCounts.entries())
+    .map(([type, count]) => `${type}:${count}`)
+    .join(",");
+  const subtypes = state.resultSubtypes.length ? state.resultSubtypes.join(",") : "none";
+  return `messages=[${counts || "none"}] result_subtypes=[${subtypes}]`;
+}
+
+function isRetryableAgentFailure(message: string) {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("timed out") ||
+    lower.includes("without result message") ||
+    lower.includes("empty response") ||
+    lower.includes("structured output retries")
+  );
+}
+
+async function executeQueryAttempt<T>(prompt: string, schema: z.ZodType<T>, profile: QueryProfile) {
+  const executablePath = resolveClaudeCodeExecutablePath();
+  const stream = query({
+    prompt,
+    options: {
+      model: "sonnet",
+      env: sdkEnv(),
+      pathToClaudeCodeExecutable: executablePath,
+      maxTurns: AGENT_QUERY_MAX_TURNS,
+      includePartialMessages: true,
+      ...(profile.useOutputFormat
+        ? {
+            outputFormat: {
+              type: "json_schema" as const,
+              schema: z.toJSONSchema(schema),
+            },
           }
+        : {}),
+      ...(profile.bypassPermissions
+        ? {
+            permissionMode: "bypassPermissions" as const,
+            allowDangerouslySkipPermissions: true,
+          }
+        : {}),
+    },
+  });
+
+  let raw = "";
+  let streamedRaw = "";
+  let resultText = "";
+  let structuredOutput: unknown = undefined;
+  let resultError: string | null = null;
+  let timedOut = false;
+  const state: QueryState = {
+    messageCounts: new Map(),
+    resultSubtypes: [],
+    sawResult: false,
+  };
+
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    stream.close();
+  }, AGENT_QUERY_TIMEOUT_MS);
+
+  try {
+    for await (const message of stream) {
+      bumpCount(state.messageCounts, message.type);
+
+      if (message.type === "assistant") {
+        for (const block of message.message.content) {
+          if (block.type === "text") raw += block.text;
+        }
+        continue;
+      }
+
+      if (message.type === "stream_event") {
+        streamedRaw += extractDeltaText(message.event);
+        continue;
+      }
+
+      if (message.type === "result") {
+        state.sawResult = true;
+        state.resultSubtypes.push(message.subtype);
+        const permissionDenial = parsePermissionDenials(message.permission_denials);
+        if (message.is_error) {
+          const errorDetail = parseResultErrors(message.errors);
+          resultError = [errorDetail, permissionDenial, `Agent query failed (${message.subtype})`, describeQueryState(state)]
+            .filter((entry): entry is string => Boolean(entry))
+            .join(" | ");
           continue;
         }
 
-        if (message.type === "stream_event") {
-          streamedRaw += extractDeltaText(message.event);
-          continue;
+        if (typeof message.result === "string") {
+          resultText += message.result;
         }
-
-        if (message.type === "result") {
-          const permissionDenial = parsePermissionDenials(message.permission_denials);
-          if (message.is_error) {
-            const errorDetail = parseResultErrors(message.errors);
-            resultError = [errorDetail, permissionDenial, `Agent query failed (${message.subtype})`]
-              .filter((entry): entry is string => Boolean(entry))
-              .join(" | ");
-            continue;
-          }
-
-          if (typeof message.result === "string") {
-            resultText += message.result;
-          }
-          if (typeof message.structured_output !== "undefined") {
-            structuredOutput = message.structured_output;
-          }
+        if (typeof message.structured_output !== "undefined") {
+          structuredOutput = message.structured_output;
         }
       }
-    } finally {
-      clearTimeout(timeout);
     }
+  } finally {
+    clearTimeout(timeout);
+  }
 
-    if (timedOut) {
-      throw new Error(`Agent query timed out after ${Math.round(AGENT_QUERY_TIMEOUT_MS / 1000)}s`);
+  if (timedOut) {
+    throw new Error(`Agent query timed out after ${Math.round(AGENT_QUERY_TIMEOUT_MS / 1000)}s | ${describeQueryState(state)}`);
+  }
+
+  if (!state.sawResult) {
+    throw new Error(`Agent stream ended without result message | ${describeQueryState(state)}`);
+  }
+
+  if (typeof structuredOutput !== "undefined") {
+    return schema.parse(structuredOutput);
+  }
+
+  const finalText = raw.trim() || streamedRaw.trim() || resultText.trim();
+  if (resultError && !finalText) throw new Error(resultError);
+  if (!finalText) {
+    throw new Error(`Agent returned empty response | ${describeQueryState(state)}`);
+  }
+  return schema.parse(parseAgentJson<T>(finalText));
+}
+
+async function runJsonQuery<T>(prompt: string, schema: z.ZodType<T>) {
+  const profiles: QueryProfile[] = [
+    { name: "structured_bypass", useOutputFormat: true, bypassPermissions: true },
+    { name: "structured_default", useOutputFormat: true, bypassPermissions: false },
+    { name: "text_default", useOutputFormat: false, bypassPermissions: false },
+  ];
+
+  const errors: string[] = [];
+  for (const profile of profiles) {
+    try {
+      return await executeQueryAttempt(prompt, schema, profile);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown query error";
+      errors.push(`${profile.name}: ${message}`);
+      if (!isRetryableAgentFailure(message)) break;
     }
+  }
 
-    if (typeof structuredOutput !== "undefined") {
-      return schema.parse(structuredOutput);
-    }
-
-    const finalText = raw.trim() || streamedRaw.trim() || resultText.trim();
-    if (resultError && !finalText) throw new Error(resultError);
-    if (!finalText) throw new Error("Agent returned empty response");
-    return schema.parse(parseAgentJson<T>(finalText));
-  }, { retries: 1, baseDelayMs: 600 });
+  throw new Error(errors.join(" || "));
 }
 
 function stripMarkdownCodeFence(value: string) {
