@@ -2,7 +2,21 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { onboardingSchema } from "@/types/domain";
 import { create_project, upsertUser } from "@/lib/supabase-mcp";
+import { getOwnedProjects } from "@/lib/studio";
 import { withRetry } from "@/lib/retry";
+
+export async function GET() {
+  const { userId } = await auth();
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  try {
+    const projects = await getOwnedProjects(userId);
+    return NextResponse.json(projects);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load projects";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
 
 function normalizeDomain(raw: string) {
   return raw.replace(/^https?:\/\//i, "").replace(/\/.*$/, "").trim().toLowerCase();

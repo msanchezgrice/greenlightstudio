@@ -1,162 +1,133 @@
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { StudioNav } from "@/components/studio-nav";
+import { BoardContent, type ProjectRow } from "@/components/board-content";
+import { RecentActivity } from "@/components/recent-activity";
 import {
   getLatestPacketsByProject,
   getLatestTasksByProject,
   getOwnedProjects,
+  getPacketCount,
   getPendingApprovalsByProject,
+  getRecentActivity,
+  getRunningTasks,
 } from "@/lib/studio";
-
-function phaseLabel(phase: number) {
-  if (phase <= 0) return "Phase 0";
-  if (phase === 1) return "Phase 1";
-  if (phase === 2) return "Phase 2";
-  if (phase === 3) return "Phase 3";
-  return "Launched";
-}
-
-function phaseRoute(phase: number) {
-  return Math.min(3, Math.max(0, phase));
-}
-
-function taskStatusClass(status: string) {
-  if (status === "completed") return "good";
-  if (status === "failed") return "bad";
-  if (status === "running") return "warn";
-  return "tone-muted";
-}
 
 export default async function BoardPage() {
   const { userId } = await auth();
   if (!userId) return null;
 
   const projects = await getOwnedProjects(userId);
-  const projectIds = projects.map((project) => project.id);
-  const [{ total: pendingCount, byProject: pendingByProject }, latestPackets, latestTasks] = await Promise.all([
+  const projectIds = projects.map((p) => p.id);
+
+  const [
+    { total: pendingCount, byProject: pendingByProject },
+    latestPackets,
+    latestTasks,
+    packetCount,
+    runningTasks,
+    recentActivity,
+  ] = await Promise.all([
     getPendingApprovalsByProject(projectIds),
     getLatestPacketsByProject(projectIds),
     getLatestTasksByProject(projectIds),
+    getPacketCount(projectIds),
+    getRunningTasks(projectIds),
+    getRecentActivity(userId),
   ]);
 
-  const nightShiftEnabled = projects.filter((project) => project.night_shift).length;
+  const nightShiftEnabled = projects.filter((p) => p.night_shift).length;
   const confidences = projects
-    .map((project) => latestPackets.get(project.id)?.confidence)
-    .filter((confidence): confidence is number => typeof confidence === "number");
+    .map((p) => latestPackets.get(p.id)?.confidence)
+    .filter((c): c is number => typeof c === "number");
   const avgConfidence = confidences.length
-    ? Math.round(confidences.reduce((sum, confidence) => sum + confidence, 0) / confidences.length)
+    ? Math.round(confidences.reduce((sum, c) => sum + c, 0) / confidences.length)
     : null;
+
+  const projectRows: ProjectRow[] = projects.map((p) => {
+    const packet = latestPackets.get(p.id);
+    const task = latestTasks.get(p.id);
+    const running = runningTasks.get(p.id);
+    const pending = pendingByProject.get(p.id) ?? 0;
+
+    return {
+      id: p.id,
+      name: p.name,
+      domain: p.domain,
+      phase: p.phase,
+      night_shift: p.night_shift,
+      confidence: packet?.confidence ?? null,
+      packet_phase: packet?.phase ?? null,
+      pending,
+      running_agent: running?.agent ?? null,
+      running_desc: running?.description ?? null,
+      latest_task_status: task?.status ?? null,
+      latest_task_desc: task?.description ?? null,
+    };
+  });
 
   return (
     <>
       <StudioNav active="board" pendingCount={pendingCount} />
       <main className="page studio-page">
         <div className="page-header">
-          <h1 className="page-title">Studio Board</h1>
-          <Link href="/onboarding?new=1" className="btn btn-approve">
-            New Project
-          </Link>
+          <div>
+            <h1 className="page-title">Studio Board</h1>
+            <p className="meta-line">
+              All projects across every phase — live progress, confidence scores, and agent activity.
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Link href="/bulk-import" className="btn btn-details">
+              Bulk Import
+            </Link>
+            <Link href="/onboarding?new=1" className="btn btn-approve">
+              New Project
+            </Link>
+          </div>
         </div>
 
         <div className="studio-stats">
           <div className="studio-stat">
-            <div className="studio-stat-value">{projects.length}</div>
-            <div className="studio-stat-label">Projects</div>
+            <div className="studio-stat-value" style={{ color: "var(--green)" }}>
+              {projects.length}
+            </div>
+            <div className="studio-stat-label">Active Projects</div>
           </div>
           <div className="studio-stat">
             <div className="studio-stat-value warn">{pendingCount}</div>
             <div className="studio-stat-label">Pending Approvals</div>
           </div>
           <div className="studio-stat">
-            <div className="studio-stat-value">{nightShiftEnabled}</div>
+            <div className="studio-stat-value" style={{ color: "var(--purple)" }}>
+              {packetCount}
+            </div>
+            <div className="studio-stat-label">Packets Generated</div>
+          </div>
+          <div className="studio-stat">
+            <div className="studio-stat-value" style={{ color: "#3B82F6" }}>
+              {nightShiftEnabled}
+            </div>
             <div className="studio-stat-label">Night Shift Enabled</div>
           </div>
           <div className="studio-stat">
             <div className="studio-stat-value good">{avgConfidence ?? "--"}</div>
-            <div className="studio-stat-label">Avg Packet Confidence</div>
+            <div className="studio-stat-label">Avg Confidence</div>
           </div>
         </div>
 
         {!projects.length && (
           <section className="studio-card">
             <h2>No projects yet</h2>
-            <p className="meta-line">Run onboarding to create your first project and generate a Phase 0 packet.</p>
+            <p className="meta-line">
+              Run onboarding to create your first project and generate a Phase 0 packet.
+            </p>
           </section>
         )}
 
-        <section className="project-grid">
-          {projects.map((project) => {
-            const packet = latestPackets.get(project.id);
-            const task = latestTasks.get(project.id);
-            const pending = pendingByProject.get(project.id) ?? 0;
+        <BoardContent projects={projectRows} packetCount={packetCount} />
 
-            return (
-              <article key={project.id} className="studio-card project-card">
-                <div className="project-card-top">
-                  <div>
-                    <h2>{project.name}</h2>
-                    <p className="meta-line">{project.domain ?? "No domain"}</p>
-                  </div>
-                  <span className="phase-chip">{phaseLabel(project.phase)}</span>
-                </div>
-
-                <div className="project-metrics">
-                  <div>
-                    <div className="metric-label">Runtime</div>
-                    <div className="metric-value">{project.runtime_mode === "attached" ? "Attached" : "Shared"}</div>
-                  </div>
-                  <div>
-                    <div className="metric-label">Pending Inbox</div>
-                    <div className={`metric-value ${pending > 0 ? "warn" : "good"}`}>{pending}</div>
-                  </div>
-                  <div>
-                    <div className="metric-label">Latest Confidence</div>
-                    <div className="metric-value">{packet ? `${packet.confidence}/100` : "--"}</div>
-                  </div>
-                </div>
-
-                <div className="project-last-task">
-                  <div className="metric-label">Latest Task</div>
-                  {task ? (
-                    <div>
-                      <div className="metric-value">{task.description}</div>
-                      <div className={`meta-line ${taskStatusClass(task.status)}`}>
-                        {task.status}
-                        {task.detail ? ` · ${task.detail}` : ""}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="meta-line">No tasks yet</div>
-                  )}
-                </div>
-
-                <div className="card-actions">
-                  <Link href={`/projects/${project.id}`} className="btn btn-details">
-                    Open
-                  </Link>
-                  <Link href={`/projects/${project.id}/phases/${phaseRoute(project.phase)}`} className="btn btn-preview">
-                    Active Phase
-                  </Link>
-                  <Link href={`/projects/${project.id}/phases`} className="btn btn-details">
-                    Phases
-                  </Link>
-                  {packet ? (
-                    <Link href={`/projects/${project.id}/packet`} className="btn btn-preview">
-                      Packet
-                    </Link>
-                  ) : (
-                    <span className="btn btn-preview btn-disabled" aria-disabled="true">
-                      Packet
-                    </span>
-                  )}
-                  <Link href="/inbox" className="btn btn-details">
-                    Inbox
-                  </Link>
-                </div>
-              </article>
-            );
-          })}
-        </section>
+        <RecentActivity items={recentActivity} />
       </main>
     </>
   );

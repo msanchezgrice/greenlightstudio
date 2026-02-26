@@ -136,3 +136,64 @@ export async function getLatestTasksByProject(projectIds: string[]) {
 
   return latest;
 }
+
+export async function getRecentActivity(userId: string, limit = 8) {
+  const db = createServiceSupabase();
+  const { data: projects } = await withRetry(() =>
+    db.from("projects").select("id,name").eq("owner_clerk_id", userId),
+  );
+  if (!projects?.length) return [];
+  const projectIds = projects.map((p) => p.id);
+  const projectNames = new Map(projects.map((p) => [p.id, p.name]));
+  const { data, error } = await withRetry(() =>
+    db
+      .from("tasks")
+      .select("project_id,agent,description,status,detail,created_at")
+      .in("project_id", projectIds)
+      .order("created_at", { ascending: false })
+      .limit(limit),
+  );
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => ({
+    project_name: projectNames.get(row.project_id as string) ?? "Unknown",
+    project_id: row.project_id as string,
+    agent: row.agent as string,
+    description: row.description as string,
+    status: row.status as string,
+    detail: (row.detail as string | null) ?? null,
+    created_at: row.created_at as string,
+  }));
+}
+
+export async function getPacketCount(projectIds: string[]) {
+  if (!projectIds.length) return 0;
+  const db = createServiceSupabase();
+  const { count, error } = await withRetry(() =>
+    db.from("phase_packets").select("id", { count: "exact", head: true }).in("project_id", projectIds),
+  );
+  if (error) throw new Error(error.message);
+  return count ?? 0;
+}
+
+export async function getRunningTasks(projectIds: string[]) {
+  if (!projectIds.length) return new Map<string, { agent: string; description: string }>();
+  const db = createServiceSupabase();
+  const { data, error } = await withRetry(() =>
+    db
+      .from("tasks")
+      .select("project_id,agent,description")
+      .in("project_id", projectIds)
+      .eq("status", "running")
+      .order("created_at", { ascending: false })
+      .limit(100),
+  );
+  if (error) throw new Error(error.message);
+  const running = new Map<string, { agent: string; description: string }>();
+  for (const row of data ?? []) {
+    const pid = row.project_id as string;
+    if (!running.has(pid)) {
+      running.set(pid, { agent: row.agent as string, description: row.description as string });
+    }
+  }
+  return running;
+}

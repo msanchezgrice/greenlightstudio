@@ -1,11 +1,12 @@
 import Link from "next/link";
 
-type StudioTab = "board" | "projects" | "inbox" | "tasks" | "settings";
+type StudioTab = "board" | "projects" | "inbox" | "chat" | "tasks" | "settings";
 
 const tabs: Array<{ id: StudioTab; label: string; href: string }> = [
   { id: "board", label: "Board", href: "/board" },
   { id: "projects", label: "Projects", href: "/projects" },
   { id: "inbox", label: "Inbox", href: "/inbox" },
+  { id: "chat", label: "Chat", href: "/chat" },
   { id: "tasks", label: "Tasks", href: "/tasks" },
   { id: "settings", label: "Settings", href: "/settings" },
 ];
