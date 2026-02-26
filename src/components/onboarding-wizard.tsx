@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { SignInButton, useAuth } from "@clerk/nextjs";
 import { onboardingSchema, scanResultSchema, type ScanResult } from "@/types/domain";
 
 type Step = "import" | "discover" | "results" | "error" | "clarify" | "confirm" | "launched";
@@ -64,6 +65,7 @@ function boolLabel(value: boolean) {
 }
 
 export function OnboardingWizard() {
+  const { isSignedIn } = useAuth();
   const scanNonce = useRef(0);
   const [step, setStep] = useState<Step>("import");
   const [busy, setBusy] = useState(false);
@@ -120,6 +122,14 @@ export function OnboardingWizard() {
     return true;
   }
 
+  function ensureIdeaIsValid() {
+    if (form.idea_description.trim().length < 20) {
+      setError("Idea description must be at least 20 characters.");
+      return false;
+    }
+    return true;
+  }
+
   function ensureScanIsValid() {
     if (!ensureDomainRepoShapeIsValid()) {
       return false;
@@ -134,18 +144,43 @@ export function OnboardingWizard() {
     return true;
   }
 
+  function ensureClarifyEntryIsValid() {
+    if (!ensureDomainRepoShapeIsValid()) {
+      return false;
+    }
+    if (!ensureIdeaIsValid()) {
+      return false;
+    }
+    setError(null);
+    return true;
+  }
+
   function ensureLaunchIsValid() {
     if (!ensureDomainRepoShapeIsValid()) {
       return false;
     }
 
-    if (form.idea_description.trim().length < 20) {
-      setError("Idea description must be at least 20 characters.");
+    if (!ensureIdeaIsValid()) {
+      return false;
+    }
+
+    if (!isSignedIn) {
+      setError("Sign in is required to launch and save your project.");
       return false;
     }
 
     setError(null);
     return true;
+  }
+
+  async function parseResponseJson(response: Response) {
+    const raw = await response.text();
+    if (!raw.trim()) return null;
+    try {
+      return JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
   }
 
   function handleFileSelection(list: FileList | null) {
@@ -212,15 +247,7 @@ export function OnboardingWizard() {
           idea_description: form.idea_description,
         }),
       });
-      const raw = await res.text();
-      let json: Record<string, unknown> | null = null;
-      if (raw.trim()) {
-        try {
-          json = JSON.parse(raw) as Record<string, unknown>;
-        } catch {
-          throw new Error(`Scan failed (HTTP ${res.status}): server returned non-JSON response.`);
-        }
-      }
+      const json = await parseResponseJson(res);
 
       if (!res.ok) {
         const message = typeof json?.error === "string" ? json.error : `Scan failed (HTTP ${res.status})`;
@@ -268,9 +295,20 @@ export function OnboardingWizard() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.error ?? "Project creation failed");
-    if (!json.projectId) throw new Error("Project creation did not return an ID");
+    const json = await parseResponseJson(res);
+
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403 || res.status === 405) {
+        throw new Error("Sign in is required to launch and save your project.");
+      }
+      const errorMessage = typeof json?.error === "string" ? json.error : `Project creation failed (HTTP ${res.status})`;
+      throw new Error(errorMessage);
+    }
+
+    if (!json || typeof json.projectId !== "string") {
+      throw new Error("Project creation returned an invalid response.");
+    }
+
     return json.projectId as string;
   }
 
@@ -302,8 +340,11 @@ export function OnboardingWizard() {
       let launchError: Error | null = null;
       const launchRequest = fetch(`/api/projects/${id}/launch`, { method: "POST" })
         .then(async (res) => {
-          const json = await res.json();
-          if (!res.ok) throw new Error(json.error ?? "Launch failed");
+          const json = await parseResponseJson(res);
+          if (!res.ok) {
+            const errorMessage = typeof json?.error === "string" ? json.error : `Launch failed (HTTP ${res.status})`;
+            throw new Error(errorMessage);
+          }
         })
         .catch((err: unknown) => {
           launchError = err instanceof Error ? err : new Error("Launch failed");
@@ -414,7 +455,7 @@ export function OnboardingWizard() {
             <button
               className="mock-btn secondary"
               onClick={() => {
-                if (!ensureLaunchIsValid()) return;
+                if (!ensureClarifyEntryIsValid()) return;
                 setStep("clarify");
               }}
               disabled={busy}
@@ -871,6 +912,19 @@ export function OnboardingWizard() {
             </div>
           </div>
 
+          {!isSignedIn && (
+            <div className="warning-state" style={{ marginTop: 12 }}>
+              <p className="warning-text">Sign in is required before launching this project.</p>
+              <div className="button-row" style={{ marginTop: 8 }}>
+                <SignInButton mode="modal">
+                  <button type="button" className="mock-btn primary">
+                    Sign in
+                  </button>
+                </SignInButton>
+              </div>
+            </div>
+          )}
+
           {launchProgress.length > 0 && (
             <div className="task-progress">
               <div className="field-label">Packet Generation Progress</div>
@@ -884,7 +938,7 @@ export function OnboardingWizard() {
           )}
 
           <div className="button-row">
-            <button className="mock-btn primary launch" onClick={launchProject} disabled={busy}>
+            <button className="mock-btn primary launch" onClick={launchProject} disabled={busy || !isSignedIn}>
               {busy ? "Launching…" : "Launch Project"}
             </button>
             <button className="mock-btn secondary" onClick={() => setStep("clarify")} disabled={busy}>
