@@ -95,6 +95,18 @@ export function BulkImportWizard() {
     setScanning(true);
     setScanProgress(`Scanning ${detectedDomains.length} domain${detectedDomains.length !== 1 ? "s" : ""}...`);
 
+    // Default entries if scan API fails entirely
+    const fallbackEntries = (): DomainEntry[] =>
+      detectedDomains.map((d) => ({
+        domain: d,
+        enabled: true,
+        target_demo: "",
+        value_prop: "",
+        how_it_works: "",
+        notes: "",
+        scan_status: "new" as const,
+      }));
+
     try {
       const res = await fetch("/api/bulk-scan", {
         method: "POST",
@@ -103,8 +115,10 @@ export function BulkImportWizard() {
       });
 
       if (!res.ok) {
-        const body = await res.json().catch(() => ({ error: "Scan request failed" }));
-        throw new Error(body.error || `Scan failed (HTTP ${res.status})`);
+        // API failed — still move to step 2 with empty entries
+        setDomains(fallbackEntries());
+        setStep(2);
+        return;
       }
 
       const { results } = (await res.json()) as {
@@ -122,20 +136,18 @@ export function BulkImportWizard() {
       };
 
       const entries: DomainEntry[] = results.map((r) => {
-        let scanStatus: DomainEntry["scan_status"] = "pending";
-        if (r.error && !r.scan) {
-          scanStatus = "error";
-        } else if (r.scan?.dns === "live") {
+        let scanStatus: DomainEntry["scan_status"] = "new";
+        if (r.scan?.dns === "live") {
           scanStatus = "live";
         } else if (r.scan?.dns === "parked") {
           scanStatus = "parked";
-        } else if (r.scan?.dns === "none" || r.scan?.dns === null) {
-          scanStatus = "new";
+        } else if (r.error && !r.scan) {
+          scanStatus = "error";
         }
 
         return {
           domain: r.domain,
-          enabled: scanStatus !== "error",
+          enabled: true,
           target_demo: r.suggestions?.target_demo ?? "",
           value_prop: r.suggestions?.value_prop ?? "",
           how_it_works: r.suggestions?.how_it_works ?? "",
@@ -146,8 +158,10 @@ export function BulkImportWizard() {
 
       setDomains(entries);
       setStep(2);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Domain scanning failed");
+    } catch {
+      // Network error — still move to step 2 with empty entries
+      setDomains(fallbackEntries());
+      setStep(2);
     } finally {
       setScanning(false);
       setScanProgress("");

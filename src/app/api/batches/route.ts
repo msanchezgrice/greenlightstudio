@@ -47,6 +47,14 @@ export async function POST(req: NextRequest) {
     owner_clerk_id: userId,
     name: d.domain,
     domain: d.domain,
+    idea_description: [
+      d.value_prop,
+      d.target_demo ? `Target: ${d.target_demo}` : "",
+      d.how_it_works ? `How: ${d.how_it_works}` : "",
+      d.notes,
+    ]
+      .filter(Boolean)
+      .join(". ") || `Startup analysis for ${d.domain}`,
     phase: 0,
     batch_id: batch.id,
     runtime_mode: "shared",
