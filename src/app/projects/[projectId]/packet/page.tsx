@@ -2,6 +2,7 @@ import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { createServiceSupabase } from "@/lib/supabase";
 import { packetSchema } from "@/types/domain";
+import { PacketActions } from "@/components/packet-actions";
 
 function recommendationClass(rec: string) {
   if (rec === "greenlight") return "green";
@@ -54,8 +55,10 @@ export default async function PacketPage({ params }: { params: Promise<{ project
           </div>
         </div>
         <div className="nav-right">
-          <button className="btn btn-ghost" type="button">📄 Export PDF</button>
-          <button className="btn btn-ghost" type="button">🔗 Share</button>
+          <PacketActions
+            exportUrl={`/api/projects/${projectId}/packet/export`}
+            shareApiUrl={`/api/projects/${projectId}/packet/share`}
+          />
         </div>
       </nav>
 

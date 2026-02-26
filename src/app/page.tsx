@@ -1,5 +1,6 @@
 import Link from "next/link";
 import styles from "./landing.module.css";
+import { WaitlistForm } from "@/components/waitlist-form";
 
 export default function Home() {
   return (
@@ -307,12 +308,7 @@ export default function Home() {
       <section className={styles.ctaSection} id="cta">
         <div className={styles.ctaTitle}>Ready to greenlight your next idea?</div>
         <div className={styles.ctaSub}>Join the waitlist. First 100 projects get Phase 0 free.</div>
-        <form className={styles.ctaForm}>
-          <input className={styles.ctaInput} type="email" placeholder="you@company.com" />
-          <button className={styles.btnPrimary} type="submit">
-            Join Waitlist
-          </button>
-        </form>
+        <WaitlistForm />
       </section>
 
       <footer className={styles.footer}>

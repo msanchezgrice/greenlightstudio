@@ -20,8 +20,13 @@ Production Next.js implementation of Greenlight Studio from `spec-v2.3.html` and
   - Phase dashboard (`/projects/[id]/phases`)
   - Phase workspaces (`/projects/[id]/phases/[0-3]`)
   - Phase 0 packet viewer
+  - Public packet share route (`/packet/share/[token]`)
   - Tasks/logs
   - Settings
+- Landing waitlist submit API (`/api/waitlist`) with persisted signups
+- Phase 0 packet actions
+  - PDF export (`/api/projects/[id]/packet/export`)
+  - Share link generation (`/api/projects/[id]/packet/share`)
 - Execution pipeline for approved actions
   - Shared-runtime landing deploy
   - Email queue/send via Resend

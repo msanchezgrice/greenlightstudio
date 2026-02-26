@@ -313,11 +313,11 @@ export function OnboardingWizard() {
         throw new Error(message);
       }
 
-      const bucket = typeof urlJson.bucket === "string" ? urlJson.bucket : "project-assets";
+      const bucket = typeof urlJson.bucket === "string" ? urlJson.bucket : null;
       const path = typeof urlJson.path === "string" ? urlJson.path : null;
       const token = typeof urlJson.token === "string" ? urlJson.token : null;
       const assetId = typeof urlJson.assetId === "string" ? urlJson.assetId : null;
-      if (!path || !token || !assetId) {
+      if (!bucket || !path || !token || !assetId) {
         throw new Error("Upload URL response is missing required fields.");
       }
 

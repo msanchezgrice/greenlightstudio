@@ -47,9 +47,9 @@ function renderPhase1LandingHtml(project: ProjectRow, packet: ReturnType<typeof 
   const subtitle = escapeHtml(packet.landing_page.subheadline);
   const cta = escapeHtml(packet.landing_page.primary_cta);
   const palette = packet.brand_kit.color_palette;
-  const primary = palette[0] ?? "#22C55E";
-  const secondary = palette[1] ?? "#06B6D4";
-  const background = palette[2] ?? "#070B14";
+  const primary = palette[0];
+  const secondary = palette[1];
+  const background = palette[2];
   const sections = packet.landing_page.sections.map((section) => `<li>${escapeHtml(section)}</li>`).join("");
   const notes = packet.landing_page.launch_notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("");
 

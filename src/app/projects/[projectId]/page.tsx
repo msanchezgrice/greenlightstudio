@@ -22,6 +22,12 @@ type TaskRow = {
   created_at: string;
 };
 
+type NightShiftSummaryRow = {
+  id: string;
+  detail: string | null;
+  created_at: string;
+};
+
 type ProjectPermissions = {
   repo_write?: boolean;
   deploy?: boolean;
@@ -63,7 +69,8 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
 
   const projects = await getOwnedProjects(userId);
   const projectIds = projects.map((project) => project.id);
-  const [{ total: pendingCount }, projectQuery, approvalsQuery, tasksQuery, packetQuery] = await Promise.all([
+  const [{ total: pendingCount }, projectQuery, approvalsQuery, tasksQuery, packetQuery, nightShiftSummaryQuery, nightShiftFailuresQuery] =
+    await Promise.all([
     getPendingApprovalsByProject(projectIds),
     withRetry(() =>
       db
@@ -98,6 +105,27 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
         .limit(1)
         .maybeSingle(),
     ),
+    withRetry(() =>
+      db
+        .from("tasks")
+        .select("id,detail,created_at")
+        .eq("project_id", projectId)
+        .eq("agent", "night_shift")
+        .eq("description", "nightshift_summary")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ),
+    withRetry(() =>
+      db
+        .from("tasks")
+        .select("id,detail,created_at")
+        .eq("project_id", projectId)
+        .eq("agent", "night_shift")
+        .eq("status", "failed")
+        .order("created_at", { ascending: false })
+        .limit(3),
+    ),
   ]);
 
   if (projectQuery.error || !projectQuery.data) {
@@ -119,6 +147,8 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const tasks = (tasksQuery.data ?? []) as TaskRow[];
   const packet = packetQuery.data;
   const permissions = (project.permissions as ProjectPermissions | null) ?? {};
+  const nightShiftSummary = (nightShiftSummaryQuery.data as NightShiftSummaryRow | null) ?? null;
+  const nightShiftFailures = (nightShiftFailuresQuery.data ?? []) as NightShiftSummaryRow[];
 
   return (
     <>
@@ -192,6 +222,38 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
               <div className="metric-value">{permissions.ads_enabled ? `$${Number(permissions.ads_budget_cap ?? 0)}/day` : "$0/day"}</div>
             </div>
           </div>
+        </section>
+
+        <section className="studio-card">
+          <h2>While You Were Away</h2>
+          {!nightShiftSummary ? (
+            <p className="meta-line">No completed Night Shift summary yet.</p>
+          ) : (
+            <>
+              <p className="meta-line">{nightShiftSummary.detail ?? "Night Shift summary available."}</p>
+              <p className="meta-line">Generated {new Date(nightShiftSummary.created_at).toLocaleString()}</p>
+            </>
+          )}
+          {nightShiftFailures.length > 0 && (
+            <div className="table-shell" style={{ marginTop: 10 }}>
+              <table className="studio-table compact">
+                <thead>
+                  <tr>
+                    <th>Recent Night Shift Failures</th>
+                    <th>Created</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {nightShiftFailures.map((failure) => (
+                    <tr key={failure.id}>
+                      <td>{failure.detail ?? "Night Shift task failed."}</td>
+                      <td>{new Date(failure.created_at).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
 
         <section className="studio-card">
