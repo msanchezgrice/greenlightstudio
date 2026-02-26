@@ -859,6 +859,9 @@ export function OnboardingWizard() {
             >
               Skip scan, go to settings →
             </button>
+            <a href="/bulk-import" className="mock-btn secondary" style={{ textDecoration: "none" }}>
+              Bulk Import →
+            </a>
           </div>
           <p className="field-note">Scanning checks your domain and repo in read-only mode. No changes are made.</p>
           {form.uploaded_files.length > 0 && selectedFiles.length === 0 && (
