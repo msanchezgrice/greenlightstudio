@@ -266,11 +266,16 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
                 <Link href={`/projects/${projectId}/phases/${phase.id}`} className="btn btn-details">
                   Open Workspace
                 </Link>
-                {phase.id === 0 && (
-                  <Link href={`/projects/${projectId}/packet`} className="btn btn-preview">
-                    Open Packet
-                  </Link>
-                )}
+                {phase.id === 0 &&
+                  (packet ? (
+                    <Link href={`/projects/${projectId}/packet`} className="btn btn-preview">
+                      Open Packet
+                    </Link>
+                  ) : (
+                    <span className="btn btn-preview btn-disabled" aria-disabled="true">
+                      Open Packet
+                    </span>
+                  ))}
                 {gate?.status === "pending" && (
                   <Link href="/inbox" className="btn btn-details">
                     Review Gate in Inbox

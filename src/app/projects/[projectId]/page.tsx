@@ -166,9 +166,15 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
             <Link href={`/projects/${projectId}/phases/${phaseRoute(project.phase)}`} className="btn btn-preview">
               Active Phase Workspace
             </Link>
-            <Link href={`/projects/${projectId}/packet`} className="btn btn-preview">
-              Open Packet
-            </Link>
+            {packet ? (
+              <Link href={`/projects/${projectId}/packet`} className="btn btn-preview">
+                Open Packet
+              </Link>
+            ) : (
+              <span className="btn btn-preview btn-disabled" aria-disabled="true">
+                Open Packet
+              </span>
+            )}
             <Link href="/inbox" className="btn btn-details">
               Open Inbox
             </Link>

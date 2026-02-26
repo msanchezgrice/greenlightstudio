@@ -2,7 +2,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { requireEnv } from "@/lib/env";
-import { packetSchema, reasoningSynopsisSchema, type OnboardingInput, type Packet } from "@/types/domain";
+import { packetSchema, type OnboardingInput, type Packet } from "@/types/domain";
 import {
   phase1PacketSchema,
   phase2PacketSchema,
@@ -13,6 +13,9 @@ import {
 } from "@/types/phase-packets";
 import { z } from "zod";
 import { withRetry } from "@/lib/retry";
+
+const AGENT_QUERY_TIMEOUT_MS = 55_000;
+const AGENT_QUERY_MAX_TURNS = 12;
 
 const researchSchema = z.object({
   competitors: z.array(
@@ -59,7 +62,51 @@ function resolveClaudeCodeExecutablePath() {
   return resolved;
 }
 
-async function runTextQuery(prompt: string) {
+function extractDeltaText(event: unknown) {
+  if (!event || typeof event !== "object") return "";
+  const eventRecord = event as Record<string, unknown>;
+
+  if (eventRecord.type === "content_block_start") {
+    const block = eventRecord.content_block;
+    if (block && typeof block === "object") {
+      const blockRecord = block as Record<string, unknown>;
+      if (blockRecord.type === "text" && typeof blockRecord.text === "string") return blockRecord.text;
+    }
+  }
+
+  if (eventRecord.type === "content_block_delta") {
+    const delta = eventRecord.delta;
+    if (delta && typeof delta === "object") {
+      const deltaRecord = delta as Record<string, unknown>;
+      if (deltaRecord.type === "text_delta" && typeof deltaRecord.text === "string") return deltaRecord.text;
+    }
+  }
+
+  return "";
+}
+
+function parsePermissionDenials(value: unknown) {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const denials = value
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const record = entry as Record<string, unknown>;
+      if (typeof record.tool_name !== "string") return null;
+      return record.tool_name;
+    })
+    .filter((entry): entry is string => Boolean(entry));
+
+  if (!denials.length) return null;
+  return `Permission denied for tools: ${denials.join(", ")}`;
+}
+
+function parseResultErrors(value: unknown) {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const errors = value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  return errors.length ? errors.join(" | ") : null;
+}
+
+async function runJsonQuery<T>(prompt: string, schema: z.ZodType<T>) {
   return withRetry(async () => {
     const executablePath = resolveClaudeCodeExecutablePath();
     const stream = query({
@@ -68,39 +115,73 @@ async function runTextQuery(prompt: string) {
         model: "sonnet",
         env: sdkEnv(),
         pathToClaudeCodeExecutable: executablePath,
+        outputFormat: {
+          type: "json_schema",
+          schema: z.toJSONSchema(schema),
+        },
+        maxTurns: AGENT_QUERY_MAX_TURNS,
       },
     });
 
     let raw = "";
+    let streamedRaw = "";
     let resultText = "";
+    let structuredOutput: unknown = undefined;
     let resultError: string | null = null;
-    for await (const message of stream) {
-      if (message.type === "assistant") {
-        for (const block of message.message.content) {
-          if (block.type === "text") raw += block.text;
-        }
-        continue;
-      }
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      stream.close();
+    }, AGENT_QUERY_TIMEOUT_MS);
 
-      if (message.type === "result") {
-        if (message.is_error) {
-          const detail = Array.isArray((message as { errors?: unknown }).errors)
-            ? ((message as { errors: unknown[] }).errors.filter((item): item is string => typeof item === "string").join(" | ") || null)
-            : null;
-          resultError = detail ?? `Agent query failed (${message.subtype})`;
+    try {
+      for await (const message of stream) {
+        if (message.type === "assistant") {
+          for (const block of message.message.content) {
+            if (block.type === "text") raw += block.text;
+          }
           continue;
         }
 
-        if (typeof message.result === "string") {
-          resultText += message.result;
+        if (message.type === "stream_event") {
+          streamedRaw += extractDeltaText(message.event);
+          continue;
+        }
+
+        if (message.type === "result") {
+          const permissionDenial = parsePermissionDenials(message.permission_denials);
+          if (message.is_error) {
+            const errorDetail = parseResultErrors(message.errors);
+            resultError = [errorDetail, permissionDenial, `Agent query failed (${message.subtype})`]
+              .filter((entry): entry is string => Boolean(entry))
+              .join(" | ");
+            continue;
+          }
+
+          if (typeof message.result === "string") {
+            resultText += message.result;
+          }
+          if (typeof message.structured_output !== "undefined") {
+            structuredOutput = message.structured_output;
+          }
         }
       }
+    } finally {
+      clearTimeout(timeout);
     }
 
-    const finalText = raw.trim() || resultText.trim();
+    if (timedOut) {
+      throw new Error(`Agent query timed out after ${Math.round(AGENT_QUERY_TIMEOUT_MS / 1000)}s`);
+    }
+
+    if (typeof structuredOutput !== "undefined") {
+      return schema.parse(structuredOutput);
+    }
+
+    const finalText = raw.trim() || streamedRaw.trim() || resultText.trim();
     if (resultError && !finalText) throw new Error(resultError);
     if (!finalText) throw new Error("Agent returned empty response");
-    return finalText;
+    return schema.parse(parseAgentJson<T>(finalText));
   }, { retries: 1, baseDelayMs: 600 });
 }
 
@@ -145,8 +226,7 @@ Rules:
 - no markdown
 - no trailing text`;
 
-  const raw = await runTextQuery(prompt);
-  return researchSchema.parse(parseAgentJson(raw));
+  return runJsonQuery(prompt, researchSchema);
 }
 
 export async function generatePhase0Packet(input: OnboardingInput): Promise<Packet> {
@@ -175,10 +255,7 @@ Rules:
 - reasoning_synopsis.confidence must be 0-100 integer
 - confidence_breakdown values must be 0-100 integers`;
 
-  const raw = await runTextQuery(prompt);
-  const parsed = parseAgentJson<Record<string, unknown>>(raw);
-  const synopsis = reasoningSynopsisSchema.parse(parsed.reasoning_synopsis);
-  return packetSchema.parse({ ...parsed, reasoning_synopsis: synopsis });
+  return runJsonQuery(prompt, packetSchema);
 }
 
 type PhaseGenerationInput = {
@@ -278,8 +355,7 @@ Rules:
 - no placeholder text
 - keep output specific to the provided project context`;
 
-  const raw = await runTextQuery(prompt);
-  return phase1PacketSchema.parse(parseAgentJson(raw));
+  return runJsonQuery(prompt, phase1PacketSchema);
 }
 
 export async function generatePhase2Packet(input: PhaseGenerationInput): Promise<Phase2Packet> {
@@ -332,8 +408,7 @@ Rules:
 - no markdown
 - no placeholder text`;
 
-  const raw = await runTextQuery(prompt);
-  const parsed = phase2PacketSchema.parse(parseAgentJson(raw));
+  const parsed = await runJsonQuery(prompt, phase2PacketSchema);
 
   const adsEnabled = Boolean(input.permissions.ads_enabled);
   const cap = Math.max(0, Number(input.permissions.ads_budget_cap ?? 0));
@@ -399,8 +474,7 @@ Rules:
 - no markdown
 - no placeholder text`;
 
-  const raw = await runTextQuery(prompt);
-  const parsed = phase3PacketSchema.parse(parseAgentJson(raw));
+  const parsed = await runJsonQuery(prompt, phase3PacketSchema);
   return {
     ...parsed,
     architecture_review: {

@@ -1068,6 +1068,12 @@ a {
   cursor: not-allowed;
 }
 
+.btn-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .btn-approve {
   background: var(--green);
   color: #ffffff;

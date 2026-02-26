@@ -172,11 +172,16 @@ export default async function ProjectPhaseWorkspacePage({
             <Link href={`/projects/${projectId}/phases`} className="btn btn-details">
               All Phases
             </Link>
-            {phase === 0 && (
-              <Link href={`/projects/${projectId}/packet`} className="btn btn-preview">
-                Open Phase 0 Packet
-              </Link>
-            )}
+            {phase === 0 &&
+              (packetRow ? (
+                <Link href={`/projects/${projectId}/packet`} className="btn btn-preview">
+                  Open Phase 0 Packet
+                </Link>
+              ) : (
+                <span className="btn btn-preview btn-disabled" aria-disabled="true">
+                  Open Phase 0 Packet
+                </span>
+              ))}
             <Link href="/inbox" className="btn btn-details">
               Inbox
             </Link>

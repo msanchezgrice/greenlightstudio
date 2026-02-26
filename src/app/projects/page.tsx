@@ -84,9 +84,15 @@ export default async function ProjectsPage() {
                             <Link href={`/projects/${project.id}/phases/${phaseRoute(project.phase)}`} className="btn btn-preview">
                               Active Phase
                             </Link>
-                            <Link href={`/projects/${project.id}/packet`} className="btn btn-preview">
-                              Packet
-                            </Link>
+                            {packet ? (
+                              <Link href={`/projects/${project.id}/packet`} className="btn btn-preview">
+                                Packet
+                              </Link>
+                            ) : (
+                              <span className="btn btn-preview btn-disabled" aria-disabled="true">
+                                Packet
+                              </span>
+                            )}
                           </div>
                         </td>
                       </tr>

@@ -5,10 +5,33 @@ import { packetSchema } from "@/types/domain";
 import { PacketActions } from "@/components/packet-actions";
 import { PacketDecisionBar } from "@/components/packet-decision-bar";
 
+type LaunchTask = {
+  description: string;
+  status: "queued" | "running" | "completed" | "failed";
+  detail: string | null;
+  created_at: string;
+};
+
 function recommendationClass(rec: string) {
   if (rec === "greenlight") return "green";
   if (rec === "revise") return "yellow";
   return "red";
+}
+
+function latestPhase0Attempt(tasks: LaunchTask[]) {
+  const ordered = [...tasks]
+    .map((task) => ({ ...task, createdAtMs: Date.parse(task.created_at) }))
+    .filter((task) => Number.isFinite(task.createdAtMs))
+    .sort((left, right) => left.createdAtMs - right.createdAtMs);
+
+  const initStarts = ordered
+    .filter((task) => task.description === "phase0_init")
+    .map((task) => task.createdAtMs);
+  const attemptStart = initStarts.length ? Math.max(...initStarts) : null;
+  if (attemptStart === null) return ordered;
+
+  const threshold = attemptStart - 5_000;
+  return ordered.filter((task) => task.createdAtMs >= threshold);
 }
 
 export default async function PacketPage({ params }: { params: Promise<{ projectId: string }> }) {
@@ -25,7 +48,7 @@ export default async function PacketPage({ params }: { params: Promise<{ project
     .single();
   if (!project || project.owner_clerk_id !== userId) return <main className="page"><p>Forbidden</p></main>;
 
-  const [{ data: packetRow }, { data: approvalRow }] = await Promise.all([
+  const [{ data: packetRow }, { data: approvalRow }, { data: taskRows }] = await Promise.all([
     db
       .from("phase_packets")
       .select("packet, confidence, created_at")
@@ -41,9 +64,76 @@ export default async function PacketPage({ params }: { params: Promise<{ project
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    db
+      .from("tasks")
+      .select("description,status,detail,created_at")
+      .eq("project_id", projectId)
+      .in("description", ["phase0_init", "phase0_research", "phase0_synthesis", "phase0_complete", "phase0_failed"])
+      .order("created_at", { ascending: false })
+      .limit(30),
   ]);
 
-  if (!packetRow) return <main className="page"><p>Packet not found</p></main>;
+  const phase0Tasks = latestPhase0Attempt((taskRows ?? []) as LaunchTask[]);
+  const latestFailure = [...phase0Tasks].reverse().find((task) => task.status === "failed");
+  const latestRunning = [...phase0Tasks].reverse().find(
+    (task) => ["phase0_init", "phase0_research", "phase0_synthesis"].includes(task.description) && task.status === "running",
+  );
+  const latestComplete = [...phase0Tasks].reverse().find((task) => task.description === "phase0_complete" && task.status === "completed");
+
+  if (!packetRow) {
+    return (
+      <>
+        <nav className="nav">
+          <div className="nav-left">
+            <div className="logo">▲ <span>Greenlight</span></div>
+            <div className="breadcrumb">
+              <Link href="/board">Board</Link> / <Link href={`/projects/${projectId}`}>{project.name}</Link> / <strong>Phase 0 Packet</strong>
+            </div>
+          </div>
+        </nav>
+
+        <main className="page packet-page">
+          <section className="studio-card">
+            <h1 className="page-title">Phase 0 Packet</h1>
+            <p className="meta-line">The packet is not available yet for this project.</p>
+
+            {latestFailure && (
+              <div className="alert error" style={{ marginTop: 12 }}>
+                Latest launch failure: {latestFailure.detail ?? latestFailure.description}
+              </div>
+            )}
+
+            {latestRunning && !latestFailure && (
+              <div className="warning-state" style={{ marginTop: 12 }}>
+                <p className="warning-text">
+                  Launch is still running at step: {latestRunning.description}
+                  {latestRunning.detail ? ` — ${latestRunning.detail}` : ""}
+                </p>
+              </div>
+            )}
+
+            {!latestFailure && !latestRunning && !latestComplete && (
+              <p className="meta-line" style={{ marginTop: 12 }}>
+                No phase 0 launch task was detected yet.
+              </p>
+            )}
+
+            <div className="card-actions" style={{ marginTop: 14 }}>
+              <Link href={`/projects/${projectId}`} className="btn btn-details">
+                Open Project
+              </Link>
+              <Link href="/tasks" className="btn btn-preview">
+                View Tasks
+              </Link>
+              <Link href="/onboarding?new=1" className="btn btn-details">
+                New Project
+              </Link>
+            </div>
+          </section>
+        </main>
+      </>
+    );
+  }
 
   const parsed = packetSchema.safeParse(packetRow.packet);
   if (!parsed.success) {

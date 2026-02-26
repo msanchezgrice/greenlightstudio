@@ -140,9 +140,15 @@ export default async function BoardPage() {
                   <Link href={`/projects/${project.id}/phases`} className="btn btn-details">
                     Phases
                   </Link>
-                  <Link href={`/projects/${project.id}/packet`} className="btn btn-preview">
-                    Packet
-                  </Link>
+                  {packet ? (
+                    <Link href={`/projects/${project.id}/packet`} className="btn btn-preview">
+                      Packet
+                    </Link>
+                  ) : (
+                    <span className="btn btn-preview btn-disabled" aria-disabled="true">
+                      Packet
+                    </span>
+                  )}
                   <Link href="/inbox" className="btn btn-details">
                     Inbox
                   </Link>
