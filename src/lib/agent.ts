@@ -57,16 +57,45 @@ async function runTextQuery(prompt: string) {
     });
 
     let raw = "";
+    let resultText = "";
     for await (const message of stream) {
-      if (message.type !== "assistant") continue;
-      for (const block of message.message.content) {
-        if (block.type === "text") raw += block.text;
+      if (message.type === "assistant") {
+        for (const block of message.message.content) {
+          if (block.type === "text") raw += block.text;
+        }
+        continue;
+      }
+
+      if (message.type === "result" && typeof message.result === "string") {
+        resultText += message.result;
       }
     }
 
-    if (!raw.trim()) throw new Error("Agent returned empty response");
-    return raw.trim();
+    const finalText = raw.trim() || resultText.trim();
+    if (!finalText) throw new Error("Agent returned empty response");
+    return finalText;
   }, { retries: 1, baseDelayMs: 600 });
+}
+
+function stripMarkdownCodeFence(value: string) {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return match ? match[1].trim() : trimmed;
+}
+
+function parseAgentJson<T>(raw: string) {
+  const candidates = [raw.trim(), stripMarkdownCodeFence(raw)];
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    try {
+      return JSON.parse(candidate) as T;
+    } catch {
+      // Try next candidate.
+    }
+  }
+
+  throw new Error("Agent returned non-JSON output");
 }
 
 async function runResearchAgent(input: OnboardingInput) {
@@ -86,7 +115,7 @@ Rules:
 - no trailing text`;
 
   const raw = await runTextQuery(prompt);
-  return researchSchema.parse(JSON.parse(raw));
+  return researchSchema.parse(parseAgentJson(raw));
 }
 
 export async function generatePhase0Packet(input: OnboardingInput): Promise<Packet> {
@@ -116,7 +145,7 @@ Rules:
 - confidence_breakdown values must be 0-100 integers`;
 
   const raw = await runTextQuery(prompt);
-  const parsed = JSON.parse(raw);
+  const parsed = parseAgentJson<Record<string, unknown>>(raw);
   const synopsis = reasoningSynopsisSchema.parse(parsed.reasoning_synopsis);
   return packetSchema.parse({ ...parsed, reasoning_synopsis: synopsis });
 }
