@@ -1,4 +1,6 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { requireEnv } from "@/lib/env";
 import { packetSchema, reasoningSynopsisSchema, type OnboardingInput, type Packet } from "@/types/domain";
 import { z } from "zod";
@@ -18,16 +20,39 @@ const researchSchema = z.object({
 });
 
 function sdkEnv() {
-  return { ANTHROPIC_API_KEY: requireEnv("ANTHROPIC_API_KEY") };
+  return { ...process.env, ANTHROPIC_API_KEY: requireEnv("ANTHROPIC_API_KEY") };
+}
+
+let cachedClaudeCodeExecutablePath: string | null = null;
+
+function resolveClaudeCodeExecutablePath() {
+  if (cachedClaudeCodeExecutablePath) return cachedClaudeCodeExecutablePath;
+
+  if (process.env.CLAUDE_CODE_EXECUTABLE_PATH?.trim()) {
+    cachedClaudeCodeExecutablePath = process.env.CLAUDE_CODE_EXECUTABLE_PATH.trim();
+    return cachedClaudeCodeExecutablePath;
+  }
+
+  const candidatePaths: string[] = [path.join(process.cwd(), "node_modules/@anthropic-ai/claude-agent-sdk/cli.js")];
+
+  const resolved = candidatePaths.find((candidate) => existsSync(candidate));
+  if (!resolved) {
+    throw new Error("Claude Code executable not found in runtime filesystem.");
+  }
+
+  cachedClaudeCodeExecutablePath = resolved;
+  return resolved;
 }
 
 async function runTextQuery(prompt: string) {
   return withRetry(async () => {
+    const executablePath = resolveClaudeCodeExecutablePath();
     const stream = query({
       prompt,
       options: {
         model: "sonnet",
         env: sdkEnv(),
+        pathToClaudeCodeExecutable: executablePath,
       },
     });
 
