@@ -106,12 +106,7 @@ export function OnboardingWizard() {
     };
   }, [form.domain, form.repo_url, form.scan_results]);
 
-  function ensureImportIsValid() {
-    if (form.idea_description.trim().length < 20) {
-      setError("Idea description must be at least 20 characters.");
-      return false;
-    }
-
+  function ensureDomainRepoShapeIsValid() {
     if (form.domain.trim() && !isValidDomain(form.domain)) {
       setError("Domain must be valid (for example: myproject.com).");
       return false;
@@ -119,6 +114,33 @@ export function OnboardingWizard() {
 
     if (form.repo_url.trim() && !isValidRepo(form.repo_url)) {
       setError("Repo URL must be a full GitHub or GitLab repository URL.");
+      return false;
+    }
+
+    return true;
+  }
+
+  function ensureScanIsValid() {
+    if (!ensureDomainRepoShapeIsValid()) {
+      return false;
+    }
+
+    if (!form.domain.trim() && !form.repo_url.trim()) {
+      setError("Add a domain or repository URL to run discovery scan.");
+      return false;
+    }
+
+    setError(null);
+    return true;
+  }
+
+  function ensureLaunchIsValid() {
+    if (!ensureDomainRepoShapeIsValid()) {
+      return false;
+    }
+
+    if (form.idea_description.trim().length < 20) {
+      setError("Idea description must be at least 20 characters.");
       return false;
     }
 
@@ -163,7 +185,7 @@ export function OnboardingWizard() {
   }
 
   async function runScan() {
-    if (!ensureImportIsValid()) return;
+    if (!ensureScanIsValid()) return;
 
     const domain = normalizeDomain(form.domain);
     const repoUrl = normalizeRepo(form.repo_url);
@@ -190,8 +212,21 @@ export function OnboardingWizard() {
           idea_description: form.idea_description,
         }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Scan failed");
+      const raw = await res.text();
+      let json: Record<string, unknown> | null = null;
+      if (raw.trim()) {
+        try {
+          json = JSON.parse(raw) as Record<string, unknown>;
+        } catch {
+          throw new Error(`Scan failed (HTTP ${res.status}): server returned non-JSON response.`);
+        }
+      }
+
+      if (!res.ok) {
+        const message = typeof json?.error === "string" ? json.error : `Scan failed (HTTP ${res.status})`;
+        throw new Error(message);
+      }
+      if (!json) throw new Error("Scan failed: empty server response.");
 
       const elapsed = Date.now() - startedAt;
       if (elapsed < 900) {
@@ -240,7 +275,7 @@ export function OnboardingWizard() {
   }
 
   async function launchProject() {
-    if (!ensureImportIsValid()) return;
+    if (!ensureLaunchIsValid()) return;
     if (!form.focus_areas.length) {
       setError("Select at least one focus area.");
       return;
@@ -379,7 +414,7 @@ export function OnboardingWizard() {
             <button
               className="mock-btn secondary"
               onClick={() => {
-                if (!ensureImportIsValid()) return;
+                if (!ensureLaunchIsValid()) return;
                 setStep("clarify");
               }}
               disabled={busy}

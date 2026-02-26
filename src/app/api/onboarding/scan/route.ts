@@ -1,4 +1,3 @@
-import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { scanDomain } from "@/lib/scanner";
@@ -18,9 +17,6 @@ const bodySchema = z
   });
 
 export async function POST(req: Request) {
-  const { userId } = await auth();
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
   const body = bodySchema.parse(await req.json());
   const domain = body.domain?.trim().toLowerCase() || null;
   const repoUrl = body.repo_url?.trim() || null;
