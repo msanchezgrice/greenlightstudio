@@ -1,5 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
-import { NextResponse, after } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 import { update_phase, log_task, upsertUser } from "@/lib/supabase-mcp";
@@ -148,47 +148,6 @@ export async function POST(req: Request, context: { params: Promise<{ approvalId
     }
 
     if (isPhaseRevisionRequest && revisionGuidance) {
-      after(async () => {
-        try {
-          if (row.phase === 0) {
-            await runPhase0({
-              projectId: row.project_id,
-              userId,
-              revisionGuidance,
-              forceNewApproval: true,
-            });
-            return;
-          }
-
-          await enqueueNextPhaseArtifacts(row.project_id, row.phase as 1 | 2 | 3, {
-            forceRegenerate: true,
-            revisionGuidance,
-          });
-        } catch (phaseError) {
-          if (row.phase === 0) {
-            await withRetry(() =>
-              log_task(
-                row.project_id,
-                "ceo_agent",
-                "phase0_revision_failed",
-                "failed",
-                phaseError instanceof Error ? phaseError.message : "Failed to re-run phase 0 with guidance",
-              ),
-            );
-          } else {
-            await withRetry(() =>
-              log_task(
-                row.project_id,
-                "ceo_agent",
-                `phase${row.phase}_revision_failed`,
-                "failed",
-                phaseError instanceof Error ? phaseError.message : "Failed to re-run phase with guidance",
-              ),
-            );
-          }
-        }
-      });
-
       await withRetry(() =>
         log_task(
           row.project_id,
@@ -198,6 +157,34 @@ export async function POST(req: Request, context: { params: Promise<{ approvalId
           `Revision guidance submitted for phase ${row.phase}: ${revisionGuidance.slice(0, 280)}`,
         ),
       );
+
+      try {
+        if (row.phase === 0) {
+          await runPhase0({
+            projectId: row.project_id,
+            userId,
+            revisionGuidance,
+            forceNewApproval: true,
+          });
+        } else {
+          await enqueueNextPhaseArtifacts(row.project_id, row.phase as 1 | 2 | 3, {
+            forceRegenerate: true,
+            revisionGuidance,
+          });
+        }
+      } catch (phaseError) {
+        const message = phaseError instanceof Error ? phaseError.message : "Failed to re-run phase with guidance";
+        await withRetry(() =>
+          log_task(
+            row.project_id,
+            "ceo_agent",
+            row.phase === 0 ? "phase0_revision_failed" : `phase${row.phase}_revision_failed`,
+            "failed",
+            message,
+          ),
+        );
+        return NextResponse.json({ error: message }, { status: 500 });
+      }
     }
 
     await withRetry(() => log_task(row.project_id, "ceo_agent", "approval_decision", "completed", `Decision: ${body.decision}`));
