@@ -33,10 +33,12 @@ export function PacketDecisionBar({ projectId, approvalId, approvalVersion, appr
   const [busy, setBusy] = useState<Decision | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [status, setStatus] = useState(approvalStatus);
+  const [reviseOpen, setReviseOpen] = useState(false);
+  const [reviseGuidance, setReviseGuidance] = useState("");
 
   const canDecide = Boolean(approvalId && approvalVersion && status === "pending");
 
-  async function submitDecision(decision: Decision) {
+  async function submitDecision(decision: Decision, guidance?: string) {
     if (!approvalId || !approvalVersion) return;
 
     setBusy(decision);
@@ -46,7 +48,7 @@ export function PacketDecisionBar({ projectId, approvalId, approvalVersion, appr
       const response = await fetch(`/api/inbox/${approvalId}/decision`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ decision, version: approvalVersion }),
+        body: JSON.stringify({ decision, version: approvalVersion, guidance }),
       });
       const json = await parseResponseJson(response);
       if (!response.ok) {
@@ -56,6 +58,8 @@ export function PacketDecisionBar({ projectId, approvalId, approvalVersion, appr
       setStatus(decision);
       const label = decision === "approved" ? "approved" : decision === "revised" ? "revision requested" : "killed";
       setNotice(`Phase 0 packet ${label}.`);
+      setReviseOpen(false);
+      setReviseGuidance("");
       router.refresh();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Decision failed.");
@@ -79,10 +83,13 @@ export function PacketDecisionBar({ projectId, approvalId, approvalVersion, appr
           <button
             type="button"
             className="packet-action-btn revise"
-            onClick={() => submitDecision("revised")}
+            onClick={() => {
+              setNotice(null);
+              setReviseOpen((prev) => !prev);
+            }}
             disabled={!canDecide || busy !== null}
           >
-            {busy === "revised" ? "Requesting..." : "Request Revisions"}
+            {busy === "revised" ? "Requesting..." : reviseOpen ? "Close Revisions" : "Request Revisions"}
           </button>
           <button
             type="button"
@@ -99,6 +106,38 @@ export function PacketDecisionBar({ projectId, approvalId, approvalVersion, appr
             Phase Dashboard
           </Link>
         </div>
+        {reviseOpen && canDecide && (
+          <div className="packet-revise-panel">
+            <label className="packet-revise-label" htmlFor="packet-revise-guidance">
+              Guidance for CEO agent retry
+            </label>
+            <textarea
+              id="packet-revise-guidance"
+              className="packet-revise-input"
+              value={reviseGuidance}
+              onChange={(event) => setReviseGuidance(event.target.value)}
+              placeholder="Explain what should change before re-running this phase..."
+            />
+            <div className="packet-revise-actions">
+              <button
+                type="button"
+                className="packet-action-btn revise"
+                disabled={busy !== null || reviseGuidance.trim().length < 8}
+                onClick={() => submitDecision("revised", reviseGuidance.trim())}
+              >
+                {busy === "revised" ? "Submitting..." : "Submit Revision Guidance"}
+              </button>
+              <button
+                type="button"
+                className="packet-action-btn neutral"
+                disabled={busy !== null}
+                onClick={() => setReviseOpen(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
         {notice && <div className="packet-action-notice">{notice}</div>}
         {!notice && !canDecide && (
           <div className="packet-action-notice">No pending packet decision. Use Inbox for current approvals.</div>

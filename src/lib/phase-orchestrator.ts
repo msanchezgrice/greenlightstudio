@@ -40,6 +40,11 @@ type ExecutionApproval = {
   payload: Record<string, unknown>;
 };
 
+type EnqueuePhaseOptions = {
+  forceRegenerate?: boolean;
+  revisionGuidance?: string | null;
+};
+
 function buildPhasePlan(project: ProjectRow, phase: 1 | 2 | 3): PhasePlan {
   const focusAreas = project.focus_areas?.length ? project.focus_areas : ["Market Research", "Landing Page"];
   const permissions = project.permissions ?? {};
@@ -137,7 +142,7 @@ function riskFromConfidence(confidence: number): "high" | "medium" | "low" {
   return "low";
 }
 
-async function generatePacketForPhase(project: ProjectRow, phase: 1 | 2 | 3) {
+async function generatePacketForPhase(project: ProjectRow, phase: 1 | 2 | 3, revisionGuidance?: string | null) {
   const input = {
     project_name: project.name,
     domain: project.domain,
@@ -154,6 +159,7 @@ async function generatePacketForPhase(project: ProjectRow, phase: 1 | 2 | 3) {
     night_shift: project.night_shift,
     focus_areas: project.focus_areas?.length ? project.focus_areas : ["Market Research", "Landing Page"],
     scan_results: project.scan_results,
+    revision_guidance: revisionGuidance ?? null,
   };
 
   if (phase === 1) return generatePhase1Packet(input);
@@ -239,9 +245,11 @@ function buildExecutionApprovals(
   return approvals;
 }
 
-export async function enqueueNextPhaseArtifacts(projectId: string, phase: number) {
+export async function enqueueNextPhaseArtifacts(projectId: string, phase: number, options: EnqueuePhaseOptions = {}) {
   if (phase < 1 || phase > 3) return;
   const db = createServiceSupabase();
+  const forceRegenerate = Boolean(options.forceRegenerate);
+  const revisionGuidance = options.revisionGuidance?.trim() || null;
 
   const { data: project, error: projectError } = await withRetry(() =>
     db
@@ -257,6 +265,33 @@ export async function enqueueNextPhaseArtifacts(projectId: string, phase: number
 
   const plan = buildPhasePlan(project as ProjectRow, phase as 1 | 2 | 3);
 
+  if (forceRegenerate) {
+    const now = new Date().toISOString();
+    const { error: supersedeError } = await withRetry(() =>
+      db
+        .from("approval_queue")
+        .update({
+          status: "revised",
+          decided_at: now,
+          resolved_at: now,
+        })
+        .eq("project_id", projectId)
+        .eq("phase", plan.phase)
+        .eq("status", "pending"),
+    );
+    if (supersedeError) throw new Error(supersedeError.message);
+
+    await withRetry(() =>
+      log_task(
+        projectId,
+        "ceo_agent",
+        `phase${plan.phase}_revision`,
+        "running",
+        revisionGuidance ? `Re-running phase with guidance: ${revisionGuidance.slice(0, 320)}` : "Re-running phase packet",
+      ),
+    );
+  }
+
   const { data: existingApproval, error: approvalLookupError } = await withRetry(() =>
     db
       .from("approval_queue")
@@ -269,7 +304,7 @@ export async function enqueueNextPhaseArtifacts(projectId: string, phase: number
   );
 
   if (approvalLookupError) throw new Error(approvalLookupError.message);
-  if (existingApproval) return;
+  if (existingApproval && !forceRegenerate) return;
 
   await withRetry(() =>
     log_task(projectId, "ceo_agent", `phase${plan.phase}_init`, "running", `Initializing Phase ${plan.phase} artifacts`),
@@ -279,7 +314,7 @@ export async function enqueueNextPhaseArtifacts(projectId: string, phase: number
     await withRetry(() => log_task(projectId, task.agent, task.description, "running", task.detail));
   }
 
-  const packet = await generatePacketForPhase(project as ProjectRow, plan.phase);
+  const packet = await generatePacketForPhase(project as ProjectRow, plan.phase, revisionGuidance);
   const packetId = await withRetry(() => save_packet(projectId, plan.phase, packet));
   const confidence = packet.reasoning_synopsis.confidence;
   const risk = riskFromConfidence(confidence);
@@ -297,6 +332,12 @@ export async function enqueueNextPhaseArtifacts(projectId: string, phase: number
       `Phase ${plan.phase} artifacts generated (${confidence}/100 confidence)`,
     ),
   );
+
+  if (forceRegenerate) {
+    await withRetry(() =>
+      log_task(projectId, "ceo_agent", `phase${plan.phase}_revision`, "completed", "Revision packet generated"),
+    );
+  }
 
   const { error: insertApprovalError } = await withRetry(() =>
     db.from("approval_queue").insert({

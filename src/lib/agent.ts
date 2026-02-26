@@ -13,7 +13,7 @@ import {
 } from "@/types/phase-packets";
 import { z } from "zod";
 
-const AGENT_QUERY_TIMEOUT_MS = 90_000;
+const AGENT_QUERY_TIMEOUT_MS = Math.max(30_000, Number(process.env.CLAUDE_AGENT_QUERY_TIMEOUT_MS ?? 90_000));
 const AGENT_QUERY_MAX_TURNS = 12;
 const AGENT_RUNTIME_TMP_DIR = process.env.CLAUDE_SDK_TMPDIR?.trim() || "/tmp";
 const IS_SERVERLESS_RUNTIME = Boolean(process.env.VERCEL || process.env.LAMBDA_TASK_ROOT);
@@ -137,6 +137,17 @@ function extractDeltaText(event: unknown) {
   return "";
 }
 
+function extractJsonDelta(event: unknown) {
+  if (!event || typeof event !== "object") return "";
+  const eventRecord = event as Record<string, unknown>;
+  if (eventRecord.type !== "content_block_delta") return "";
+  const delta = eventRecord.delta;
+  if (!delta || typeof delta !== "object") return "";
+  const deltaRecord = delta as Record<string, unknown>;
+  if (deltaRecord.type !== "input_json_delta") return "";
+  return typeof deltaRecord.partial_json === "string" ? deltaRecord.partial_json : "";
+}
+
 function parsePermissionDenials(value: unknown) {
   if (!Array.isArray(value) || value.length === 0) return null;
   const denials = value
@@ -252,6 +263,7 @@ async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptio
 
   let raw = "";
   let streamedRaw = "";
+  let streamedJsonRaw = "";
   let resultText = "";
   let structuredOutput: unknown = undefined;
   let resultError: string | null = null;
@@ -280,6 +292,7 @@ async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptio
 
       if (message.type === "stream_event") {
         streamedRaw += extractDeltaText(message.event);
+        streamedJsonRaw += extractJsonDelta(message.event);
         continue;
       }
 
@@ -307,7 +320,7 @@ async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptio
     clearTimeout(timeout);
   }
 
-  const finalText = raw.trim() || streamedRaw.trim() || resultText.trim();
+  const finalText = streamedJsonRaw.trim() || raw.trim() || streamedRaw.trim() || resultText.trim();
 
   const parseFinalText = () => parseSchemaWithRepair(parseAgentJson<T>(finalText), options);
 
@@ -441,9 +454,13 @@ function normalizePhase0PacketCandidate(value: unknown) {
   return next;
 }
 
-async function runResearchAgent(input: OnboardingInput) {
+async function runResearchAgent(input: OnboardingInput, revisionGuidance?: string | null) {
+  const guidanceBlock = revisionGuidance?.trim()
+    ? `\nRevision guidance from user:\n${revisionGuidance.trim()}\nPrioritize this guidance in your research framing.`
+    : "";
   const prompt = `You are Research Agent. Return STRICT JSON only.
 Input:\n${JSON.stringify({ domain: input.domain, idea_description: input.idea_description })}
+${guidanceBlock}
 
 Required JSON shape:
 {
@@ -460,12 +477,23 @@ Rules:
   return runJsonQuery(prompt, researchSchema);
 }
 
-export async function generatePhase0Packet(input: OnboardingInput): Promise<Packet> {
-  const research = await runResearchAgent(input);
+export async function generatePhase0Packet(input: OnboardingInput, revisionGuidance?: string | null): Promise<Packet> {
+  const trimmedGuidance = revisionGuidance?.trim() || "";
+  let research: z.infer<typeof researchSchema>;
+  try {
+    research = await runResearchAgent(input, trimmedGuidance);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown research failure";
+    throw new Error(`phase0_research_query: ${message}`);
+  }
+  const guidanceBlock = trimmedGuidance
+    ? `\nRevision guidance from user:\n${trimmedGuidance}\nYou MUST incorporate this guidance when shaping recommendation and next_actions.`
+    : "";
 
   const prompt = `You are CEO Agent. Generate STRICT JSON for a Phase 0 packet.
 Use this onboarding input:\n${JSON.stringify(input)}
 Use this research brief:\n${JSON.stringify(research)}
+${guidanceBlock}
 
 Return only JSON with these keys:
 - tagline
@@ -486,7 +514,12 @@ Rules:
 - reasoning_synopsis.confidence must be 0-100 integer
 - confidence_breakdown values must be 0-100 integers`;
 
-  return runJsonQuery(prompt, packetSchema, normalizePhase0PacketCandidate);
+  try {
+    return await runJsonQuery(prompt, packetSchema, normalizePhase0PacketCandidate);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown packet synthesis failure";
+    throw new Error(`phase0_ceo_query: ${message}`);
+  }
 }
 
 function truncateText(value: string, limit = 500) {
@@ -555,6 +588,7 @@ type PhaseGenerationInput = {
   night_shift: boolean;
   focus_areas: string[];
   scan_results: Record<string, unknown> | null;
+  revision_guidance?: string | null;
 };
 
 function phaseContext(input: PhaseGenerationInput) {
@@ -569,6 +603,7 @@ function phaseContext(input: PhaseGenerationInput) {
       night_shift: input.night_shift,
       focus_areas: input.focus_areas,
       scan_results: input.scan_results,
+      revision_guidance: input.revision_guidance ?? null,
     },
     null,
     2,
@@ -634,7 +669,8 @@ Rules:
 - no markdown
 - no commentary
 - no placeholder text
-- keep output specific to the provided project context`;
+- keep output specific to the provided project context
+- if revision_guidance is present, prioritize it explicitly in deliverables and rationale`;
 
   return runJsonQuery(prompt, phase1PacketSchema);
 }
@@ -687,7 +723,8 @@ Rules:
 - paid_acquisition.budget_cap_per_day MUST honor permissions.ads_budget_cap
 - if permissions.ads_enabled is false then paid_acquisition.enabled must be false
 - no markdown
-- no placeholder text`;
+- no placeholder text
+- if revision_guidance is present, explicitly reflect it in weekly_experiments and guardrails`;
 
   const parsed = await runJsonQuery(prompt, phase2PacketSchema);
 
@@ -753,7 +790,8 @@ Rules:
 - architecture_review.runtime_mode must match input runtime_mode
 - merge_policy.protected_branch should be "main"
 - no markdown
-- no placeholder text`;
+- no placeholder text
+- if revision_guidance is present, reflect it in milestones and launch_checklist`;
 
   const parsed = await runJsonQuery(prompt, phase3PacketSchema);
   return {

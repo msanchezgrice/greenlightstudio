@@ -1727,6 +1727,47 @@ a {
   color: var(--text2);
 }
 
+.packet-revise-panel {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  background: var(--card2);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.packet-revise-label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text3);
+  margin-bottom: 6px;
+}
+
+.packet-revise-input {
+  width: 100%;
+  min-height: 84px;
+  resize: vertical;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #08101f;
+  color: var(--text);
+  font-size: 13px;
+  padding: 10px;
+  outline: none;
+}
+
+.packet-revise-input:focus {
+  border-color: #2f5de6;
+}
+
+.packet-revise-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 /* Studio views */
 .studio-page {
   max-width: 1120px;

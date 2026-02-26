@@ -98,14 +98,18 @@ export function InboxView({ initialItems }: { initialItems: Item[] }) {
     }
   }
 
-  async function decide(item: Item, decision: Decision) {
+  function requiresRevisionGuidance(item: Item) {
+    return item.action_type.startsWith("phase") && item.action_type.endsWith("_review");
+  }
+
+  async function decide(item: Item, decision: Decision, guidance?: string) {
     setLoadingId(item.id);
     setError(null);
     try {
       const res = await fetch(`/api/inbox/${item.id}/decision`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ decision, version: item.version }),
+        body: JSON.stringify({ decision, version: item.version, guidance }),
       });
       const json = await parseResponseJson(res);
       if (!res.ok) {
@@ -131,6 +135,21 @@ export function InboxView({ initialItems }: { initialItems: Item[] }) {
     } finally {
       setLoadingId(null);
     }
+  }
+
+  async function requestRevision(item: Item) {
+    if (requiresRevisionGuidance(item)) {
+      const guidance = window.prompt("What guidance should the CEO agent use for this retry?");
+      if (guidance === null) return;
+      if (guidance.trim().length < 8) {
+        setError("Revision guidance must be at least 8 characters.");
+        return;
+      }
+      await decide(item, "revised", guidance.trim());
+      return;
+    }
+
+    await decide(item, "revised");
   }
 
   return (
@@ -223,7 +242,7 @@ export function InboxView({ initialItems }: { initialItems: Item[] }) {
               </div>
               <div className="card-actions">
                 <button className="btn btn-approve" disabled={loadingId === item.id} onClick={() => decide(item, "approved")}>✓ Approve</button>
-                <button className="btn btn-preview" disabled={loadingId === item.id} onClick={() => decide(item, "revised")}>Request Revision</button>
+                <button className="btn btn-preview" disabled={loadingId === item.id} onClick={() => requestRevision(item)}>Request Revision</button>
                 <Link href={`/projects/${item.project_id}/packet`} className="btn btn-details">View Details</Link>
                 <button className="btn btn-deny" disabled={loadingId === item.id} onClick={() => decide(item, "denied")}>✕ Deny</button>
               </div>

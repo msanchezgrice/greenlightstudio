@@ -1,20 +1,36 @@
 import { auth } from "@clerk/nextjs/server";
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 import { update_phase, log_task, upsertUser } from "@/lib/supabase-mcp";
 import { enqueueNextPhaseArtifacts } from "@/lib/phase-orchestrator";
 import { withRetry } from "@/lib/retry";
 import { executeApprovedAction } from "@/lib/action-execution";
+import { logPhase0Failure, runPhase0 } from "@/lib/phase0";
 
-const decisionSchema = z.object({ decision: z.enum(["approved", "denied", "revised"]), version: z.number().int().positive() });
+const decisionSchema = z.object({
+  decision: z.enum(["approved", "denied", "revised"]),
+  version: z.number().int().positive(),
+  guidance: z.string().trim().max(2000).optional(),
+});
+
+const phaseAdvanceActions = new Set([
+  "phase0_packet_review",
+  "phase1_validate_review",
+  "phase2_distribute_review",
+  "phase3_golive_review",
+]);
 
 export async function POST(req: Request, context: { params: Promise<{ approvalId: string }> }) {
   try {
     const { userId } = await auth();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const body = decisionSchema.parse(await req.json());
+    const parsedBody = decisionSchema.safeParse(await req.json());
+    if (!parsedBody.success) {
+      return NextResponse.json({ error: parsedBody.error.issues[0]?.message ?? "Invalid decision payload." }, { status: 400 });
+    }
+    const body = parsedBody.data;
     const { approvalId } = await context.params;
     const db = createServiceSupabase();
 
@@ -37,6 +53,12 @@ export async function POST(req: Request, context: { params: Promise<{ approvalId
     if (row.version !== body.version) return NextResponse.json({ error: "Conflict", expectedVersion: row.version }, { status: 409 });
 
     const { data: ownerUser } = await db.from("users").select("email").eq("clerk_id", userId).maybeSingle();
+    const isPhaseRevisionRequest = body.decision === "revised" && phaseAdvanceActions.has(row.action_type);
+    const revisionGuidance = body.guidance?.trim() || null;
+
+    if (isPhaseRevisionRequest && !revisionGuidance) {
+      return NextResponse.json({ error: "Revision guidance is required when requesting packet revisions." }, { status: 400 });
+    }
 
     if (body.decision === "approved") {
       const executableActions = new Set([
@@ -102,13 +124,6 @@ export async function POST(req: Request, context: { params: Promise<{ approvalId
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
     if (body.decision === "approved") {
-      const phaseAdvanceActions = new Set([
-        "phase0_packet_review",
-        "phase1_validate_review",
-        "phase2_distribute_review",
-        "phase3_golive_review",
-      ]);
-
       if (phaseAdvanceActions.has(row.action_type)) {
         const nextPhase = Math.max(project.phase, row.phase) + 1;
         await withRetry(() => update_phase(row.project_id, nextPhase));
@@ -127,6 +142,46 @@ export async function POST(req: Request, context: { params: Promise<{ approvalId
           );
         }
       }
+    }
+
+    if (isPhaseRevisionRequest && revisionGuidance) {
+      after(async () => {
+        try {
+          if (row.phase === 0) {
+            await runPhase0({ projectId: row.project_id, userId, revisionGuidance });
+            return;
+          }
+
+          await enqueueNextPhaseArtifacts(row.project_id, row.phase as 1 | 2 | 3, {
+            forceRegenerate: true,
+            revisionGuidance,
+          });
+        } catch (phaseError) {
+          if (row.phase === 0) {
+            await logPhase0Failure(row.project_id, phaseError);
+          } else {
+            await withRetry(() =>
+              log_task(
+                row.project_id,
+                "ceo_agent",
+                `phase${row.phase}_revision_failed`,
+                "failed",
+                phaseError instanceof Error ? phaseError.message : "Failed to re-run phase with guidance",
+              ),
+            );
+          }
+        }
+      });
+
+      await withRetry(() =>
+        log_task(
+          row.project_id,
+          "ceo_agent",
+          "phase_revision_requested",
+          "completed",
+          `Revision guidance submitted for phase ${row.phase}: ${revisionGuidance.slice(0, 280)}`,
+        ),
+      );
     }
 
     await withRetry(() => log_task(row.project_id, "ceo_agent", "approval_decision", "completed", `Decision: ${body.decision}`));

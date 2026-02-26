@@ -607,8 +607,8 @@ export function OnboardingWizard() {
 
     try {
       const createdIds = projectId ? (projectIds.length ? projectIds : [projectId]) : await createProjects();
-      const id = createdIds[0];
-      setProjectId(id);
+      const primaryProjectId = createdIds[0];
+      setProjectId(primaryProjectId);
       setProjectIds(createdIds);
 
       if (form.uploaded_files.length > 0 && selectedFiles.length === 0 && !projectId) {
@@ -620,95 +620,58 @@ export function OnboardingWizard() {
         }
       }
 
-      const currentLaunchNonce = ++launchNonce.current;
-      const launchStartedAt = Date.now();
-      const launchTimeoutMs = 300_000;
-      const progressStallMs = 210_000;
-      const launchController = new AbortController();
-      let abortReason: "timeout" | "stalled" | "failed" | "completed" | null = null;
-      let lastProgressAt = Date.now();
-      let progressSignature = "";
-      const launchTimeout = window.setTimeout(() => {
-        abortReason = "timeout";
-        launchController.abort();
-      }, launchTimeoutMs);
+      const launchStartMap = new Map<string, number>();
+      const launchResponses = await Promise.all(
+        createdIds.map(async (launchProjectId) => {
+          launchStartMap.set(launchProjectId, Date.now());
+          const response = await fetch(`/api/projects/${launchProjectId}/launch`, {
+            method: "POST",
+            keepalive: true,
+            headers: { "Content-Type": "application/json" },
+          });
+          const json = await parseResponseJson(response);
+          if (!response.ok) {
+            const message = typeof json?.error === "string" ? json.error : `Launch failed (HTTP ${response.status})`;
+            throw new Error(message);
+          }
+          return { launchProjectId, json };
+        }),
+      );
 
+      const currentLaunchNonce = ++launchNonce.current;
+      let progressSignature = "";
       const pollProgress = async () => {
         if (currentLaunchNonce !== launchNonce.current) return [] as LaunchTask[];
-        const progressRes = await fetch(`/api/projects/${id}/progress`, { cache: "no-store" });
+        const progressRes = await fetch(`/api/projects/${primaryProjectId}/progress`, { cache: "no-store" });
         if (!progressRes.ok) return [] as LaunchTask[];
         const progressJson = await parseResponseJson(progressRes);
         const tasks = Array.isArray(progressJson?.tasks)
           ? (progressJson.tasks as LaunchTask[])
           : [];
-        const currentAttemptTasks = normalizeLaunchTasks(tasks, launchStartedAt);
+        const launchedAt = launchStartMap.get(primaryProjectId) ?? Date.now();
+        const currentAttemptTasks = normalizeLaunchTasks(tasks, launchedAt);
         const nextSignature = currentAttemptTasks
           .map((task) => `${task.description}|${task.status}|${task.detail ?? ""}|${task.created_at}`)
           .join("||");
         if (nextSignature !== progressSignature) {
           progressSignature = nextSignature;
-          lastProgressAt = Date.now();
         }
         setLaunchProgress(currentAttemptTasks);
         return currentAttemptTasks;
       };
 
-      await pollProgress();
-
-      let finished = false;
-      let launchError: Error | null = null;
-      const launchRequest = fetch(`/api/projects/${id}/launch`, { method: "POST", signal: launchController.signal })
-        .then(async (res) => {
-          const json = await parseResponseJson(res);
-          if (!res.ok) {
-            const errorMessage = typeof json?.error === "string" ? json.error : `Launch failed (HTTP ${res.status})`;
-            throw new Error(errorMessage);
-          }
-        })
-        .catch((err: unknown) => {
-          if (err instanceof Error && err.name === "AbortError") {
-            if (abortReason === "completed" || abortReason === "failed") return;
-            if (abortReason === "stalled") {
-              launchError = new Error("Launch stalled with no task updates for 210 seconds. Please retry.");
-              return;
-            }
-            launchError = new Error("Launch timed out after 5 minutes. Please refresh to check latest status.");
-            return;
-          }
-          launchError = err instanceof Error ? err : new Error("Launch failed");
-        })
-        .finally(() => {
-          window.clearTimeout(launchTimeout);
-          finished = true;
-        });
-
-      while (!finished) {
-        await new Promise((resolve) => setTimeout(resolve, 800));
+      const progressDeadline = Date.now() + 15_000;
+      while (Date.now() < progressDeadline) {
         const tasks = await pollProgress();
-        const failedTask = tasks.find((task) => task.status === "failed");
-        const completedTask = tasks.find((task) => task.description === "phase0_complete" && task.status === "completed");
-        if (completedTask) {
-          abortReason = "completed";
-          launchController.abort();
-          break;
-        }
-        if (failedTask) {
-          launchError = new Error(failedTask.detail ?? `${failedTask.description} failed`);
-          abortReason = "failed";
-          launchController.abort();
-          break;
-        }
-        if (Date.now() - lastProgressAt > progressStallMs) {
-          launchError = new Error("Launch stalled with no task updates for 210 seconds. Please retry.");
-          abortReason = "stalled";
-          launchController.abort();
-          break;
-        }
+        if (tasks.length) break;
+        await new Promise((resolve) => setTimeout(resolve, 900));
       }
 
-      await launchRequest;
       await pollProgress();
-      if (launchError) throw launchError;
+      const launchFailure = launchResponses.find(({ json }) => typeof json?.error === "string");
+      if (launchFailure && typeof launchFailure.json?.error === "string") {
+        throw new Error(launchFailure.json.error);
+      }
 
       try {
         removeStorage(wizardStorageKey, window.localStorage);
@@ -719,8 +682,8 @@ export function OnboardingWizard() {
       setSelectedFiles([]);
       setStep("launched");
       setTimeout(() => {
-        window.location.href = `/projects/${id}/packet`;
-      }, 1000);
+        window.location.href = `/projects/${primaryProjectId}/packet`;
+      }, 900);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Launch failed");
     } finally {

@@ -1,107 +1,27 @@
 import { auth } from "@clerk/nextjs/server";
-import { NextResponse } from "next/server";
-import { createServiceSupabase } from "@/lib/supabase";
-import { generatePhase0Packet } from "@/lib/agent";
-import { onboardingSchema } from "@/types/domain";
-import { save_packet, log_task } from "@/lib/supabase-mcp";
+import { NextResponse, after } from "next/server";
 import { withRetry } from "@/lib/retry";
+import { createServiceSupabase } from "@/lib/supabase";
+import { log_task } from "@/lib/supabase-mcp";
+import { logPhase0Failure, runPhase0 } from "@/lib/phase0";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-async function logPhaseTask(projectId: string, agent: string, description: string, status: "running" | "completed" | "failed", detail: string) {
-  await withRetry(() => log_task(projectId, agent, description, status, detail));
-}
-
-async function runPhase0(projectId: string, userId: string) {
+async function hasRecentActiveLaunch(projectId: string) {
   const db = createServiceSupabase();
-  let initRunning = false;
-  let researchRunning = false;
-  let synthesisRunning = false;
-
-  try {
-    await logPhaseTask(projectId, "ceo_agent", "phase0_init", "running", "Initializing packet generation");
-    initRunning = true;
-
-    const { data: project, error: fetchError } = await withRetry(() =>
-      db.from("projects").select("*").eq("id", projectId).eq("owner_clerk_id", userId).single(),
-    );
-
-    if (fetchError || !project) {
-      throw new Error("Project not found");
-    }
-
-    const input = onboardingSchema.parse(project);
-    await logPhaseTask(projectId, "ceo_agent", "phase0_init", "completed", "Project input validated");
-    initRunning = false;
-
-    await logPhaseTask(projectId, "research_agent", "phase0_research", "running", "Researching competitors and market");
-    researchRunning = true;
-    const packet = await generatePhase0Packet(input);
-    const confidence = packet.reasoning_synopsis.confidence;
-    await logPhaseTask(projectId, "research_agent", "phase0_research", "completed", `Research complete (${confidence}/100 confidence)`);
-    researchRunning = false;
-
-    await logPhaseTask(projectId, "ceo_agent", "phase0_synthesis", "running", "Synthesizing packet output");
-    synthesisRunning = true;
-
-    const packetId = await withRetry(() => save_packet(projectId, 0, packet));
-    const risk = confidence < 40 ? "high" : confidence < 70 ? "medium" : "low";
-
-    const { data: existingApproval, error: existingApprovalError } = await withRetry(() =>
-      db
-        .from("approval_queue")
-        .select("id")
-        .eq("project_id", projectId)
-        .eq("phase", 0)
-        .eq("action_type", "phase0_packet_review")
-        .eq("status", "pending")
-        .maybeSingle(),
-    );
-
-    if (existingApprovalError) {
-      throw new Error(existingApprovalError.message);
-    }
-
-    if (!existingApproval) {
-      const { error: approvalError } = await withRetry(() =>
-        db.from("approval_queue").insert({
-          project_id: projectId,
-          packet_id: packetId,
-          phase: 0,
-          type: "phase_advance",
-          title: "Greenlight Phase 0 Packet for Review",
-          description: `CEO recommendation: ${packet.recommendation.toUpperCase()} (${confidence}/100 confidence).`,
-          risk,
-          risk_level: risk,
-          action_type: "phase0_packet_review",
-          agent_source: "ceo_agent",
-          payload: packet,
-        }),
-      );
-
-      if (approvalError) {
-        throw new Error(approvalError.message);
-      }
-    }
-
-    await logPhaseTask(projectId, "ceo_agent", "phase0_synthesis", "completed", "Packet and approval queue saved");
-    synthesisRunning = false;
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : "Unknown launch error";
-    if (synthesisRunning) {
-      await logPhaseTask(projectId, "ceo_agent", "phase0_synthesis", "failed", detail);
-    }
-    if (researchRunning) {
-      await logPhaseTask(projectId, "research_agent", "phase0_research", "failed", detail);
-    }
-    if (initRunning) {
-      await logPhaseTask(projectId, "ceo_agent", "phase0_init", "failed", detail);
-    }
-    throw error;
-  }
-
-  await withRetry(() => log_task(projectId, "ceo_agent", "phase0_complete", "completed", "Phase 0 packet generated"));
+  const { data, error } = await withRetry(() =>
+    db
+      .from("tasks")
+      .select("id")
+      .eq("project_id", projectId)
+      .in("description", ["phase0_init", "phase0_research", "phase0_synthesis"])
+      .eq("status", "running")
+      .gte("created_at", new Date(Date.now() - 10 * 60 * 1000).toISOString())
+      .limit(1),
+  );
+  if (error) throw new Error(error.message);
+  return Boolean(data?.length);
 }
 
 export async function POST(_: Request, context: { params: Promise<{ projectId: string }> }) {
@@ -109,20 +29,47 @@ export async function POST(_: Request, context: { params: Promise<{ projectId: s
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { projectId } = await context.params;
+  const db = createServiceSupabase();
 
   try {
-    await runPhase0(projectId, userId);
-    return NextResponse.json({ ok: true });
-  } catch (error) {
-    try {
-      await withRetry(() =>
-        log_task(projectId, "ceo_agent", "phase0_failed", "failed", error instanceof Error ? error.message : "Unknown launch error"),
-      );
-    } catch (loggingError) {
-      console.error("Failed to persist phase0_failed task log", loggingError);
+    const { data: project, error: projectError } = await withRetry(() =>
+      db.from("projects").select("id, owner_clerk_id").eq("id", projectId).single(),
+    );
+    if (projectError || !project || project.owner_clerk_id !== userId) {
+      return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
+
+    const launchAlreadyRunning = await hasRecentActiveLaunch(projectId);
+    if (launchAlreadyRunning) {
+      return NextResponse.json({ ok: true, started: false, alreadyRunning: true });
+    }
+
+    const { data: existingPacket, error: packetError } = await withRetry(() =>
+      db.from("phase_packets").select("id").eq("project_id", projectId).eq("phase", 0).maybeSingle(),
+    );
+    if (packetError) {
+      return NextResponse.json({ error: packetError.message }, { status: 400 });
+    }
+    if (existingPacket) {
+      return NextResponse.json({ ok: true, started: false, alreadyCompleted: true });
+    }
+
+    after(async () => {
+      try {
+        await runPhase0({ projectId, userId });
+      } catch (error) {
+        await logPhase0Failure(projectId, error);
+      }
+    });
+
+    await withRetry(() =>
+      log_task(projectId, "ceo_agent", "phase0_launch_enqueued", "completed", "Phase 0 launch queued"),
+    );
+
+    return NextResponse.json({ ok: true, started: true });
+  } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Failed generating Phase 0 packet";
-    const statusCode = errorMessage === "Project not found" ? 404 : 500;
+    const statusCode = errorMessage === "Project not found" ? 404 : 400;
     return NextResponse.json(
       { error: errorMessage },
       { status: statusCode },
