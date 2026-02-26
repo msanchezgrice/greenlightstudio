@@ -263,6 +263,9 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
               </div>
 
               <div className="card-actions">
+                <Link href={`/projects/${projectId}/phases/${phase.id}`} className="btn btn-details">
+                  Open Workspace
+                </Link>
                 {phase.id === 0 && (
                   <Link href={`/projects/${projectId}/packet`} className="btn btn-preview">
                     Open Packet

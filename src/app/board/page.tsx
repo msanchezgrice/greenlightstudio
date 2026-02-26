@@ -16,6 +16,10 @@ function phaseLabel(phase: number) {
   return "Launched";
 }
 
+function phaseRoute(phase: number) {
+  return Math.min(3, Math.max(0, phase));
+}
+
 function taskStatusClass(status: string) {
   if (status === "completed") return "good";
   if (status === "failed") return "bad";
@@ -129,6 +133,9 @@ export default async function BoardPage() {
                 <div className="card-actions">
                   <Link href={`/projects/${project.id}`} className="btn btn-details">
                     Open
+                  </Link>
+                  <Link href={`/projects/${project.id}/phases/${phaseRoute(project.phase)}`} className="btn btn-preview">
+                    Active Phase
                   </Link>
                   <Link href={`/projects/${project.id}/phases`} className="btn btn-details">
                     Phases

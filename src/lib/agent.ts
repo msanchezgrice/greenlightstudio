@@ -3,6 +3,14 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { requireEnv } from "@/lib/env";
 import { packetSchema, reasoningSynopsisSchema, type OnboardingInput, type Packet } from "@/types/domain";
+import {
+  phase1PacketSchema,
+  phase2PacketSchema,
+  phase3PacketSchema,
+  type Phase1Packet,
+  type Phase2Packet,
+  type Phase3Packet,
+} from "@/types/phase-packets";
 import { z } from "zod";
 import { withRetry } from "@/lib/retry";
 
@@ -164,4 +172,237 @@ Rules:
   const parsed = parseAgentJson<Record<string, unknown>>(raw);
   const synopsis = reasoningSynopsisSchema.parse(parsed.reasoning_synopsis);
   return packetSchema.parse({ ...parsed, reasoning_synopsis: synopsis });
+}
+
+type PhaseGenerationInput = {
+  project_name: string;
+  domain: string | null | undefined;
+  idea_description: string;
+  repo_url: string | null | undefined;
+  runtime_mode: "shared" | "attached";
+  permissions: {
+    repo_write: boolean;
+    deploy: boolean;
+    ads_enabled?: boolean;
+    ads_budget_cap: number;
+    email_send: boolean;
+  };
+  night_shift: boolean;
+  focus_areas: string[];
+  scan_results: Record<string, unknown> | null;
+};
+
+function phaseContext(input: PhaseGenerationInput) {
+  return JSON.stringify(
+    {
+      project_name: input.project_name,
+      domain: input.domain,
+      idea_description: input.idea_description,
+      repo_url: input.repo_url,
+      runtime_mode: input.runtime_mode,
+      permissions: input.permissions,
+      night_shift: input.night_shift,
+      focus_areas: input.focus_areas,
+      scan_results: input.scan_results,
+    },
+    null,
+    2,
+  );
+}
+
+export async function generatePhase1Packet(input: PhaseGenerationInput): Promise<Phase1Packet> {
+  const prompt = `You are CEO Agent. Generate STRICT JSON for Greenlight Studio PHASE 1 (Validate).
+Return ONLY valid JSON with this exact shape:
+{
+  "phase": 1,
+  "summary": "string",
+  "landing_page": {
+    "headline": "string",
+    "subheadline": "string",
+    "primary_cta": "string",
+    "sections": ["string", "string", "string"],
+    "launch_notes": ["string", "string"]
+  },
+  "waitlist": {
+    "capture_stack": "string",
+    "double_opt_in": true,
+    "form_fields": ["string", "string"],
+    "target_conversion_rate": "string"
+  },
+  "analytics": {
+    "provider": "string",
+    "events": ["string", "string", "string"],
+    "dashboard_views": ["string", "string"]
+  },
+  "brand_kit": {
+    "voice": "string",
+    "color_palette": ["string", "string", "string"],
+    "font_pairing": "string",
+    "logo_prompt": "string"
+  },
+  "social_strategy": {
+    "channels": ["string", "string"],
+    "content_pillars": ["string", "string", "string"],
+    "posting_cadence": "string"
+  },
+  "email_sequence": {
+    "emails": [
+      {"day": "Day 0", "subject": "string", "goal": "string"},
+      {"day": "Day 2", "subject": "string", "goal": "string"},
+      {"day": "Day 5", "subject": "string", "goal": "string"}
+    ]
+  },
+  "reasoning_synopsis": {
+    "decision": "greenlight|revise|kill",
+    "confidence": 0,
+    "rationale": ["string","string","string"],
+    "risks": ["string"],
+    "next_actions": ["string"],
+    "evidence": [{"claim":"string","source":"string"}]
+  }
+}
+
+Input context:
+${phaseContext(input)}
+
+Rules:
+- no markdown
+- no commentary
+- no placeholder text
+- keep output specific to the provided project context`;
+
+  const raw = await runTextQuery(prompt);
+  return phase1PacketSchema.parse(parseAgentJson(raw));
+}
+
+export async function generatePhase2Packet(input: PhaseGenerationInput): Promise<Phase2Packet> {
+  const prompt = `You are CEO Agent. Generate STRICT JSON for Greenlight Studio PHASE 2 (Distribute).
+Return ONLY valid JSON with this exact shape:
+{
+  "phase": 2,
+  "summary": "string",
+  "distribution_strategy": {
+    "north_star_metric": "string",
+    "channel_plan": [
+      {"channel":"string","objective":"string","weekly_budget":"string"},
+      {"channel":"string","objective":"string","weekly_budget":"string"}
+    ]
+  },
+  "paid_acquisition": {
+    "enabled": true,
+    "budget_cap_per_day": 0,
+    "target_audiences": ["string"],
+    "creative_angles": ["string","string"],
+    "kill_switch": "string"
+  },
+  "outreach": {
+    "sequence_type": "string",
+    "target_segments": ["string"],
+    "daily_send_cap": 0
+  },
+  "lifecycle_email": {
+    "journeys": ["string","string"],
+    "send_window": "string"
+  },
+  "weekly_experiments": ["string","string","string"],
+  "guardrails": ["string","string","string"],
+  "reasoning_synopsis": {
+    "decision": "greenlight|revise|kill",
+    "confidence": 0,
+    "rationale": ["string","string","string"],
+    "risks": ["string"],
+    "next_actions": ["string"],
+    "evidence": [{"claim":"string","source":"string"}]
+  }
+}
+
+Input context:
+${phaseContext(input)}
+
+Rules:
+- paid_acquisition.budget_cap_per_day MUST honor permissions.ads_budget_cap
+- if permissions.ads_enabled is false then paid_acquisition.enabled must be false
+- no markdown
+- no placeholder text`;
+
+  const raw = await runTextQuery(prompt);
+  const parsed = phase2PacketSchema.parse(parseAgentJson(raw));
+
+  const adsEnabled = Boolean(input.permissions.ads_enabled);
+  const cap = Math.max(0, Number(input.permissions.ads_budget_cap ?? 0));
+  return {
+    ...parsed,
+    paid_acquisition: {
+      ...parsed.paid_acquisition,
+      enabled: adsEnabled && parsed.paid_acquisition.enabled,
+      budget_cap_per_day: cap,
+    },
+  };
+}
+
+export async function generatePhase3Packet(input: PhaseGenerationInput): Promise<Phase3Packet> {
+  const prompt = `You are CEO Agent. Generate STRICT JSON for Greenlight Studio PHASE 3 (Go Live).
+Return ONLY valid JSON with this exact shape:
+{
+  "phase": 3,
+  "summary": "string",
+  "architecture_review": {
+    "runtime_mode": "shared|attached",
+    "system_components": ["string","string","string"],
+    "critical_dependencies": ["string","string"]
+  },
+  "build_plan": {
+    "milestones": [
+      {"name":"string","owner":"string","exit_criteria":"string"},
+      {"name":"string","owner":"string","exit_criteria":"string"},
+      {"name":"string","owner":"string","exit_criteria":"string"}
+    ]
+  },
+  "qa_plan": {
+    "test_suites": ["string","string","string"],
+    "acceptance_gates": ["string","string","string"]
+  },
+  "launch_checklist": ["string","string","string","string"],
+  "rollback_plan": {
+    "triggers": ["string","string"],
+    "steps": ["string","string","string"]
+  },
+  "merge_policy": {
+    "review_required": true,
+    "approvals_required": 2,
+    "protected_branch": "main"
+  },
+  "operational_readiness": ["string","string","string"],
+  "reasoning_synopsis": {
+    "decision": "greenlight|revise|kill",
+    "confidence": 0,
+    "rationale": ["string","string","string"],
+    "risks": ["string"],
+    "next_actions": ["string"],
+    "evidence": [{"claim":"string","source":"string"}]
+  }
+}
+
+Input context:
+${phaseContext(input)}
+
+Rules:
+- architecture_review.runtime_mode must match input runtime_mode
+- merge_policy.protected_branch should be "main"
+- no markdown
+- no placeholder text`;
+
+  const raw = await runTextQuery(prompt);
+  const parsed = phase3PacketSchema.parse(parseAgentJson(raw));
+  return {
+    ...parsed,
+    architecture_review: {
+      ...parsed.architecture_review,
+      runtime_mode: input.runtime_mode,
+    },
+    merge_policy: {
+      ...parsed.merge_policy,
+      protected_branch: "main",
+    },
+  };
 }

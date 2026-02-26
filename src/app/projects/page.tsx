@@ -11,6 +11,10 @@ function phaseLabel(phase: number) {
   return "Launched";
 }
 
+function phaseRoute(phase: number) {
+  return Math.min(3, Math.max(0, phase));
+}
+
 export default async function ProjectsPage() {
   const { userId } = await auth();
   if (!userId) return null;
@@ -76,6 +80,9 @@ export default async function ProjectsPage() {
                             </Link>
                             <Link href={`/projects/${project.id}/phases`} className="btn btn-details">
                               Phases
+                            </Link>
+                            <Link href={`/projects/${project.id}/phases/${phaseRoute(project.phase)}`} className="btn btn-preview">
+                              Active Phase
                             </Link>
                             <Link href={`/projects/${project.id}/packet`} className="btn btn-preview">
                               Packet

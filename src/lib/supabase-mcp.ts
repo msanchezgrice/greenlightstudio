@@ -1,6 +1,7 @@
 import type { Packet } from "@/types/domain";
 import { createServiceSupabase } from "@/lib/supabase";
 import { withRetry } from "@/lib/retry";
+import { reasoningSynopsisSchema } from "@/types/domain";
 
 type Permissions = {
   repo_write: boolean;
@@ -72,9 +73,14 @@ export async function create_project(input: CreateProjectInput) {
   return data.id as string;
 }
 
-export async function save_packet(projectId: string, phase: number, packet: Packet) {
+type PacketLike = Packet | (Record<string, unknown> & { reasoning_synopsis: unknown });
+
+export async function save_packet(projectId: string, phase: number, packet: PacketLike) {
   const db = createServiceSupabase();
-  const confidence = packet.reasoning_synopsis.confidence;
+  const synopsis = reasoningSynopsisSchema.parse((packet as { reasoning_synopsis: unknown }).reasoning_synopsis);
+  const confidence = synopsis.confidence;
+  const recommendationRaw = (packet as { recommendation?: unknown }).recommendation;
+  const recommendation = typeof recommendationRaw === "string" ? recommendationRaw : null;
   const { data, error } = await withRetry(() =>
     db
       .from("phase_packets")
@@ -84,11 +90,11 @@ export async function save_packet(projectId: string, phase: number, packet: Pack
           phase,
           packet,
           confidence,
-          synopsis: packet.reasoning_synopsis,
+          synopsis,
           packet_data: packet,
           confidence_score: confidence,
-          ceo_recommendation: packet.recommendation,
-          reasoning_synopsis: packet.reasoning_synopsis,
+          ceo_recommendation: recommendation,
+          reasoning_synopsis: synopsis,
         },
         { onConflict: "project_id,phase" },
       )

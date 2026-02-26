@@ -50,6 +50,10 @@ function phaseLabel(phase: number) {
   return "Launched";
 }
 
+function phaseRoute(phase: number) {
+  return Math.min(3, Math.max(0, phase));
+}
+
 export default async function ProjectDetailPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { userId } = await auth();
   if (!userId) return null;
@@ -128,6 +132,9 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
           <div className="table-actions">
             <Link href={`/projects/${projectId}/phases`} className="btn btn-details">
               Phase Dashboard
+            </Link>
+            <Link href={`/projects/${projectId}/phases/${phaseRoute(project.phase)}`} className="btn btn-preview">
+              Active Phase Workspace
             </Link>
             <Link href={`/projects/${projectId}/packet`} className="btn btn-preview">
               Open Packet
