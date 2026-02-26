@@ -13,7 +13,7 @@ import {
 } from "@/types/phase-packets";
 import { z } from "zod";
 
-const AGENT_QUERY_TIMEOUT_MS = 55_000;
+const AGENT_QUERY_TIMEOUT_MS = 90_000;
 const AGENT_QUERY_MAX_TURNS = 12;
 const AGENT_RUNTIME_TMP_DIR = process.env.CLAUDE_SDK_TMPDIR?.trim() || "/tmp";
 const IS_SERVERLESS_RUNTIME = Boolean(process.env.VERCEL || process.env.LAMBDA_TASK_ROOT);
@@ -117,9 +117,8 @@ function parseResultErrors(value: unknown) {
 }
 
 type QueryProfile = {
-  name: "structured_bypass" | "structured_default" | "text_default";
+  name: "structured_default" | "text_default";
   useOutputFormat: boolean;
-  bypassPermissions: boolean;
 };
 
 type QueryState = {
@@ -172,6 +171,7 @@ async function executeQueryAttempt<T>(prompt: string, schema: z.ZodType<T>, prof
       persistSession: false,
       cwd,
       settingSources: [],
+      tools: [],
       stderr: (data) => {
         stderrChunks.push(data);
       },
@@ -181,12 +181,6 @@ async function executeQueryAttempt<T>(prompt: string, schema: z.ZodType<T>, prof
               type: "json_schema" as const,
               schema: z.toJSONSchema(schema),
             },
-          }
-        : {}),
-      ...(profile.bypassPermissions
-        ? {
-            permissionMode: "bypassPermissions" as const,
-            allowDangerouslySkipPermissions: true,
           }
         : {}),
     },
@@ -280,9 +274,8 @@ async function executeQueryAttempt<T>(prompt: string, schema: z.ZodType<T>, prof
 
 async function runJsonQuery<T>(prompt: string, schema: z.ZodType<T>) {
   const profiles: QueryProfile[] = [
-    { name: "structured_bypass", useOutputFormat: true, bypassPermissions: true },
-    { name: "structured_default", useOutputFormat: true, bypassPermissions: false },
-    { name: "text_default", useOutputFormat: false, bypassPermissions: false },
+    { name: "structured_default", useOutputFormat: true },
+    { name: "text_default", useOutputFormat: false },
   ];
 
   const errors: string[] = [];
