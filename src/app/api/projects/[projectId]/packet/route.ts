@@ -21,7 +21,10 @@ export async function GET(req: Request, context: { params: Promise<{ projectId: 
     .select("phase,packet,confidence,created_at")
     .eq("project_id", projectId)
     .eq("phase", requestedPhase)
-    .single();
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 404 });
+  if (!data) return NextResponse.json({ error: "Packet not found" }, { status: 404 });
   return NextResponse.json(data);
 }

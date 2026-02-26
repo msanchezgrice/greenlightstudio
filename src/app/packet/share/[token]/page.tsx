@@ -29,7 +29,16 @@ export default async function PacketSharePage({ params }: { params: Promise<{ to
 
   const [{ data: project }, { data: packetRow }] = await Promise.all([
     withRetry(() => db.from("projects").select("name,domain,created_at").eq("id", shareRow.project_id).single()),
-    withRetry(() => db.from("phase_packets").select("packet,confidence,created_at").eq("project_id", shareRow.project_id).eq("phase", 0).single()),
+    withRetry(() =>
+      db
+        .from("phase_packets")
+        .select("packet,confidence,created_at")
+        .eq("project_id", shareRow.project_id)
+        .eq("phase", 0)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ),
   ]);
 
   if (!project || !packetRow) {

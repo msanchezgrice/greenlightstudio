@@ -55,7 +55,9 @@ export default async function PacketPage({ params }: { params: Promise<{ project
       .select("packet, confidence, created_at")
       .eq("project_id", projectId)
       .eq("phase", 0)
-      .single(),
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
     db
       .from("approval_queue")
       .select("id,version,status")

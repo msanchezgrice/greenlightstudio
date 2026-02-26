@@ -34,7 +34,16 @@ export async function GET(_: Request, context: { params: Promise<{ projectId: st
 
   const [{ data: project, error: projectError }, { data: packetRow, error: packetError }] = await Promise.all([
     withRetry(() => db.from("projects").select("id,owner_clerk_id,name").eq("id", projectId).single()),
-    withRetry(() => db.from("phase_packets").select("packet").eq("project_id", projectId).eq("phase", 0).single()),
+    withRetry(() =>
+      db
+        .from("phase_packets")
+        .select("packet")
+        .eq("project_id", projectId)
+        .eq("phase", 0)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ),
   ]);
 
   if (projectError || !project || project.owner_clerk_id !== userId) {
