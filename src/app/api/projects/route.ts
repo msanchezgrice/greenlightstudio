@@ -2,7 +2,7 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { onboardingSchema } from "@/types/domain";
 import { create_project, upsertUser } from "@/lib/supabase-mcp";
-import { getOwnedProjects } from "@/lib/studio";
+import { getOwnedProjects, getLatestPacketsByProject } from "@/lib/studio";
 import { withRetry } from "@/lib/retry";
 
 export async function GET() {
@@ -11,7 +11,15 @@ export async function GET() {
 
   try {
     const projects = await getOwnedProjects(userId);
-    return NextResponse.json(projects);
+    const projectIds = projects.map((p) => p.id);
+    const latestPackets = await getLatestPacketsByProject(projectIds);
+
+    const enriched = projects.map((p) => ({
+      ...p,
+      confidence: latestPackets.get(p.id)?.confidence ?? null,
+    }));
+
+    return NextResponse.json(enriched);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load projects";
     return NextResponse.json({ error: message }, { status: 500 });

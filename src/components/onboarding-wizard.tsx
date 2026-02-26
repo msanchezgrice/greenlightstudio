@@ -781,6 +781,35 @@ export function OnboardingWizard() {
 
       {step === "import" && (
         <section className="wizard-card">
+          {/* Bulk import banner */}
+          <a
+            href="/bulk-import"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "12px 16px",
+              marginBottom: 20,
+              borderRadius: 10,
+              border: "1px solid rgba(59,130,246,.25)",
+              background: "rgba(59,130,246,.06)",
+              textDecoration: "none",
+              color: "inherit",
+              fontSize: 13,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 18 }}>&#128230;</span>
+              <div>
+                <div style={{ fontWeight: 600, color: "#3B82F6" }}>Have multiple domains?</div>
+                <div style={{ color: "var(--text3)", fontSize: 12 }}>
+                  Use Bulk Import to scan and launch up to 50 projects at once
+                </div>
+              </div>
+            </div>
+            <span style={{ color: "#3B82F6", fontWeight: 600, fontSize: 12 }}>Bulk Import &rarr;</span>
+          </a>
+
           <div className="wizard-title-row">
             <h2>What are you building?</h2>
             <span className="pill cyan">S0</span>

@@ -3,7 +3,8 @@ import { auth } from "@clerk/nextjs/server";
 import { createServiceSupabase } from "@/lib/supabase";
 import { StudioNav } from "@/components/studio-nav";
 import { ProjectChatPane } from "@/components/project-chat-pane";
-import { getOwnedProjects, getPendingApprovalsByProject } from "@/lib/studio";
+import { getOwnedProjects, getPendingApprovalsByProject, getPacketsByProject, getProjectAssets } from "@/lib/studio";
+import type { ProjectPacketRow, ProjectAssetRow } from "@/lib/studio";
 import { withRetry } from "@/lib/retry";
 
 type ApprovalRow = {
@@ -45,7 +46,7 @@ function riskClass(risk: ApprovalRow["risk"]) {
 
 function statusClass(status: string) {
   if (status === "failed" || status === "denied") return "bad";
-  if (status === "running" || status === "queued" || status === "revised") return "warn";
+  if (status === "running" || status === "queued" || status === "revised" || status === "pending") return "warn";
   return "good";
 }
 
@@ -55,6 +56,25 @@ function phaseLabel(phase: number) {
   if (phase === 2) return "Phase 2";
   if (phase === 3) return "Phase 3";
   return "Launched";
+}
+
+function assetKindLabel(kind: string) {
+  const labels: Record<string, string> = {
+    upload: "Upload",
+    landing_html: "Landing Page",
+    email_template: "Email Template",
+    ads_creative: "Ad Creative",
+    release_note: "Release Note",
+    packet_export: "Packet Export",
+  };
+  return labels[kind] ?? kind;
+}
+
+function formatBytes(bytes: number | null) {
+  if (bytes === null || bytes === 0) return "--";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function phaseRoute(phase: number) {
@@ -70,7 +90,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
 
   const projects = await getOwnedProjects(userId);
   const projectIds = projects.map((project) => project.id);
-  const [{ total: pendingCount }, projectQuery, approvalsQuery, tasksQuery, packetQuery, nightShiftSummaryQuery, nightShiftFailuresQuery] =
+  const [{ total: pendingCount }, projectQuery, approvalsQuery, tasksQuery, packetQuery, nightShiftSummaryQuery, nightShiftFailuresQuery, allPackets, projectAssets] =
     await Promise.all([
     getPendingApprovalsByProject(projectIds),
     withRetry(() =>
@@ -127,6 +147,8 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
         .order("created_at", { ascending: false })
         .limit(3),
     ),
+    getPacketsByProject(projectId),
+    getProjectAssets(projectId),
   ]);
 
   if (projectQuery.error || !projectQuery.data) {
@@ -255,6 +277,87 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
                     <tr key={failure.id}>
                       <td>{failure.detail ?? "Night Shift task failed."}</td>
                       <td>{new Date(failure.created_at).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        <section className="studio-card">
+          <h2>Phases &amp; Packets</h2>
+          {!allPackets.length ? (
+            <p className="meta-line">No packets generated yet across any phase.</p>
+          ) : (
+            <div className="table-shell">
+              <table className="studio-table compact">
+                <thead>
+                  <tr>
+                    <th>Phase</th>
+                    <th>Confidence</th>
+                    <th>Generated</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allPackets.map((pkt) => (
+                    <tr key={pkt.id}>
+                      <td>{phaseLabel(pkt.phase)}</td>
+                      <td className={pkt.confidence >= 70 ? "good" : pkt.confidence >= 40 ? "warn" : "bad"}>
+                        {pkt.confidence}/100
+                      </td>
+                      <td>{new Date(pkt.created_at).toLocaleString()}</td>
+                      <td>
+                        {pkt.phase === 0 ? (
+                          <Link href={`/projects/${projectId}/packet`} className="btn btn-details btn-sm">
+                            View Packet
+                          </Link>
+                        ) : (
+                          <Link href={`/projects/${projectId}/phases/${pkt.phase}`} className="btn btn-details btn-sm">
+                            View Phase
+                          </Link>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div className="card-actions" style={{ marginTop: 12 }}>
+            <Link href={`/projects/${projectId}/phases`} className="btn btn-details">
+              Full Phase Dashboard
+            </Link>
+          </div>
+        </section>
+
+        <section className="studio-card">
+          <h2>Generated Assets</h2>
+          {!projectAssets.length ? (
+            <p className="meta-line">No assets generated yet for this project.</p>
+          ) : (
+            <div className="table-shell">
+              <table className="studio-table compact">
+                <thead>
+                  <tr>
+                    <th>Asset</th>
+                    <th>Type</th>
+                    <th>Phase</th>
+                    <th>Size</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {projectAssets.map((asset) => (
+                    <tr key={asset.id}>
+                      <td>{asset.filename}</td>
+                      <td>{assetKindLabel(asset.kind)}</td>
+                      <td>{asset.phase !== null ? phaseLabel(asset.phase) : "--"}</td>
+                      <td>{formatBytes(asset.size_bytes)}</td>
+                      <td className={statusClass(asset.status)}>{asset.status}</td>
+                      <td>{new Date(asset.created_at).toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>
