@@ -6,7 +6,6 @@ import { update_phase, log_task, upsertUser } from "@/lib/supabase-mcp";
 import { enqueueNextPhaseArtifacts } from "@/lib/phase-orchestrator";
 import { withRetry } from "@/lib/retry";
 import { executeApprovedAction } from "@/lib/action-execution";
-import { runPhase0 } from "@/lib/phase0";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -58,6 +57,7 @@ export async function POST(req: Request, context: { params: Promise<{ approvalId
     const { data: ownerUser } = await db.from("users").select("email").eq("clerk_id", userId).maybeSingle();
     const isPhaseRevisionRequest = body.decision === "revised" && phaseAdvanceActions.has(row.action_type);
     const revisionGuidance = body.guidance?.trim() || null;
+    const phase0RelaunchRequired = isPhaseRevisionRequest && row.phase === 0 && Boolean(revisionGuidance);
 
     if (isPhaseRevisionRequest && !revisionGuidance) {
       return NextResponse.json({ error: "Revision guidance is required when requesting packet revisions." }, { status: 400 });
@@ -158,38 +158,36 @@ export async function POST(req: Request, context: { params: Promise<{ approvalId
         ),
       );
 
-      try {
-        if (row.phase === 0) {
-          await runPhase0({
-            projectId: row.project_id,
-            userId,
-            revisionGuidance,
-            forceNewApproval: true,
-          });
-        } else {
+      if (row.phase !== 0) {
+        try {
           await enqueueNextPhaseArtifacts(row.project_id, row.phase as 1 | 2 | 3, {
             forceRegenerate: true,
             revisionGuidance,
           });
+        } catch (phaseError) {
+          const message = phaseError instanceof Error ? phaseError.message : "Failed to re-run phase with guidance";
+          await withRetry(() =>
+            log_task(
+              row.project_id,
+              "ceo_agent",
+              `phase${row.phase}_revision_failed`,
+              "failed",
+              message,
+            ),
+          );
+          return NextResponse.json({ error: message }, { status: 500 });
         }
-      } catch (phaseError) {
-        const message = phaseError instanceof Error ? phaseError.message : "Failed to re-run phase with guidance";
-        await withRetry(() =>
-          log_task(
-            row.project_id,
-            "ceo_agent",
-            row.phase === 0 ? "phase0_revision_failed" : `phase${row.phase}_revision_failed`,
-            "failed",
-            message,
-          ),
-        );
-        return NextResponse.json({ error: message }, { status: 500 });
       }
     }
 
     await withRetry(() => log_task(row.project_id, "ceo_agent", "approval_decision", "completed", `Decision: ${body.decision}`));
 
-    return NextResponse.json({ ok: true, version: row.version + 1 });
+    return NextResponse.json({
+      ok: true,
+      version: row.version + 1,
+      phase0RelaunchRequired,
+      projectId: row.project_id,
+    });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: error.issues[0]?.message ?? "Invalid decision payload." }, { status: 400 });

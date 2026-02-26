@@ -16,6 +16,8 @@ type Props = {
 type DecisionResponse = {
   error?: string;
   version?: number;
+  phase0RelaunchRequired?: boolean;
+  projectId?: string;
 };
 
 async function parseResponseJson(response: Response) {
@@ -56,6 +58,25 @@ export function PacketDecisionBar({ projectId, approvalId, approvalVersion, appr
       }
 
       setStatus(decision);
+      if (decision === "revised" && json?.phase0RelaunchRequired) {
+        const launchResponse = await fetch(`/api/projects/${projectId}/launch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            revisionGuidance: guidance ?? "",
+            forceNewApproval: true,
+          }),
+        });
+        const launchJson = await parseResponseJson(launchResponse);
+        if (!launchResponse.ok) {
+          throw new Error(
+            `Revision saved, but relaunch failed: ${
+              launchJson?.error ?? `HTTP ${launchResponse.status}`
+            }`,
+          );
+        }
+      }
+
       const label = decision === "approved" ? "approved" : decision === "revised" ? "revision requested" : "killed";
       setNotice(`Phase 0 packet ${label}.`);
       setReviseOpen(false);

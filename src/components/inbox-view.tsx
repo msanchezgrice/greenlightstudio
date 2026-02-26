@@ -24,6 +24,12 @@ type Item = {
   decided_at: string | null;
 };
 
+type DecisionResponse = {
+  error?: string;
+  version?: number;
+  phase0RelaunchRequired?: boolean;
+};
+
 function relativeTime(date: string) {
   const now = Date.now();
   const diff = Math.round((new Date(date).getTime() - now) / 1000);
@@ -92,7 +98,7 @@ export function InboxView({ initialItems }: { initialItems: Item[] }) {
     const raw = await response.text();
     if (!raw.trim()) return null;
     try {
-      return JSON.parse(raw) as Record<string, unknown>;
+      return JSON.parse(raw) as DecisionResponse;
     } catch {
       return null;
     }
@@ -129,6 +135,26 @@ export function InboxView({ initialItems }: { initialItems: Item[] }) {
             : row,
         ),
       );
+
+      if (decision === "revised" && json?.phase0RelaunchRequired) {
+        const launchRes = await fetch(`/api/projects/${item.project_id}/launch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            revisionGuidance: guidance ?? "",
+            forceNewApproval: true,
+          }),
+        });
+        const launchJson = await parseResponseJson(launchRes);
+        if (!launchRes.ok) {
+          throw new Error(
+            `Revision saved, but relaunch failed: ${
+              typeof launchJson?.error === "string" ? launchJson.error : `HTTP ${launchRes.status}`
+            }`,
+          );
+        }
+      }
+
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Decision failed");
