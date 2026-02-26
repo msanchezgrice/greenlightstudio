@@ -2,7 +2,7 @@
 <html lang="en"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Greenlight Studio — Phase 0 Packet</title>
+<title>startupmachine.ai — Phase 0 Packet</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{--bg:#070B14;--card:#0B1220;--card2:#0F172A;--border:#1E293B;--green:#22C55E;--blue:#1D4ED8;--red:#EF4444;--yellow:#EAB308;--purple:#A855F7;--cyan:#06B6D4;--text:#E2E8F0;--text2:#94A3B8;--text3:#64748B;--heading:#F8FAFC}
@@ -61,10 +61,15 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .tag-blue{background:rgba(29,78,216,.12);color:#60A5FA}
 
 /* Competitor Table */
-.comp-table{width:100%;border-collapse:collapse;font-size:13px}
+.comp-table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
 .comp-table th{text-align:left;color:var(--text3);font-size:11px;text-transform:uppercase;letter-spacing:.5px;padding:8px;border-bottom:1px solid var(--border)}
 .comp-table td{padding:8px;border-bottom:1px solid rgba(30,41,59,.4)}
 .comp-table tr:hover td{background:rgba(15,23,42,.4)}
+.comp-table th,.comp-table td{vertical-align:top;overflow-wrap:anywhere;word-break:break-word}
+.comp-table th:nth-child(1){width:22%}
+.comp-table th:nth-child(2){width:30%}
+.comp-table th:nth-child(3){width:24%}
+.comp-table th:nth-child(4){width:24%}
 .comp-name{font-weight:600;color:var(--heading)}
 .gap-badge{font-size:10px;padding:2px 6px;border-radius:3px;font-weight:600;background:rgba(34,197,94,.1);color:var(--green)}
 
@@ -118,6 +123,30 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 
 /* Action Bar */
 .action-bar{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--border);padding:14px 24px;display:flex;align-items:center;justify-content:center;gap:12px;z-index:100}
+body.is-printing .action-bar{display:none}
+.print-meta{display:none}
+.ph-pitch,.presence-detail,.persona-desc,.rec-body,.rec-clearer p,.syn-value{overflow-wrap:anywhere;word-break:break-word}
+
+/* PDF export / print format */
+@page{size:Letter;margin:0.5in}
+@media print{
+  :root{--bg:#FFFFFF;--card:#FFFFFF;--card2:#F8FAFC;--border:#CBD5E1;--text:#0F172A;--text2:#334155;--text3:#64748B;--heading:#020617}
+  body{background:#FFFFFF;color:var(--text);font-size:10.5pt;line-height:1.4;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .nav,.action-bar{display:none !important}
+  .print-meta{display:block;font-size:10pt;color:#475569;margin:0 0 10pt}
+  .page{max-width:100%;margin:0;padding:0}
+  .packet-header,.confidence,.section,.recommendation,.synopsis{border-color:var(--border);break-inside:avoid-page;page-break-inside:avoid;margin-bottom:10pt}
+  .packet-header,.confidence,.section,.recommendation,.synopsis,.market-card,.persona,.presence-card,.syn-item{background:var(--card2)}
+  .packet-header::before{height:2px}
+  .ph-name{font-size:20pt}
+  .ph-meta{flex-wrap:wrap;gap:8px 14px}
+  .conf-score{font-size:34pt}
+  .conf-bars{gap:8px}
+  .market-grid{gap:8px}
+  .scope-grid,.syn-grid{gap:8px}
+  .comp-table th,.comp-table td{padding:6px}
+  .comp-table tr:hover td{background:transparent}
+}
 </style>
 </head>
 <body>
@@ -129,12 +158,13 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 </div>
 </div>
 <div class="nav-right">
-<button class="btn btn-ghost">📄 Export PDF</button>
-<button class="btn btn-ghost">🔗 Share</button>
+<button id="export-pdf-btn" class="btn btn-ghost" type="button">📄 Export PDF</button>
+<button class="btn btn-ghost" type="button">🔗 Share</button>
 </div>
 </nav>
 
 <div class="page">
+<div class="print-meta">startupmachine.ai · Phase 0 Packet Export · OfflineDad</div>
 
 <!-- PACKET HEADER -->
 <div class="packet-header">
@@ -367,4 +397,23 @@ OfflineDad occupies a genuine white space in the parenting app market. The "dad-
 <button class="btn btn-ghost" style="padding:10px 20px;font-size:14px">💬 Add Notes</button>
 </div>
 
+<script>
+const exportPdfBtn = document.getElementById('export-pdf-btn');
+
+window.addEventListener('beforeprint', () => {
+  document.body.classList.add('is-printing');
+});
+
+window.addEventListener('afterprint', () => {
+  document.body.classList.remove('is-printing');
+});
+
+exportPdfBtn?.addEventListener('click', () => {
+  document.body.classList.add('is-printing');
+  window.print();
+  setTimeout(() => {
+    document.body.classList.remove('is-printing');
+  }, 400);
+});
+</script>
 </body></html>

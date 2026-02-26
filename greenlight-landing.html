@@ -1,0 +1,1198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>startupmachine.ai | AI Startup Builder and Greenlight Packets</title>
+<meta name="description" content="startupmachine.ai helps founders validate startup ideas fast. Upload a domain, idea, or repo and get a confidence-scored greenlight packet with market sizing, competitor analysis, and MVP scope.">
+<meta name="keywords" content="startup validation, AI startup builder, market sizing, competitor analysis, pitch deck, founder tools, startupmachine.ai">
+<meta name="author" content="startupmachine.ai">
+<meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1">
+<meta name="theme-color" content="#070B14">
+<link rel="canonical" href="https://startupmachine.ai/">
+
+<!-- OG / Social Sharing -->
+<meta property="og:title" content="startupmachine.ai | AI Startup Builder">
+<meta property="og:description" content="Go from idea to decision with AI-generated startup packets: market sizing, competitor analysis, MVP scope, and a clear go/no-go recommendation.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://startupmachine.ai/">
+<meta property="og:image" content="https://startupmachine.ai/og-image.png">
+<meta property="og:image:alt" content="startupmachine.ai dashboard and packet preview">
+<meta property="og:site_name" content="startupmachine.ai">
+<meta property="og:locale" content="en_US">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="startupmachine.ai | AI Startup Builder">
+<meta name="twitter:description" content="Validate startup ideas with AI-generated greenlight packets and clear go/no-go recommendations.">
+<meta name="twitter:image" content="https://startupmachine.ai/og-image.png">
+<meta name="twitter:image:alt" content="startupmachine.ai dashboard and packet preview">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "name": "startupmachine.ai",
+      "url": "https://startupmachine.ai/",
+      "logo": "https://startupmachine.ai/og-image.png"
+    },
+    {
+      "@type": "WebSite",
+      "name": "startupmachine.ai",
+      "url": "https://startupmachine.ai/",
+      "description": "AI-powered startup validation with market sizing, competitor research, and decision-ready greenlight packets."
+    },
+    {
+      "@type": "SoftwareApplication",
+      "name": "startupmachine.ai",
+      "applicationCategory": "BusinessApplication",
+      "operatingSystem": "Web",
+      "url": "https://startupmachine.ai/",
+      "description": "Startup validation platform that turns idea inputs into confidence-scored packets and founder decisions.",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD",
+        "description": "Free through Phase 0"
+      }
+    }
+  ]
+}
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+/* ============================================
+   GREENLIGHT STUDIO — HIGH FIDELITY LANDING
+   ============================================ */
+
+:root {
+  --bg-primary: #070B14;
+  --bg-card: #0B1220;
+  --bg-card-hover: #0F172A;
+  --border: #1E293B;
+  --border-light: #1E293B60;
+  --green: #22C55E;
+  --green-dark: #16A34A;
+  --green-glow: #22C55E20;
+  --blue: #3B82F6;
+  --cyan: #06B6D4;
+  --purple: #A855F7;
+  --yellow: #EAB308;
+  --text-primary: #F8FAFC;
+  --text-secondary: #E2E8F0;
+  --text-muted: #94A3B8;
+  --text-dim: #64748B;
+  --text-faint: #475569;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+a { color: inherit; text-decoration: none; }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.skip-link {
+  position: absolute;
+  left: 12px;
+  top: -48px;
+  background: var(--green);
+  color: var(--bg-primary);
+  font-weight: 700;
+  padding: 10px 14px;
+  border-radius: 8px;
+  z-index: 1000;
+}
+.skip-link:focus { top: 12px; }
+
+/* ── ANIMATIONS ── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(30px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 20px #22C55E10; }
+  50% { box-shadow: 0 0 40px #22C55E25; }
+}
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-on-scroll {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+.animate-on-scroll.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── NOISE TEXTURE OVERLAY ── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ── NAV ── */
+.nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: rgba(7,11,20,0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border-light);
+  transition: all 0.3s ease;
+}
+.nav.scrolled {
+  background: rgba(7,11,20,0.95);
+  box-shadow: 0 4px 30px rgba(0,0,0,0.3);
+}
+.nav-inner {
+  max-width: 1200px; margin: 0 auto; padding: 14px 32px;
+  display: flex; align-items: center; gap: 24px;
+}
+.nav-logo {
+  font-weight: 800; font-size: 18px; color: var(--green);
+  display: flex; align-items: center; gap: 8px;
+  letter-spacing: -0.3px;
+}
+.nav-logo svg { width: 22px; height: 22px; }
+.nav-links {
+  display: flex; gap: 24px; margin-left: auto;
+  font-size: 13px; font-weight: 500; color: var(--text-muted);
+}
+.nav-links a { transition: color 0.2s; }
+.nav-links a:hover { color: var(--text-primary); }
+.nav-cta {
+  background: var(--green); color: var(--bg-primary);
+  padding: 8px 20px; border-radius: 8px;
+  font-size: 13px; font-weight: 700;
+  transition: all 0.2s;
+}
+.nav-cta:hover { background: var(--green-dark); transform: translateY(-1px); }
+
+/* ── HERO ── */
+.hero {
+  padding: 160px 32px 100px;
+  text-align: center;
+  max-width: 960px;
+  margin: 0 auto;
+  position: relative;
+}
+
+/* Hero background glow */
+.hero::before {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 800px; height: 600px;
+  transform: translate(-50%, -60%);
+  background: radial-gradient(ellipse, #22C55E08 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.hero-badge {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--green-glow);
+  border: 1px solid #22C55E25;
+  border-radius: 100px;
+  padding: 8px 20px;
+  font-size: 12px; font-weight: 600;
+  color: var(--green);
+  margin-bottom: 32px;
+  animation: fadeIn 0.6s ease;
+}
+.hero-badge::before {
+  content: '';
+  width: 6px; height: 6px;
+  background: var(--green);
+  border-radius: 50%;
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.hero h1 {
+  font-size: clamp(36px, 5vw, 60px);
+  font-weight: 900;
+  line-height: 1.08;
+  letter-spacing: -1.5px;
+  margin-bottom: 20px;
+  background: linear-gradient(135deg, #F8FAFC 0%, #D1D5DB 25%, #22C55E 60%, #3B82F6 100%);
+  background-size: 200% 200%;
+  animation: gradient-shift 6s ease infinite;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.hero p {
+  font-size: 18px;
+  color: var(--text-muted);
+  max-width: 640px;
+  margin: 0 auto 40px;
+  line-height: 1.7;
+}
+
+.hero-ctas {
+  display: flex; gap: 12px; justify-content: center;
+  margin-bottom: 56px;
+}
+.btn-primary {
+  background: var(--green); color: var(--bg-primary);
+  padding: 14px 32px; border-radius: 12px;
+  font-size: 15px; font-weight: 700;
+  border: none; cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.25s;
+  box-shadow: 0 0 30px #22C55E15;
+}
+.btn-primary:hover {
+  background: var(--green-dark);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px #22C55E25;
+}
+.btn-secondary {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 14px 32px; border-radius: 12px;
+  font-size: 15px; font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.25s;
+}
+.btn-secondary:hover {
+  border-color: #22C55E40;
+  color: var(--text-primary);
+  background: #22C55E08;
+}
+
+.hero-stats {
+  display: flex; gap: 48px; justify-content: center;
+}
+.hero-stat { text-align: center; }
+.hero-stat .num {
+  font-size: 32px; font-weight: 900;
+  color: var(--text-primary);
+  letter-spacing: -0.5px;
+}
+.hero-stat .label {
+  font-size: 11px; color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+/* ── SECTION SHARED ── */
+.section {
+  padding: 100px 32px;
+  max-width: 1200px;
+  margin: 0 auto;
+  position: relative;
+}
+.section-label {
+  font-size: 11px; color: var(--green);
+  text-transform: uppercase;
+  letter-spacing: 2.5px;
+  font-weight: 700;
+  margin-bottom: 10px;
+  text-align: center;
+}
+.section-title {
+  font-size: clamp(26px, 3vw, 36px);
+  font-weight: 800;
+  color: var(--text-primary);
+  text-align: center;
+  margin-bottom: 10px;
+  letter-spacing: -0.5px;
+}
+.section-sub {
+  font-size: 16px; color: var(--text-dim);
+  text-align: center;
+  max-width: 560px;
+  margin: 0 auto 56px;
+  line-height: 1.7;
+}
+
+/* ── DIVIDER ── */
+.divider {
+  max-width: 1200px;
+  margin: 0 auto;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, var(--border) 50%, transparent 100%);
+}
+
+/* ── HOW IT WORKS ── */
+.steps {
+  display: flex; gap: 12px; align-items: stretch;
+}
+.step-card {
+  flex: 1;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px 20px;
+  text-align: center;
+  position: relative;
+  transition: all 0.3s;
+}
+.step-card:hover {
+  border-color: #22C55E30;
+  background: var(--bg-card-hover);
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+}
+.step-num {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: var(--green); color: var(--bg-primary);
+  font-size: 15px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 14px;
+}
+.step-title {
+  font-size: 16px; font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+.step-desc {
+  font-size: 13px; color: var(--text-dim);
+  line-height: 1.7;
+}
+.step-arrow {
+  color: var(--green); font-size: 20px;
+  align-self: center; flex-shrink: 0;
+  opacity: 0.5;
+}
+
+/* ── PHASES ── */
+.phases {
+  display: flex; gap: 14px; flex-wrap: wrap;
+}
+.phase-card {
+  flex: 1; min-width: 200px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  transition: all 0.3s;
+}
+.phase-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+}
+.phase-top {
+  padding: 6px;
+  font-size: 10px; text-align: center;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+}
+.phase-body { padding: 20px; }
+.phase-name {
+  font-size: 15px; font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+.phase-items {
+  font-size: 12px; color: var(--text-dim);
+  line-height: 2;
+}
+.phase-item {
+  display: flex; align-items: center; gap: 6px;
+}
+.phase-item::before {
+  content: ''; width: 4px; height: 4px;
+  border-radius: 50%; background: var(--text-dim);
+  flex-shrink: 0;
+}
+
+/* ── FEATURES ── */
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.feat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px;
+  transition: all 0.3s;
+  position: relative;
+  overflow: hidden;
+}
+.feat-card:hover {
+  border-color: #22C55E20;
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+}
+.feat-card::after {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--green), transparent);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.feat-card:hover::after { opacity: 1; }
+.feat-icon {
+  font-size: 32px; margin-bottom: 16px;
+  display: block;
+}
+.feat-title {
+  font-size: 16px; font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+.feat-desc {
+  font-size: 13px; color: var(--text-dim);
+  line-height: 1.7;
+}
+
+/* ── PILLARS ── */
+.pillars-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+}
+.pillar-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 32px;
+  transition: all 0.3s;
+  position: relative;
+}
+.pillar-card:hover {
+  border-color: #22C55E25;
+  transform: translateY(-3px);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+}
+.pillar-icon {
+  font-size: 28px;
+  margin-bottom: 14px;
+  display: block;
+}
+.pillar-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--green);
+  margin-bottom: 10px;
+  letter-spacing: -0.3px;
+}
+.pillar-desc {
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.8;
+}
+
+/* ── AGENTS ── */
+.agents-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+.agent-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 24px 16px;
+  text-align: center;
+  transition: all 0.3s;
+}
+.agent-card:hover {
+  border-color: #22C55E20;
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+}
+.agent-emoji {
+  font-size: 36px; margin-bottom: 10px;
+  display: block;
+}
+.agent-name {
+  font-size: 14px; font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+.agent-role {
+  font-size: 11px; color: var(--text-dim);
+  margin-bottom: 12px;
+  font-weight: 500;
+}
+.agent-tools {
+  display: flex; flex-wrap: wrap;
+  gap: 4px; justify-content: center;
+}
+.tool-badge {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 10px; font-weight: 500;
+  color: var(--text-muted);
+}
+.tool-badge.green { border-color: #22C55E30; color: var(--green); }
+.tool-badge.blue { border-color: #3B82F630; color: var(--blue); }
+
+/* ── SOCIAL PROOF ── */
+.proof-section {
+  padding: 80px 32px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.proof-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+.proof-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px;
+  position: relative;
+}
+.proof-quote {
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.8;
+  margin-bottom: 20px;
+  font-style: italic;
+}
+.proof-quote::before {
+  content: '"';
+  font-size: 48px;
+  color: var(--green);
+  opacity: 0.3;
+  position: absolute;
+  top: 12px; left: 20px;
+  font-family: Georgia, serif;
+}
+.proof-author {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.proof-avatar {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--green), var(--blue));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 700; color: white;
+}
+.proof-name {
+  font-size: 13px; font-weight: 600;
+  color: var(--text-primary);
+}
+.proof-role {
+  font-size: 11px; color: var(--text-dim);
+}
+
+/* ── POWERED BY ── */
+.powered {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 40px;
+  text-align: center;
+}
+.powered-title {
+  font-size: 11px; color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  font-weight: 700;
+  margin-bottom: 20px;
+}
+.powered-logos {
+  display: flex; flex-wrap: wrap;
+  gap: 10px; justify-content: center;
+}
+.powered-item {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 11px; color: var(--text-muted);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+.powered-item:hover {
+  border-color: #22C55E30;
+  color: var(--text-primary);
+}
+
+/* ── CTA ── */
+.cta-section {
+  text-align: center;
+  padding: 100px 32px;
+  position: relative;
+}
+.cta-section::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 50%;
+  width: 600px; height: 400px;
+  transform: translate(-50%, -30%);
+  background: radial-gradient(ellipse, #22C55E06 0%, transparent 70%);
+  pointer-events: none;
+}
+.cta-title {
+  font-size: clamp(24px, 3vw, 32px);
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+  letter-spacing: -0.5px;
+}
+.cta-sub {
+  font-size: 16px; color: var(--text-dim);
+  margin-bottom: 32px;
+}
+.cta-form {
+  display: flex; gap: 10px;
+  justify-content: center;
+  max-width: 440px;
+  margin: 0 auto;
+}
+.cta-input {
+  flex: 1;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 20px;
+  color: var(--text-secondary);
+  font-size: 14px; font-family: inherit;
+  outline: none;
+  transition: all 0.2s;
+}
+.cta-input::placeholder { color: var(--text-faint); }
+.cta-input:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px #22C55E15;
+}
+
+/* ── FOOTER ── */
+.footer {
+  padding: 40px 32px;
+  text-align: center;
+  border-top: 1px solid var(--border-light);
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 2;
+}
+.footer-links {
+  display: flex; gap: 24px;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+.footer-links a {
+  font-size: 12px; color: var(--text-dim);
+  font-weight: 500;
+  transition: color 0.2s;
+}
+.footer-links a:hover { color: var(--green); }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 900px) {
+  .steps { flex-direction: column; }
+  .step-arrow { transform: rotate(90deg); text-align: center; }
+  .features-grid { grid-template-columns: repeat(2, 1fr); }
+  .agents-grid { grid-template-columns: repeat(2, 1fr); }
+  .proof-grid { grid-template-columns: 1fr; }
+  .pillars-grid { grid-template-columns: 1fr; }
+  .hero-stats { flex-wrap: wrap; gap: 24px; }
+  .phases { flex-direction: column; }
+}
+@media (max-width: 600px) {
+  .nav-links a:not(.nav-cta) { display: none; }
+  .features-grid { grid-template-columns: 1fr; }
+  .agents-grid { grid-template-columns: repeat(2, 1fr); }
+  .hero { padding: 120px 20px 60px; }
+  .section { padding: 60px 20px; }
+  .hero-ctas { flex-direction: column; align-items: center; }
+  .cta-form { flex-direction: column; }
+}
+</style>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+
+<!-- ━━ NAV ━━ -->
+<nav class="nav" id="nav" aria-label="Primary navigation">
+  <div class="nav-inner">
+    <div class="nav-logo">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="#22C55E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      startupmachine.ai
+    </div>
+    <div class="nav-links">
+      <a href="#how">How It Works</a>
+      <a href="#phases">Phases</a>
+      <a href="#features">Features</a>
+      <a href="#why">Why Startup Machine</a>
+      <a href="#agents">Agents</a>
+      <a class="nav-cta" href="#cta">Join Waitlist</a>
+    </div>
+  </div>
+</nav>
+
+<main id="main-content">
+<!-- ━━ HERO ━━ -->
+<section class="hero">
+  <div class="hero-badge">
+    <span></span>
+    8 AI agents · Real deliverables · You stay in control
+  </div>
+  <h1>Your next idea deserves more than a domain pile.</h1>
+  <p>startupmachine.ai takes a domain, idea, or repo and turns it into a decision-ready packet. Eight AI agents research your market, size the opportunity, draft a pitch deck, and deliver a greenlight-or-kill recommendation before your morning coffee.</p>
+  <div class="hero-ctas">
+    <button class="btn-primary" onclick="document.getElementById('cta').scrollIntoView({behavior:'smooth'})">Start Free →</button>
+    <a class="btn-secondary" href="/mockups/mockup-phase0-packet.html">See a demo packet</a>
+  </div>
+  <div class="hero-stats">
+    <div class="hero-stat"><div class="num">47m</div><div class="label">Avg. time to packet</div></div>
+    <div class="hero-stat"><div class="num">13</div><div class="label">Deliverables per phase</div></div>
+    <div class="hero-stat"><div class="num">8</div><div class="label">Specialized agents</div></div>
+    <div class="hero-stat"><div class="num">$0</div><div class="label">Free through Phase 0</div></div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ━━ HOW IT WORKS ━━ -->
+<section class="section animate-on-scroll" id="how">
+  <div class="section-label">How It Works</div>
+  <h2 class="section-title">From signal to decision in minutes, not months</h2>
+  <p class="section-sub">No spreadsheets. No weeks of Googling. Drop in your idea and get a real answer with the receipts to back it up.</p>
+  <div class="steps">
+    <div class="step-card">
+      <div class="step-num">1</div>
+      <div class="step-title">Import</div>
+      <div class="step-desc">Drop a domain, paste a repo URL, or describe your idea in plain text. Upload pitch decks or wireframes if you have them.</div>
+    </div>
+    <div class="step-arrow">→</div>
+    <div class="step-card">
+      <div class="step-num">2</div>
+      <div class="step-title">Discover</div>
+      <div class="step-desc">Our Scanner Agent checks your domain (is it live? parked? available?) and reads your repo. Competitors are identified automatically.</div>
+    </div>
+    <div class="step-arrow">→</div>
+    <div class="step-card">
+      <div class="step-num">3</div>
+      <div class="step-title">Clarify</div>
+      <div class="step-desc">Set permissions, choose your runtime mode (shared or attached to your repo), and pick focus areas. Everything's safe by default.</div>
+    </div>
+    <div class="step-arrow">→</div>
+    <div class="step-card">
+      <div class="step-num">4</div>
+      <div class="step-title">Greenlight</div>
+      <div class="step-desc">Your CEO Agent produces a meeting-style packet with market sizing, competitors, MVP scope, and a confidence-scored recommendation.</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ━━ PHASES ━━ -->
+<section class="section animate-on-scroll" id="phases">
+  <div class="section-label">Phase Pipeline</div>
+  <h2 class="section-title">5 phases from idea to revenue</h2>
+  <p class="section-sub">Every phase has a gate. Nothing advances without your explicit approval. You are the founder, and the agents work for you.</p>
+  <div class="phases">
+    <div class="phase-card">
+      <div class="phase-top" style="background:#06B6D420;color:#06B6D4">Pre-Phase 0</div>
+      <div class="phase-body">
+        <div class="phase-name">Asset Discovery</div>
+        <div class="phase-items">
+          <div class="phase-item">DNS scan</div>
+          <div class="phase-item">HTTP probe</div>
+          <div class="phase-item">Tech detection</div>
+          <div class="phase-item">Repo analysis</div>
+          <div class="phase-item">Competitor search</div>
+        </div>
+      </div>
+    </div>
+    <div class="phase-card">
+      <div class="phase-top" style="background:#22C55E20;color:#22C55E">Phase 0</div>
+      <div class="phase-body">
+        <div class="phase-name">Pitch Packet</div>
+        <div class="phase-items">
+          <div class="phase-item">Market sizing</div>
+          <div class="phase-item">Competitor analysis</div>
+          <div class="phase-item">Target persona</div>
+          <div class="phase-item">MVP scope</div>
+          <div class="phase-item">CEO recommendation</div>
+          <div class="phase-item">.pptx pitch deck</div>
+        </div>
+      </div>
+    </div>
+    <div class="phase-card">
+      <div class="phase-top" style="background:#3B82F620;color:#3B82F6">Phase 1</div>
+      <div class="phase-body">
+        <div class="phase-name">Validate</div>
+        <div class="phase-items">
+          <div class="phase-item">Landing page</div>
+          <div class="phase-item">Waitlist + email</div>
+          <div class="phase-item">Analytics wiring</div>
+          <div class="phase-item">Logo + brand</div>
+          <div class="phase-item">Social strategy</div>
+        </div>
+      </div>
+    </div>
+    <div class="phase-card">
+      <div class="phase-top" style="background:#EAB30820;color:#EAB308">Phase 2</div>
+      <div class="phase-body">
+        <div class="phase-name">Distribute</div>
+        <div class="phase-items">
+          <div class="phase-item">Social content</div>
+          <div class="phase-item">Meta Ads</div>
+          <div class="phase-item">Email sequences</div>
+          <div class="phase-item">Cold outreach</div>
+          <div class="phase-item">Budget guardrails</div>
+        </div>
+      </div>
+    </div>
+    <div class="phase-card">
+      <div class="phase-top" style="background:#A855F720;color:#A855F7">Phase 3</div>
+      <div class="phase-body">
+        <div class="phase-name">Go Live</div>
+        <div class="phase-items">
+          <div class="phase-item">Agent builds product</div>
+          <div class="phase-item">Code review (4 agents)</div>
+          <div class="phase-item">Human approves merges</div>
+          <div class="phase-item">Daily snapshots</div>
+          <div class="phase-item">Kill-switch</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ━━ FEATURES ━━ -->
+<section class="section animate-on-scroll" id="features">
+  <div class="section-label">Features</div>
+  <h2 class="section-title">Built for founders, not developers</h2>
+  <p class="section-sub">Every feature is designed around how founders actually make decisions.</p>
+  <div class="features-grid">
+    <div class="feat-card">
+      <span class="feat-icon">📋</span>
+      <div class="feat-title">Meeting-Style Packets</div>
+      <div class="feat-desc">Not a dashboard. A one-pager your CEO would present — confidence score, competitive gaps, market sizing, and a clear greenlight-or-kill recommendation.</div>
+    </div>
+    <div class="feat-card">
+      <span class="feat-icon">🧠</span>
+      <div class="feat-title">Reasoning Synopsis</div>
+      <div class="feat-desc">Every agent decision comes with structured reasoning: what it considered, what it rejected, why it chose this path. Full audit trail, not a black box.</div>
+    </div>
+    <div class="feat-card">
+      <span class="feat-icon">🔍</span>
+      <div class="feat-title">Asset Discovery</div>
+      <div class="feat-desc">Before spending a single agent cycle, we scan your domain, read your repo, and check what already exists. No duplicate work. No blind spots.</div>
+    </div>
+    <div class="feat-card">
+      <span class="feat-icon">📥</span>
+      <div class="feat-title">Greenlight Inbox</div>
+      <div class="feat-desc">Risk-scored approval queue. Every agent action that matters — deploys, ad spend, code merges — lands here for your review. Nothing happens without your OK.</div>
+    </div>
+    <div class="feat-card">
+      <span class="feat-icon">🌙</span>
+      <div class="feat-title">Night Shift</div>
+      <div class="feat-desc">Your CEO agent works while you sleep. Morning summary shows what was researched, what was built, and what needs your decision. Wake up to progress, not tasks.</div>
+    </div>
+    <div class="feat-card">
+      <span class="feat-icon">🔒</span>
+      <div class="feat-title">Permission Ladder</div>
+      <div class="feat-desc">Agents start read-only. Permissions expand as your project advances. Never pushes to main, never spends above your cap, never sends without your template.</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ━━ WHY GREENLIGHT (MESSAGING PILLARS) ━━ -->
+<section class="section animate-on-scroll" id="why">
+  <div class="section-label">Why Startup Machine</div>
+  <h2 class="section-title">Four things founders deserve from an AI company builder</h2>
+  <p class="section-sub">startupmachine.ai focuses on clarity, speed, and decision quality over vanity metrics.</p>
+  <div class="pillars-grid">
+    <div class="pillar-card">
+      <div class="pillar-icon">⚡</div>
+      <div class="pillar-title">Speed to Signal</div>
+      <div class="pillar-desc">Most founders spend weeks researching before they know if an idea is worth pursuing. Greenlight gets you a confidence-scored answer in under an hour — with real market data, not gut feel.</div>
+    </div>
+    <div class="pillar-card">
+      <div class="pillar-icon">🤝</div>
+      <div class="pillar-title">Human in the Loop</div>
+      <div class="pillar-desc">AI should accelerate your judgment, not replace it. Every agent action goes through your approval queue. Nothing deploys, spends, or sends without your explicit OK.</div>
+    </div>
+    <div class="pillar-card">
+      <div class="pillar-icon">📦</div>
+      <div class="pillar-title">Real Deliverables</div>
+      <div class="pillar-desc">Not summaries in a chat window. You get actual .pptx pitch decks, .xlsx financial models, branded landing pages, and structured reports you can send to investors today.</div>
+    </div>
+    <div class="pillar-card">
+      <div class="pillar-icon">🚀</div>
+      <div class="pillar-title">From Idea to Revenue</div>
+      <div class="pillar-desc">Most tools stop at research. Greenlight takes you through validation, distribution, and build — with budget guardrails, social strategy, and a kill-switch at every phase gate.</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ━━ AGENTS ━━ -->
+<section class="section animate-on-scroll" id="agents">
+  <div class="section-label">Agent Fleet</div>
+  <h2 class="section-title">8 specialized agents, one mission</h2>
+  <p class="section-sub">Each agent has a defined role, specific tools, and industry best practices baked in.</p>
+  <div class="agents-grid">
+    <div class="agent-card">
+      <span class="agent-emoji">👔</span>
+      <div class="agent-name">CEO Agent</div>
+      <div class="agent-role">Orchestrator · Sonnet 4.6</div>
+      <div class="agent-tools">
+        <span class="tool-badge green">pptx</span><span class="tool-badge green">pdf</span><span class="tool-badge">WebSearch</span><span class="tool-badge blue">supabase</span>
+      </div>
+    </div>
+    <div class="agent-card">
+      <span class="agent-emoji">🔍</span>
+      <div class="agent-name">Research</div>
+      <div class="agent-role">Competitor intel · Sonnet 4.6</div>
+      <div class="agent-tools">
+        <span class="tool-badge">WebSearch</span><span class="tool-badge green">docx</span><span class="tool-badge blue">supabase</span>
+      </div>
+    </div>
+    <div class="agent-card">
+      <span class="agent-emoji">🔎</span>
+      <div class="agent-name">Scanner</div>
+      <div class="agent-role">Asset discovery · Haiku</div>
+      <div class="agent-tools">
+        <span class="tool-badge">WebFetch</span><span class="tool-badge blue">url-scanner</span><span class="tool-badge blue">puppeteer</span>
+      </div>
+    </div>
+    <div class="agent-card">
+      <span class="agent-emoji">🎨</span>
+      <div class="agent-name">Design</div>
+      <div class="agent-role">Landing pages · Sonnet 4.6</div>
+      <div class="agent-tools">
+        <span class="tool-badge green">frontend</span><span class="tool-badge green">feature-dev</span>
+      </div>
+    </div>
+    <div class="agent-card">
+      <span class="agent-emoji">🎭</span>
+      <div class="agent-name">Brand</div>
+      <div class="agent-role">Logo &amp; identity · Gemini</div>
+      <div class="agent-tools">
+        <span class="tool-badge blue">image-gen</span><span class="tool-badge blue">supabase</span>
+      </div>
+    </div>
+    <div class="agent-card">
+      <span class="agent-emoji">📊</span>
+      <div class="agent-name">Finance</div>
+      <div class="agent-role">Market sizing · Sonnet 4.6</div>
+      <div class="agent-tools">
+        <span class="tool-badge green">xlsx</span><span class="tool-badge green">pdf</span><span class="tool-badge blue">stripe</span>
+      </div>
+    </div>
+    <div class="agent-card">
+      <span class="agent-emoji">📦</span>
+      <div class="agent-name">Repo Analyst</div>
+      <div class="agent-role">Code review · Sonnet 4.6</div>
+      <div class="agent-tools">
+        <span class="tool-badge green">code-review</span><span class="tool-badge blue">github</span>
+      </div>
+    </div>
+    <div class="agent-card">
+      <span class="agent-emoji">⚙️</span>
+      <div class="agent-name">Engineering</div>
+      <div class="agent-role">Build &amp; ship · Sonnet 4.6</div>
+      <div class="agent-tools">
+        <span class="tool-badge green">feature-dev</span><span class="tool-badge green">security</span><span class="tool-badge blue">codex</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ━━ SOCIAL PROOF ━━ -->
+<section class="proof-section animate-on-scroll">
+  <div class="section-label">Early Access</div>
+  <h2 class="section-title">What beta testers are saying</h2>
+  <p class="section-sub">Founders who tried startupmachine.ai during early access.</p>
+  <div class="proof-grid">
+    <div class="proof-card">
+      <div class="proof-quote">I had 12 parked domains and zero clarity on which to pursue. Greenlight gave me a kill recommendation on 9 of them and a detailed pitch packet for the 3 worth building. Saved me months.</div>
+      <div class="proof-author">
+        <div class="proof-avatar">JR</div>
+        <div>
+          <div class="proof-name">Jordan R.</div>
+          <div class="proof-role">Solo founder · SaaS</div>
+        </div>
+      </div>
+    </div>
+    <div class="proof-card">
+      <div class="proof-quote">The Night Shift feature is wild. I described my idea before bed, woke up to a full competitive analysis, market sizing, and a draft pitch deck. The permission ladder meant nothing happened I didn't approve.</div>
+      <div class="proof-author">
+        <div class="proof-avatar">SK</div>
+        <div>
+          <div class="proof-name">Samira K.</div>
+          <div class="proof-role">Technical co-founder · Fintech</div>
+        </div>
+      </div>
+    </div>
+    <div class="proof-card">
+      <div class="proof-quote">We used Phase 0 to validate a new product line. The CEO Agent's reasoning synopsis made it easy to present to our board — it wasn't a black box, it was a structured argument.</div>
+      <div class="proof-author">
+        <div class="proof-avatar">DM</div>
+        <div>
+          <div class="proof-name">David M.</div>
+          <div class="proof-role">Head of Product · Series A startup</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ━━ POWERED BY ━━ -->
+<section class="section animate-on-scroll">
+  <div class="powered">
+    <div class="powered-title">Built With</div>
+    <div class="powered-logos">
+      <span class="powered-item">Claude Agent SDK</span>
+      <span class="powered-item">Claude Sonnet 4.6</span>
+      <span class="powered-item">xlsx skill</span>
+      <span class="powered-item">pptx skill</span>
+      <span class="powered-item">pdf skill</span>
+      <span class="powered-item">docx skill</span>
+      <span class="powered-item">frontend-design</span>
+      <span class="powered-item">code-review</span>
+      <span class="powered-item">feature-dev</span>
+      <span class="powered-item">security-guidance</span>
+      <span class="powered-item">GitHub MCP</span>
+      <span class="powered-item">Puppeteer MCP</span>
+      <span class="powered-item">Stripe MCP</span>
+      <span class="powered-item">Gemini (images)</span>
+    </div>
+  </div>
+</section>
+
+<!-- ━━ CTA ━━ -->
+<section class="cta-section" id="cta">
+  <h2 class="cta-title">Stop researching. Start deciding.</h2>
+  <p class="cta-sub">Join the waitlist. First 100 projects get Phase 0 free, including market sizing, competitor analysis, and a go/no-go recommendation.</p>
+  <form class="cta-form" action="#" method="post" novalidate>
+    <label for="waitlist-email" class="sr-only">Email address</label>
+    <input class="cta-input" id="waitlist-email" name="email" type="email" placeholder="you@company.com" aria-label="Email address" required>
+    <button class="btn-primary">Join Waitlist</button>
+  </form>
+</section>
+
+</main>
+
+<!-- ━━ FOOTER ━━ -->
+<footer class="footer">
+  <div class="footer-links">
+    <a href="https://startupmachine.ai/privacy">Privacy</a>
+    <a href="https://startupmachine.ai/terms">Terms</a>
+    <a href="https://startupmachine.ai/docs">Docs</a>
+    <a href="https://github.com">GitHub</a>
+    <a href="https://x.com">Twitter</a>
+  </div>
+  <span style="color:var(--green)">▲</span> startupmachine.ai · Built with Claude Agent SDK · 2026<br>
+  By builders, for builders.
+</footer>
+
+<!-- ━━ SCRIPTS ━━ -->
+<script>
+// Nav scroll effect
+const nav = document.getElementById('nav');
+window.addEventListener('scroll', () => {
+  nav.classList.toggle('scrolled', window.scrollY > 20);
+});
+
+// Scroll-triggered animations
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+    }
+  });
+}, { threshold: 0.1, rootMargin: '0px 0px -50px 0px' });
+
+document.querySelectorAll('.animate-on-scroll').forEach(el => observer.observe(el));
+
+// Smooth scroll for nav links
+document.querySelectorAll('a[href^="#"]').forEach(link => {
+  link.addEventListener('click', (e) => {
+    const href = link.getAttribute('href');
+    if (!href || href.length < 2) return;
+    e.preventDefault();
+    const target = document.querySelector(href);
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+});
+
+// Waitlist form
+document.querySelector('.cta-form')?.addEventListener('submit', (e) => {
+  e.preventDefault();
+});
+document.querySelector('.cta-form .btn-primary')?.addEventListener('click', () => {
+  const input = document.querySelector('.cta-input');
+  if (input && input.value.includes('@')) {
+    input.value = '';
+    input.placeholder = 'You\'re on the list! 🎉';
+    input.style.borderColor = '#22C55E';
+  }
+});
+</script>
+
+</body>
+</html>
