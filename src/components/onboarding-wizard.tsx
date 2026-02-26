@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { SignInButton, useAuth } from "@clerk/nextjs";
 import { onboardingSchema, scanResultSchema, type ScanResult } from "@/types/domain";
 
@@ -26,6 +26,25 @@ const focusSuggestions = [
 
 const allowedFileExts = [".pdf", ".ppt", ".pptx", ".doc", ".docx", ".png", ".jpg", ".jpeg"];
 const maxFileSizeBytes = 10 * 1024 * 1024;
+const wizardStorageKey = "greenlight_onboarding_wizard_v1";
+
+const defaultForm = {
+  domain: "",
+  idea_description: "",
+  repo_url: "",
+  uploaded_files: [] as UploadMeta[],
+  runtime_mode: "attached" as "shared" | "attached",
+  permissions: {
+    repo_write: false,
+    deploy: false,
+    ads_enabled: false,
+    ads_budget_cap: 0,
+    email_send: false,
+  },
+  night_shift: true,
+  focus_areas: ["Market Research", "Competitor Analysis", "Landing Page"],
+  scan_results: null as ScanResult | null,
+};
 
 function statusClass(step: Step, target: Step) {
   const current = step === "error" ? "results" : step;
@@ -66,6 +85,7 @@ function boolLabel(value: boolean) {
 
 export function OnboardingWizard() {
   const { isSignedIn } = useAuth();
+  const restoredRef = useRef(false);
   const scanNonce = useRef(0);
   const [step, setStep] = useState<Step>("import");
   const [busy, setBusy] = useState(false);
@@ -75,23 +95,72 @@ export function OnboardingWizard() {
   const [launchProgress, setLaunchProgress] = useState<
     Array<{ agent: string; description: string; status: string; detail: string | null; created_at: string }>
   >([]);
-  const [form, setForm] = useState({
-    domain: "",
-    idea_description: "",
-    repo_url: "",
-    uploaded_files: [] as UploadMeta[],
-    runtime_mode: "attached" as "shared" | "attached",
-    permissions: {
-      repo_write: false,
-      deploy: false,
-      ads_enabled: false,
-      ads_budget_cap: 0,
-      email_send: false,
-    },
-    night_shift: true,
-    focus_areas: ["Market Research", "Competitor Analysis", "Landing Page"],
-    scan_results: null as ScanResult | null,
-  });
+  const [form, setForm] = useState(defaultForm);
+
+  useEffect(() => {
+    try {
+      const raw = window.sessionStorage.getItem(wizardStorageKey);
+      if (!raw) {
+        restoredRef.current = true;
+        return;
+      }
+
+      const parsed = JSON.parse(raw) as {
+        step?: Step;
+        projectId?: string | null;
+        cacheHit?: boolean | null;
+        form?: Partial<typeof defaultForm>;
+      };
+
+      if (parsed.form) {
+        setForm({
+          ...defaultForm,
+          ...parsed.form,
+          permissions: {
+            ...defaultForm.permissions,
+            ...(parsed.form.permissions ?? {}),
+          },
+          focus_areas:
+            parsed.form.focus_areas && parsed.form.focus_areas.length
+              ? parsed.form.focus_areas
+              : defaultForm.focus_areas,
+        });
+      }
+
+      if (parsed.step && stepOrder.includes(parsed.step)) {
+        setStep(parsed.step);
+      }
+
+      if (typeof parsed.projectId === "string" || parsed.projectId === null) {
+        setProjectId(parsed.projectId ?? null);
+      }
+
+      if (typeof parsed.cacheHit === "boolean" || parsed.cacheHit === null) {
+        setCacheHit(parsed.cacheHit ?? null);
+      }
+    } catch {
+      // Ignore corrupted local wizard state and continue with defaults.
+    } finally {
+      restoredRef.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!restoredRef.current) return;
+
+    const payload = {
+      step,
+      projectId,
+      cacheHit,
+      form,
+    };
+
+    try {
+      window.sessionStorage.setItem(wizardStorageKey, JSON.stringify(payload));
+    } catch {
+      // Ignore storage quota or privacy mode errors.
+    }
+  }, [step, projectId, cacheHit, form]);
 
   const summary = useMemo(() => {
     const scan = form.scan_results;
@@ -362,6 +431,11 @@ export function OnboardingWizard() {
       await pollProgress();
       if (launchError) throw launchError;
 
+      try {
+        window.sessionStorage.removeItem(wizardStorageKey);
+      } catch {
+        // Ignore storage errors.
+      }
       setStep("launched");
       setTimeout(() => {
         window.location.href = `/projects/${id}/packet`;
