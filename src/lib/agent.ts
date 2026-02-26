@@ -121,6 +121,11 @@ type QueryProfile = {
   useOutputFormat: boolean;
 };
 
+type QueryAttemptOptions<T> = {
+  repair?: (value: unknown) => unknown;
+  schema: z.ZodType<T>;
+};
+
 type QueryState = {
   messageCounts: Map<string, number>;
   resultSubtypes: string[];
@@ -146,17 +151,34 @@ function summarizeStderr(stderrChunks: string[]) {
   return `...${merged.slice(-700)}`;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 function isRetryableAgentFailure(message: string) {
   const lower = message.toLowerCase();
   return (
     lower.includes("timed out") ||
     lower.includes("without result message") ||
     lower.includes("empty response") ||
-    lower.includes("structured output retries")
+    lower.includes("structured output retries") ||
+    lower.includes("invalid input:")
   );
 }
 
-async function executeQueryAttempt<T>(prompt: string, schema: z.ZodType<T>, profile: QueryProfile) {
+function parseSchemaWithRepair<T>(input: unknown, options: QueryAttemptOptions<T>) {
+  const direct = options.schema.safeParse(input);
+  if (direct.success) return direct.data;
+  if (!options.repair) throw direct.error;
+
+  const repaired = options.repair(input);
+  const repairedResult = options.schema.safeParse(repaired);
+  if (repairedResult.success) return repairedResult.data;
+
+  throw repairedResult.error;
+}
+
+async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptions<T>, profile: QueryProfile) {
   const executablePath = resolveClaudeCodeExecutablePath();
   const stderrChunks: string[] = [];
   const cwd = IS_SERVERLESS_RUNTIME ? AGENT_RUNTIME_TMP_DIR : process.cwd();
@@ -179,7 +201,7 @@ async function executeQueryAttempt<T>(prompt: string, schema: z.ZodType<T>, prof
         ? {
             outputFormat: {
               type: "json_schema" as const,
-              schema: z.toJSONSchema(schema),
+              schema: z.toJSONSchema(options.schema),
             },
           }
         : {}),
@@ -260,7 +282,7 @@ async function executeQueryAttempt<T>(prompt: string, schema: z.ZodType<T>, prof
   }
 
   if (typeof structuredOutput !== "undefined") {
-    return schema.parse(structuredOutput);
+    return parseSchemaWithRepair(structuredOutput, options);
   }
 
   const finalText = raw.trim() || streamedRaw.trim() || resultText.trim();
@@ -269,10 +291,10 @@ async function executeQueryAttempt<T>(prompt: string, schema: z.ZodType<T>, prof
     const stderrTail = summarizeStderr(stderrChunks);
     throw new Error(`Agent returned empty response | ${describeQueryState(state)}${stderrTail ? ` | stderr=${stderrTail}` : ""}`);
   }
-  return schema.parse(parseAgentJson<T>(finalText));
+  return parseSchemaWithRepair(parseAgentJson<T>(finalText), options);
 }
 
-async function runJsonQuery<T>(prompt: string, schema: z.ZodType<T>) {
+async function runJsonQuery<T>(prompt: string, schema: z.ZodType<T>, repair?: (value: unknown) => unknown) {
   const profiles: QueryProfile[] = [
     { name: "structured_default", useOutputFormat: true },
     { name: "text_default", useOutputFormat: false },
@@ -281,7 +303,7 @@ async function runJsonQuery<T>(prompt: string, schema: z.ZodType<T>) {
   const errors: string[] = [];
   for (const profile of profiles) {
     try {
-      return await executeQueryAttempt(prompt, schema, profile);
+      return await executeQueryAttempt(prompt, { schema, repair }, profile);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown query error";
       errors.push(`${profile.name}: ${message}`);
@@ -315,6 +337,49 @@ function parseAgentJson<T>(raw: string) {
   }
 
   throw new Error("Agent returned non-JSON output");
+}
+
+function normalizePhase0PacketCandidate(value: unknown) {
+  if (!isRecord(value)) return value;
+  const next: Record<string, unknown> = { ...value };
+
+  if (Array.isArray(next.existing_presence)) {
+    next.existing_presence = next.existing_presence.map((entry) => {
+      if (!isRecord(entry)) return entry;
+      const scannedAtRaw = entry.scanned_at;
+      const scannedAt =
+        typeof scannedAtRaw === "string" && scannedAtRaw.trim()
+          ? scannedAtRaw
+          : new Date().toISOString();
+
+      return {
+        ...entry,
+        domain: typeof entry.domain === "string" ? entry.domain : String(entry.domain ?? ""),
+        status: typeof entry.status === "string" ? entry.status : String(entry.status ?? ""),
+        detail: typeof entry.detail === "string" ? entry.detail : String(entry.detail ?? ""),
+        scanned_at: scannedAt,
+      };
+    });
+  }
+
+  const synopsis = next.reasoning_synopsis;
+  if (isRecord(synopsis) && Array.isArray(synopsis.evidence)) {
+    synopsis.evidence = synopsis.evidence.map((entry) => {
+      if (isRecord(entry)) {
+        return {
+          claim: typeof entry.claim === "string" ? entry.claim : String(entry.claim ?? ""),
+          source: typeof entry.source === "string" ? entry.source : "Model output",
+        };
+      }
+      if (typeof entry === "string") {
+        return { claim: entry, source: "Model output" };
+      }
+      return { claim: String(entry ?? ""), source: "Model output" };
+    });
+    next.reasoning_synopsis = synopsis;
+  }
+
+  return next;
 }
 
 async function runResearchAgent(input: OnboardingInput) {
@@ -362,7 +427,7 @@ Rules:
 - reasoning_synopsis.confidence must be 0-100 integer
 - confidence_breakdown values must be 0-100 integers`;
 
-  return runJsonQuery(prompt, packetSchema);
+  return runJsonQuery(prompt, packetSchema, normalizePhase0PacketCandidate);
 }
 
 type PhaseGenerationInput = {
