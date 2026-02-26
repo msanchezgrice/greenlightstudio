@@ -7,6 +7,16 @@ type Props = {
   shareApiUrl: string;
 };
 
+async function parseResponseJson(response: Response) {
+  const raw = await response.text();
+  if (!raw.trim()) return null;
+  try {
+    return JSON.parse(raw) as { shareUrl?: string; error?: string };
+  } catch {
+    return null;
+  }
+}
+
 export function PacketActions({ exportUrl, shareApiUrl }: Props) {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -17,10 +27,9 @@ export function PacketActions({ exportUrl, shareApiUrl }: Props) {
 
     try {
       const response = await fetch(shareApiUrl, { method: "POST" });
-      const raw = await response.text();
-      const json = raw.trim() ? (JSON.parse(raw) as { shareUrl?: string; error?: string }) : {};
-      if (!response.ok || !json.shareUrl) {
-        throw new Error(json.error ?? `Share link request failed (HTTP ${response.status})`);
+      const json = await parseResponseJson(response);
+      if (!response.ok || !json?.shareUrl) {
+        throw new Error(json?.error ?? `Share link request failed (HTTP ${response.status})`);
       }
 
       await navigator.clipboard.writeText(json.shareUrl);
@@ -44,4 +53,3 @@ export function PacketActions({ exportUrl, shareApiUrl }: Props) {
     </div>
   );
 }
-

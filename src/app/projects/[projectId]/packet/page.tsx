@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { createServiceSupabase } from "@/lib/supabase";
 import { packetSchema } from "@/types/domain";
 import { PacketActions } from "@/components/packet-actions";
+import { PacketDecisionBar } from "@/components/packet-decision-bar";
 
 function recommendationClass(rec: string) {
   if (rec === "greenlight") return "green";
@@ -24,12 +25,24 @@ export default async function PacketPage({ params }: { params: Promise<{ project
     .single();
   if (!project || project.owner_clerk_id !== userId) return <main className="page"><p>Forbidden</p></main>;
 
-  const { data: packetRow } = await db
-    .from("phase_packets")
-    .select("packet, confidence, created_at")
-    .eq("project_id", projectId)
-    .eq("phase", 0)
-    .single();
+  const [{ data: packetRow }, { data: approvalRow }] = await Promise.all([
+    db
+      .from("phase_packets")
+      .select("packet, confidence, created_at")
+      .eq("project_id", projectId)
+      .eq("phase", 0)
+      .single(),
+    db
+      .from("approval_queue")
+      .select("id,version,status")
+      .eq("project_id", projectId)
+      .eq("phase", 0)
+      .eq("action_type", "phase0_packet_review")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
   if (!packetRow) return <main className="page"><p>Packet not found</p></main>;
 
   const parsed = packetSchema.safeParse(packetRow.packet);
@@ -223,6 +236,18 @@ export default async function PacketPage({ params }: { params: Promise<{ project
           </div>
         </section>
       </main>
+
+      <PacketDecisionBar
+        projectId={projectId}
+        approvalId={(approvalRow?.id as string | undefined) ?? null}
+        approvalVersion={typeof approvalRow?.version === "number" ? approvalRow.version : null}
+        approvalStatus={
+          typeof approvalRow?.status === "string" &&
+          ["pending", "approved", "denied", "revised"].includes(approvalRow.status)
+            ? (approvalRow.status as "pending" | "approved" | "denied" | "revised")
+            : null
+        }
+      />
     </>
   );
 }

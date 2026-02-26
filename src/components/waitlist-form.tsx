@@ -6,6 +6,16 @@ function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+async function parseResponseJson(response: Response) {
+  const raw = await response.text();
+  if (!raw.trim()) return null;
+  try {
+    return JSON.parse(raw) as { error?: string };
+  } catch {
+    return null;
+  }
+}
+
 export function WaitlistForm() {
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
@@ -30,10 +40,9 @@ export function WaitlistForm() {
         body: JSON.stringify({ email: trimmed, source: "landing_page" }),
       });
 
-      const text = await res.text();
-      const json = text.trim() ? (JSON.parse(text) as { error?: string }) : {};
+      const json = await parseResponseJson(res);
       if (!res.ok) {
-        throw new Error(json.error ?? `Waitlist submit failed (HTTP ${res.status})`);
+        throw new Error(json?.error ?? `Waitlist submit failed (HTTP ${res.status})`);
       }
 
       setSubmitted(true);
@@ -64,4 +73,3 @@ export function WaitlistForm() {
     </form>
   );
 }
-

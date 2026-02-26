@@ -14,6 +14,21 @@ type UploadMeta = {
   last_modified: number;
 };
 
+type LaunchTask = {
+  agent: string;
+  description: string;
+  status: string;
+  detail: string | null;
+  created_at: string;
+};
+
+type StoredWizardState = {
+  step?: Step;
+  projectId?: string | null;
+  cacheHit?: boolean | null;
+  form?: Partial<typeof defaultForm>;
+};
+
 const stepOrder: Step[] = ["import", "discover", "results", "clarify", "confirm", "launched"];
 const focusSuggestions = [
   "Market Research",
@@ -28,6 +43,7 @@ const focusSuggestions = [
 const allowedFileExts = [".pdf", ".ppt", ".pptx", ".doc", ".docx", ".png", ".jpg", ".jpeg"];
 const maxFileSizeBytes = 10 * 1024 * 1024;
 const wizardStorageKey = "greenlight_onboarding_wizard_v1";
+const wizardSessionStorageKey = `${wizardStorageKey}_session`;
 
 const defaultForm = {
   domain: "",
@@ -84,6 +100,47 @@ function boolLabel(value: boolean) {
   return value ? "On" : "Off";
 }
 
+function readStorage(key: string, storage: Storage) {
+  try {
+    return storage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStorage(key: string, storage: Storage, payload: string) {
+  try {
+    storage.setItem(key, payload);
+  } catch {
+    // Ignore storage quota or privacy mode errors.
+  }
+}
+
+function removeStorage(key: string, storage: Storage) {
+  try {
+    storage.removeItem(key);
+  } catch {
+    // Ignore storage quota or privacy mode errors.
+  }
+}
+
+function parseStoredWizardState(raw: string | null): StoredWizardState | null {
+  if (!raw?.trim()) return null;
+  try {
+    return JSON.parse(raw) as StoredWizardState;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeLaunchTasks(tasks: LaunchTask[], launchStartedAt: number) {
+  const threshold = launchStartedAt - 5_000;
+  return tasks.filter((task) => {
+    const createdAt = Date.parse(task.created_at);
+    return Number.isFinite(createdAt) && createdAt >= threshold;
+  });
+}
+
 export function OnboardingWizard() {
   const { isSignedIn } = useAuth();
   const restoredRef = useRef(false);
@@ -93,52 +150,45 @@ export function OnboardingWizard() {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cacheHit, setCacheHit] = useState<boolean | null>(null);
-  const [launchProgress, setLaunchProgress] = useState<
-    Array<{ agent: string; description: string; status: string; detail: string | null; created_at: string }>
-  >([]);
+  const [launchProgress, setLaunchProgress] = useState<LaunchTask[]>([]);
   const [form, setForm] = useState(defaultForm);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
 
   useEffect(() => {
     try {
-      const raw = window.sessionStorage.getItem(wizardStorageKey);
-      if (!raw) {
+      const stored =
+        parseStoredWizardState(readStorage(wizardStorageKey, window.localStorage)) ??
+        parseStoredWizardState(readStorage(wizardSessionStorageKey, window.sessionStorage));
+      if (!stored) {
         restoredRef.current = true;
         return;
       }
 
-      const parsed = JSON.parse(raw) as {
-        step?: Step;
-        projectId?: string | null;
-        cacheHit?: boolean | null;
-        form?: Partial<typeof defaultForm>;
-      };
-
-      if (parsed.form) {
+      if (stored.form) {
         setForm({
           ...defaultForm,
-          ...parsed.form,
+          ...stored.form,
           permissions: {
             ...defaultForm.permissions,
-            ...(parsed.form.permissions ?? {}),
+            ...(stored.form.permissions ?? {}),
           },
           focus_areas:
-            parsed.form.focus_areas && parsed.form.focus_areas.length
-              ? parsed.form.focus_areas
+            stored.form.focus_areas && stored.form.focus_areas.length
+              ? stored.form.focus_areas
               : defaultForm.focus_areas,
         });
       }
 
-      if (parsed.step && stepOrder.includes(parsed.step)) {
-        setStep(parsed.step);
+      if (stored.step && stepOrder.includes(stored.step)) {
+        setStep(stored.step);
       }
 
-      if (typeof parsed.projectId === "string" || parsed.projectId === null) {
-        setProjectId(parsed.projectId ?? null);
+      if (typeof stored.projectId === "string" || stored.projectId === null) {
+        setProjectId(stored.projectId ?? null);
       }
 
-      if (typeof parsed.cacheHit === "boolean" || parsed.cacheHit === null) {
-        setCacheHit(parsed.cacheHit ?? null);
+      if (typeof stored.cacheHit === "boolean" || stored.cacheHit === null) {
+        setCacheHit(stored.cacheHit ?? null);
       }
     } catch {
       // Ignore corrupted local wizard state and continue with defaults.
@@ -157,11 +207,9 @@ export function OnboardingWizard() {
       form,
     };
 
-    try {
-      window.sessionStorage.setItem(wizardStorageKey, JSON.stringify(payload));
-    } catch {
-      // Ignore storage quota or privacy mode errors.
-    }
+    const serialized = JSON.stringify(payload);
+    writeStorage(wizardStorageKey, window.localStorage, serialized);
+    writeStorage(wizardSessionStorageKey, window.sessionStorage, serialized);
   }, [step, projectId, cacheHit, form]);
 
   const summary = useMemo(() => {
@@ -465,19 +513,14 @@ export function OnboardingWizard() {
 
       const pollProgress = async () => {
         const progressRes = await fetch(`/api/projects/${id}/progress`, { cache: "no-store" });
-        if (!progressRes.ok) return [] as Array<{ agent: string; description: string; status: string; detail: string | null; created_at: string }>;
+        if (!progressRes.ok) return [] as LaunchTask[];
         const progressJson = await parseResponseJson(progressRes);
         const tasks = Array.isArray(progressJson?.tasks)
-          ? (progressJson.tasks as Array<{
-              agent: string;
-              description: string;
-              status: string;
-              detail: string | null;
-              created_at: string;
-            }>)
+          ? (progressJson.tasks as LaunchTask[])
           : [];
-        setLaunchProgress(tasks);
-        return tasks;
+        const currentAttemptTasks = normalizeLaunchTasks(tasks, launchStartedAt);
+        setLaunchProgress(currentAttemptTasks);
+        return currentAttemptTasks;
       };
 
       await pollProgress();
@@ -508,9 +551,8 @@ export function OnboardingWizard() {
       while (!finished) {
         await new Promise((resolve) => setTimeout(resolve, 800));
         const tasks = await pollProgress();
-        const recentTasks = tasks.filter((task) => Date.parse(task.created_at) >= launchStartedAt - 5_000);
-        const failedTask = recentTasks.find((task) => task.status === "failed");
-        const completedTask = recentTasks.find((task) => task.description === "phase0_complete" && task.status === "completed");
+        const failedTask = tasks.find((task) => task.status === "failed");
+        const completedTask = tasks.find((task) => task.description === "phase0_complete" && task.status === "completed");
         if (completedTask) {
           abortReason = "completed";
           launchController.abort();
@@ -529,9 +571,10 @@ export function OnboardingWizard() {
       if (launchError) throw launchError;
 
       try {
-        window.sessionStorage.removeItem(wizardStorageKey);
+        removeStorage(wizardStorageKey, window.localStorage);
+        removeStorage(wizardSessionStorageKey, window.sessionStorage);
       } catch {
-        // Ignore storage errors.
+        // Ignore storage errors in restrictive browser modes.
       }
       setSelectedFiles([]);
       setStep("launched");

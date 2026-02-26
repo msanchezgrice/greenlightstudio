@@ -1165,7 +1165,7 @@ a {
 /* Packet */
 .packet-page {
   max-width: 880px;
-  padding-bottom: 80px;
+  padding-bottom: 150px;
 }
 
 .packet-header {
@@ -1655,6 +1655,72 @@ a {
   line-height: 1.4;
 }
 
+.packet-action-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100;
+  background: var(--card);
+  border-top: 1px solid var(--border);
+}
+
+.packet-action-inner {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 12px 20px;
+}
+
+.packet-action-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.packet-action-btn {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 9px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.packet-action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.packet-action-btn.approve {
+  background: #22c55e;
+  color: #07141f;
+}
+
+.packet-action-btn.revise {
+  background: #eab3081f;
+  color: #eab308;
+  border-color: #eab30855;
+}
+
+.packet-action-btn.kill {
+  background: #ef44441f;
+  color: #ef4444;
+  border-color: #ef444455;
+}
+
+.packet-action-btn.neutral {
+  background: var(--card2);
+  color: var(--text2);
+  border-color: var(--border);
+}
+
+.packet-action-notice {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text2);
+}
+
 /* Studio views */
 .studio-page {
   max-width: 1120px;
@@ -2023,6 +2089,19 @@ a {
   .project-meta-grid,
   .phase-track {
     grid-template-columns: 1fr;
+  }
+
+  .packet-action-inner {
+    padding: 10px 14px;
+  }
+
+  .packet-action-buttons {
+    gap: 6px;
+  }
+
+  .packet-action-btn {
+    width: 100%;
+    text-align: center;
   }
 
   .page-header {
