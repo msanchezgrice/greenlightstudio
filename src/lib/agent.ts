@@ -35,6 +35,23 @@ const projectChatReplySchema = z.object({
   reply: z.string().min(1).max(4000),
 });
 
+const phase0RevisionPatchSchema = z
+  .object({
+    tagline: z.string().optional(),
+    elevator_pitch: z.string().optional(),
+    confidence_breakdown: packetSchema.shape.confidence_breakdown.optional(),
+    competitor_analysis: packetSchema.shape.competitor_analysis.optional(),
+    market_sizing: packetSchema.shape.market_sizing.optional(),
+    target_persona: packetSchema.shape.target_persona.optional(),
+    mvp_scope: packetSchema.shape.mvp_scope.optional(),
+    existing_presence: packetSchema.shape.existing_presence.optional(),
+    recommendation: packetSchema.shape.recommendation.optional(),
+    reasoning_synopsis: packetSchema.shape.reasoning_synopsis.optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one patch field must be provided.",
+  });
+
 type ProjectChatMessage = {
   role: "user" | "assistant" | "system";
   content: string;
@@ -486,8 +503,20 @@ export async function generatePhase0Packet(
 ): Promise<Packet> {
   const trimmedGuidance = revisionGuidance?.trim() || "";
   if (trimmedGuidance && priorPacket) {
-    const revisionPrompt = `You are CEO Agent. Revise an existing Phase 0 packet using user guidance.
-Return STRICT JSON only. Output must match the Phase 0 packet schema exactly.
+    const revisionPrompt = `You are CEO Agent. Create a minimal JSON patch for a Phase 0 packet revision.
+Return STRICT JSON only. Include only fields that must change based on guidance.
+
+Allowed keys:
+- tagline
+- elevator_pitch
+- confidence_breakdown
+- competitor_analysis
+- market_sizing
+- target_persona
+- mvp_scope
+- existing_presence
+- recommendation
+- reasoning_synopsis
 
 Project context:
 ${JSON.stringify({ domain: input.domain, idea_description: input.idea_description, repo_url: input.repo_url }, null, 2)}
@@ -495,18 +524,40 @@ ${JSON.stringify({ domain: input.domain, idea_description: input.idea_descriptio
 User revision guidance:
 ${trimmedGuidance}
 
-Existing Phase 0 packet JSON:
-${JSON.stringify(priorPacket)}
+Current packet summary:
+${JSON.stringify(
+  {
+    tagline: priorPacket.tagline,
+    recommendation: priorPacket.recommendation,
+    confidence_breakdown: priorPacket.confidence_breakdown ?? null,
+    market_sizing: priorPacket.market_sizing,
+    target_persona: priorPacket.target_persona,
+    reasoning_synopsis: priorPacket.reasoning_synopsis,
+  },
+  null,
+  2,
+)}
 
 Rules:
-- Apply the guidance concretely across recommendation rationale, confidence, and next_actions.
-- Preserve factual consistency with the existing packet unless guidance requires a change.
-- Keep no placeholder text.
-- reasoning_synopsis.evidence must remain an array of { claim, source } objects.
-- Return valid JSON only.`;
+- Return only JSON patch fields, no wrapper key.
+- If guidance affects reasoning, include reasoning_synopsis with updated decision/confidence/rationale/risks/next_actions/evidence.
+- Keep evidence as objects with claim and source.
+- No markdown, no placeholders, no extra keys.`;
 
     try {
-      return await runJsonQuery(revisionPrompt, packetSchema, normalizePhase0PacketCandidate);
+      const patch = await runJsonQuery(revisionPrompt, phase0RevisionPatchSchema);
+      const mergedCandidate = {
+        ...priorPacket,
+        ...patch,
+        confidence_breakdown: patch.confidence_breakdown ?? priorPacket.confidence_breakdown,
+        competitor_analysis: patch.competitor_analysis ?? priorPacket.competitor_analysis,
+        market_sizing: patch.market_sizing ?? priorPacket.market_sizing,
+        target_persona: patch.target_persona ?? priorPacket.target_persona,
+        mvp_scope: patch.mvp_scope ?? priorPacket.mvp_scope,
+        existing_presence: patch.existing_presence ?? priorPacket.existing_presence,
+        reasoning_synopsis: patch.reasoning_synopsis ?? priorPacket.reasoning_synopsis,
+      };
+      return packetSchema.parse(normalizePhase0PacketCandidate(mergedCandidate));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown packet revision failure";
       throw new Error(`phase0_ceo_query: ${message}`);
