@@ -15,6 +15,8 @@ import { z } from "zod";
 
 const AGENT_QUERY_TIMEOUT_MS = 55_000;
 const AGENT_QUERY_MAX_TURNS = 12;
+const AGENT_RUNTIME_TMP_DIR = process.env.CLAUDE_SDK_TMPDIR?.trim() || "/tmp";
+const IS_SERVERLESS_RUNTIME = Boolean(process.env.VERCEL || process.env.LAMBDA_TASK_ROOT);
 
 const researchSchema = z.object({
   competitors: z.array(
@@ -30,7 +32,16 @@ const researchSchema = z.object({
 });
 
 function sdkEnv() {
-  return { ...process.env, ANTHROPIC_API_KEY: requireEnv("ANTHROPIC_API_KEY") };
+  const base = { ...process.env, ANTHROPIC_API_KEY: requireEnv("ANTHROPIC_API_KEY") };
+  if (!IS_SERVERLESS_RUNTIME) return base;
+
+  return {
+    ...base,
+    HOME: AGENT_RUNTIME_TMP_DIR,
+    TMPDIR: AGENT_RUNTIME_TMP_DIR,
+    XDG_CONFIG_HOME: path.join(AGENT_RUNTIME_TMP_DIR, ".config"),
+    XDG_CACHE_HOME: path.join(AGENT_RUNTIME_TMP_DIR, ".cache"),
+  };
 }
 
 let cachedClaudeCodeExecutablePath: string | null = null;
@@ -129,6 +140,13 @@ function describeQueryState(state: QueryState) {
   return `messages=[${counts || "none"}] result_subtypes=[${subtypes}]`;
 }
 
+function summarizeStderr(stderrChunks: string[]) {
+  const merged = stderrChunks.join("").trim();
+  if (!merged) return null;
+  if (merged.length <= 700) return merged;
+  return `...${merged.slice(-700)}`;
+}
+
 function isRetryableAgentFailure(message: string) {
   const lower = message.toLowerCase();
   return (
@@ -141,6 +159,8 @@ function isRetryableAgentFailure(message: string) {
 
 async function executeQueryAttempt<T>(prompt: string, schema: z.ZodType<T>, profile: QueryProfile) {
   const executablePath = resolveClaudeCodeExecutablePath();
+  const stderrChunks: string[] = [];
+  const cwd = IS_SERVERLESS_RUNTIME ? AGENT_RUNTIME_TMP_DIR : process.cwd();
   const stream = query({
     prompt,
     options: {
@@ -149,6 +169,12 @@ async function executeQueryAttempt<T>(prompt: string, schema: z.ZodType<T>, prof
       pathToClaudeCodeExecutable: executablePath,
       maxTurns: AGENT_QUERY_MAX_TURNS,
       includePartialMessages: true,
+      persistSession: false,
+      cwd,
+      settingSources: [],
+      stderr: (data) => {
+        stderrChunks.push(data);
+      },
       ...(profile.useOutputFormat
         ? {
             outputFormat: {
@@ -224,11 +250,19 @@ async function executeQueryAttempt<T>(prompt: string, schema: z.ZodType<T>, prof
   }
 
   if (timedOut) {
-    throw new Error(`Agent query timed out after ${Math.round(AGENT_QUERY_TIMEOUT_MS / 1000)}s | ${describeQueryState(state)}`);
+    const stderrTail = summarizeStderr(stderrChunks);
+    throw new Error(
+      `Agent query timed out after ${Math.round(AGENT_QUERY_TIMEOUT_MS / 1000)}s | ${describeQueryState(state)}${
+        stderrTail ? ` | stderr=${stderrTail}` : ""
+      }`,
+    );
   }
 
   if (!state.sawResult) {
-    throw new Error(`Agent stream ended without result message | ${describeQueryState(state)}`);
+    const stderrTail = summarizeStderr(stderrChunks);
+    throw new Error(
+      `Agent stream ended without result message | ${describeQueryState(state)}${stderrTail ? ` | stderr=${stderrTail}` : ""}`,
+    );
   }
 
   if (typeof structuredOutput !== "undefined") {
@@ -238,7 +272,8 @@ async function executeQueryAttempt<T>(prompt: string, schema: z.ZodType<T>, prof
   const finalText = raw.trim() || streamedRaw.trim() || resultText.trim();
   if (resultError && !finalText) throw new Error(resultError);
   if (!finalText) {
-    throw new Error(`Agent returned empty response | ${describeQueryState(state)}`);
+    const stderrTail = summarizeStderr(stderrChunks);
+    throw new Error(`Agent returned empty response | ${describeQueryState(state)}${stderrTail ? ` | stderr=${stderrTail}` : ""}`);
   }
   return schema.parse(parseAgentJson<T>(finalText));
 }
