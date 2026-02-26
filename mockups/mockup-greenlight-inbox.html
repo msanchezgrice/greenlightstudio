@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Greenlight Studio — Inbox</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#070B14;--card:#0B1220;--card2:#0F172A;--border:#1E293B;--green:#22C55E;--blue:#1D4ED8;--red:#EF4444;--yellow:#EAB308;--purple:#A855F7;--cyan:#06B6D4;--text:#E2E8F0;--text2:#94A3B8;--text3:#64748B;--heading:#F8FAFC}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+
+/* Top Nav */
+.nav{display:flex;align-items:center;justify-content:space-between;padding:0 24px;height:52px;background:var(--card);border-bottom:1px solid var(--border)}
+.nav-left{display:flex;align-items:center;gap:20px}
+.logo{font-weight:700;font-size:16px;color:var(--green);display:flex;align-items:center;gap:8px}
+.logo span{color:var(--heading)}
+.nav-tabs{display:flex;gap:2px}
+.nav-tab{padding:8px 16px;font-size:13px;color:var(--text2);border-radius:6px;cursor:pointer;transition:.15s}
+.nav-tab:hover{background:var(--card2);color:var(--text)}
+.nav-tab.active{background:var(--card2);color:var(--heading);font-weight:600}
+.nav-right{display:flex;align-items:center;gap:12px}
+.avatar{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--green),var(--blue));display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff}
+
+/* Page Layout */
+.page{max-width:960px;margin:0 auto;padding:32px 24px}
+.page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}
+.page-title{font-size:26px;font-weight:700;color:var(--heading);display:flex;align-items:center;gap:10px}
+.count-badge{background:rgba(239,68,68,.15);color:var(--red);font-size:13px;font-weight:700;padding:2px 10px;border-radius:12px}
+.filter-bar{display:flex;gap:8px}
+.filter-btn{padding:6px 14px;font-size:12px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--text2);cursor:pointer;transition:.15s}
+.filter-btn:hover{border-color:var(--text3);color:var(--text)}
+.filter-btn.active{background:var(--card2);border-color:var(--green);color:var(--green)}
+
+/* Stats Row */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:center}
+.stat-num{font-size:28px;font-weight:700;color:var(--heading)}
+.stat-label{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-top:2px}
+.stat-num.urgent{color:var(--red)}
+.stat-num.pending{color:var(--yellow)}
+.stat-num.done{color:var(--green)}
+.stat-num.total{color:var(--blue)}
+
+/* Approval Cards */
+.section-label{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.section-label .dot{width:6px;height:6px;border-radius:50%}
+.card-list{display:flex;flex-direction:column;gap:10px;margin-bottom:32px}
+.approval-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px 20px;transition:all .15s;cursor:pointer;position:relative}
+.approval-card:hover{border-color:var(--text3);transform:translateY(-1px)}
+.approval-card.urgent{border-left:3px solid var(--red)}
+.approval-card.medium{border-left:3px solid var(--yellow)}
+.approval-card.low{border-left:3px solid var(--green)}
+.card-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px}
+.card-project{display:flex;align-items:center;gap:8px}
+.project-icon{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px}
+.project-name{font-size:12px;color:var(--text2)}
+.risk-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;text-transform:uppercase;letter-spacing:.5px}
+.risk-high{background:rgba(239,68,68,.12);color:var(--red)}
+.risk-medium{background:rgba(234,179,8,.12);color:var(--yellow)}
+.risk-low{background:rgba(34,197,94,.12);color:var(--green)}
+.card-title{font-size:15px;font-weight:600;color:var(--heading);margin-bottom:4px}
+.card-desc{font-size:13px;color:var(--text2);line-height:1.5;margin-bottom:12px}
+.card-meta{display:flex;align-items:center;gap:16px;font-size:12px;color:var(--text3)}
+.card-meta span{display:flex;align-items:center;gap:4px}
+.card-actions{display:flex;gap:8px;margin-top:12px}
+.btn{padding:7px 16px;font-size:12px;font-weight:600;border-radius:6px;border:none;cursor:pointer;transition:.15s}
+.btn-approve{background:var(--green);color:#fff}
+.btn-approve:hover{background:#16A34A}
+.btn-deny{background:rgba(239,68,68,.1);color:var(--red);border:1px solid rgba(239,68,68,.2)}
+.btn-deny:hover{background:rgba(239,68,68,.2)}
+.btn-details{background:var(--card2);color:var(--text2);border:1px solid var(--border)}
+.btn-details:hover{color:var(--text);border-color:var(--text3)}
+.btn-preview{background:rgba(29,78,216,.1);color:#60A5FA;border:1px solid rgba(29,78,216,.2)}
+.btn-preview:hover{background:rgba(29,78,216,.2)}
+
+/* Expanded Detail Panel */
+.detail-panel{background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-top:12px;display:none}
+.detail-panel.show{display:block}
+.detail-row{display:flex;gap:12px;margin-bottom:8px;font-size:13px}
+.detail-label{color:var(--text3);min-width:100px}
+.detail-value{color:var(--text)}
+.synopsis-mini{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;margin-top:8px;font-size:12px;color:var(--text2);line-height:1.5}
+.synopsis-mini strong{color:var(--cyan)}
+
+/* History Section */
+.history-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 18px;opacity:.7}
+.history-card .card-title{font-size:14px}
+.resolution{display:inline-block;font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;margin-left:8px}
+.approved{background:rgba(34,197,94,.12);color:var(--green)}
+.denied{background:rgba(239,68,68,.12);color:var(--red)}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+<div class="nav-left">
+<div class="logo">▲ <span>Greenlight</span></div>
+<div class="nav-tabs">
+<div class="nav-tab">Board</div>
+<div class="nav-tab">Projects</div>
+<div class="nav-tab active">Inbox</div>
+<div class="nav-tab">Tasks</div>
+<div class="nav-tab">Settings</div>
+</div>
+</div>
+<div class="nav-right">
+<div style="font-size:13px;color:var(--text2)">3 pending</div>
+<div class="avatar">MS</div>
+</div>
+</nav>
+
+<div class="page">
+<div class="page-header">
+<div class="page-title">
+📥 Approval Inbox <span class="count-badge">3 pending</span>
+</div>
+<div class="filter-bar">
+<div class="filter-btn active">All</div>
+<div class="filter-btn">Urgent</div>
+<div class="filter-btn">Deploys</div>
+<div class="filter-btn">Ads</div>
+<div class="filter-btn">Outreach</div>
+</div>
+</div>
+
+<div class="stats">
+<div class="stat"><div class="stat-num urgent">1</div><div class="stat-label">Urgent</div></div>
+<div class="stat"><div class="stat-num pending">3</div><div class="stat-label">Pending</div></div>
+<div class="stat"><div class="stat-num done">12</div><div class="stat-label">Approved Today</div></div>
+<div class="stat"><div class="stat-num total">47</div><div class="stat-label">Total This Week</div></div>
+</div>
+
+<!-- URGENT -->
+<div class="section-label"><div class="dot" style="background:var(--red)"></div> Requires Immediate Review</div>
+<div class="card-list">
+<div class="approval-card urgent">
+<div class="card-top">
+<div class="card-project">
+<div class="project-icon" style="background:rgba(239,68,68,.12)">🚀</div>
+<div>
+<div class="project-name">ConjureAnything · Phase 2</div>
+</div>
+</div>
+<span class="risk-badge risk-high">High Risk</span>
+</div>
+<div class="card-title">Activate Meta Ads Campaign — $50/day Budget</div>
+<div class="card-desc">CEO agent recommends launching the "Early Access" ad set targeting product managers aged 25-45. Budget: $50/day with 7-day test window. Kill-switch: pause if CPA exceeds $12 after 72 hours. 3 creative variants ready for A/B testing.</div>
+<div class="card-meta">
+<span>🤖 CEO Agent</span>
+<span>⏱ 2 hours ago</span>
+<span>💰 Est. spend: $350/week</span>
+</div>
+<div class="card-actions">
+<button class="btn btn-approve">✓ Approve &amp; Activate</button>
+<button class="btn btn-preview">Preview Creatives</button>
+<button class="btn btn-details" onclick="this.closest('.approval-card').querySelector('.detail-panel').classList.toggle('show')">View Details</button>
+<button class="btn btn-deny">✕ Deny</button>
+</div>
+<div class="detail-panel">
+<div class="detail-row"><span class="detail-label">Action Type</span><span class="detail-value">Meta Ads — Campaign Activation</span></div>
+<div class="detail-row"><span class="detail-label">Daily Budget</span><span class="detail-value">$50.00 (hard cap: $75)</span></div>
+<div class="detail-row"><span class="detail-label">Audience</span><span class="detail-value">Product Managers, 25-45, US/UK/CA</span></div>
+<div class="detail-row"><span class="detail-label">Kill Switch</span><span class="detail-value">Auto-pause if CPA &gt; $12 after 72h</span></div>
+<div class="synopsis-mini">
+<strong>CEO Synopsis:</strong> "ConjureAnything's landing page has 340 waitlist signups in 5 days with zero paid traffic. The organic conversion rate of 14% suggests strong product-market signal. I recommend a controlled $50/day test to validate paid acquisition economics before scaling."
+</div>
+</div>
+</div>
+</div>
+
+<!-- PENDING -->
+<div class="section-label"><div class="dot" style="background:var(--yellow)"></div> Pending Review</div>
+<div class="card-list">
+<div class="approval-card medium">
+<div class="card-top">
+<div class="card-project">
+<div class="project-icon" style="background:rgba(34,197,94,.12)">🧒</div>
+<div><div class="project-name">OfflineDad · Phase 1</div></div>
+</div>
+<span class="risk-badge risk-medium">Medium Risk</span>
+</div>
+<div class="card-title">Deploy Landing Page v3 to Production</div>
+<div class="card-desc">Updated landing with new competitive messaging, improved mobile layout, and working waitlist form. Replaces the current v2 landing at offlinedad.com. Includes PostHog analytics wiring and OG meta tags.</div>
+<div class="card-meta">
+<span>🎨 Design Agent</span>
+<span>⏱ 4 hours ago</span>
+<span>📊 3 changes from v2</span>
+</div>
+<div class="card-actions">
+<button class="btn btn-approve">✓ Approve Deploy</button>
+<button class="btn btn-preview">Preview Changes</button>
+<button class="btn btn-details" onclick="this.closest('.approval-card').querySelector('.detail-panel').classList.toggle('show')">View Diff</button>
+<button class="btn btn-deny">✕ Deny</button>
+</div>
+<div class="detail-panel">
+<div class="detail-row"><span class="detail-label">Action Type</span><span class="detail-value">Deploy — Landing Page Update</span></div>
+<div class="detail-row"><span class="detail-label">Target</span><span class="detail-value">offlinedad.com (shared runtime)</span></div>
+<div class="detail-row"><span class="detail-label">Changes</span><span class="detail-value">Hero copy, mobile nav, waitlist CTA, PostHog snippet</span></div>
+<div class="synopsis-mini">
+<strong>CEO Synopsis:</strong> "The v2 landing had a 6% bounce rate on mobile due to layout issues. v3 fixes this and adds competitive positioning from the latest research. Expected improvement: 2-3% lift in waitlist conversion."
+</div>
+</div>
+</div>
+
+<div class="approval-card low">
+<div class="card-top">
+<div class="card-project">
+<div class="project-icon" style="background:rgba(168,85,247,.12)">🔮</div>
+<div><div class="project-name">ConjureAnything · Phase 1</div></div>
+</div>
+<span class="risk-badge risk-low">Low Risk</span>
+</div>
+<div class="card-title">Send Welcome Email Sequence to 340 Waitlist Signups</div>
+<div class="card-desc">3-email drip sequence: welcome + product preview (Day 0), feature deep-dive (Day 2), early access invite (Day 5). Copy reviewed by Brand agent. Unsubscribe link included.</div>
+<div class="card-meta">
+<span>📧 Outreach Agent</span>
+<span>⏱ 6 hours ago</span>
+<span>👥 340 recipients</span>
+</div>
+<div class="card-actions">
+<button class="btn btn-approve">✓ Approve &amp; Send</button>
+<button class="btn btn-preview">Preview Emails</button>
+<button class="btn btn-deny">✕ Deny</button>
+</div>
+</div>
+</div>
+
+<!-- RECENTLY RESOLVED -->
+<div class="section-label" style="margin-top:12px"><div class="dot" style="background:var(--text3)"></div> Recently Resolved</div>
+<div class="card-list">
+<div class="history-card">
+<div class="card-top">
+<div class="card-project">
+<div class="project-icon" style="background:rgba(34,197,94,.08)">🧒</div>
+<div><div class="project-name">OfflineDad · Phase 0</div></div>
+</div>
+</div>
+<div class="card-title">Greenlight Phase 0 Packet for Review <span class="resolution approved">Approved</span></div>
+<div class="card-meta"><span>✓ Approved 2h ago</span><span>Confidence: 76/100</span></div>
+</div>
+<div class="history-card">
+<div class="card-top">
+<div class="card-project">
+<div class="project-icon" style="background:rgba(239,68,68,.08)">💡</div>
+<div><div class="project-name">DomainFlip.ai · Phase 0</div></div>
+</div>
+</div>
+<div class="card-title">Phase 0 Packet — CEO recommends Kill <span class="resolution denied">Killed</span></div>
+<div class="card-meta"><span>✕ Killed 5h ago</span><span>Confidence: 28/100</span><span>Reason: Saturated market</span></div>
+</div>
+</div>
+
+</div>
+
+
+</body></html>

@@ -1,0 +1,985 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Greenlight Studio — Onboarding Wizard</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#070B14;color:#E2E8F0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;line-height:1.6}
+.header{background:#0B1220;border-bottom:1px solid #1E293B;padding:16px 32px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100}
+.logo{color:#22C55E;font-weight:700;font-size:18px}
+.badge{background:#22C55E20;color:#22C55E;font-size:11px;padding:2px 8px;border-radius:4px;font-weight:600}
+.section-label{color:#94A3B8;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:32px 32px 16px;font-weight:600}
+
+/* STATE MACHINE */
+.state-machine{margin:0 32px 32px;background:#0B1220;border:1px solid #1E293B;border-radius:12px;padding:32px;overflow-x:auto}
+.sm-title{font-size:16px;font-weight:600;margin-bottom:20px;color:#F8FAFC}
+.sm-diagram{font-family:'SF Mono',Consolas,'Courier New',monospace;font-size:12px;line-height:1.5;color:#94A3B8;white-space:pre;overflow-x:auto;padding:16px;background:#070B14;border-radius:8px;border:1px solid #1E293B}
+.sm-diagram .green{color:#22C55E}
+.sm-diagram .blue{color:#3B82F6}
+.sm-diagram .yellow{color:#EAB308}
+.sm-diagram .purple{color:#A855F7}
+.sm-diagram .red{color:#EF4444}
+.sm-diagram .cyan{color:#06B6D4}
+.sm-legend{display:flex;gap:20px;margin-top:16px;flex-wrap:wrap}
+.sm-legend-item{display:flex;align-items:center;gap:6px;font-size:11px;color:#94A3B8}
+.sm-legend-dot{width:10px;height:10px;border-radius:3px}
+
+/* FLOW SCREENS */
+.screens-row{display:flex;gap:24px;padding:0 32px 32px;overflow-x:auto}
+.screen-card{min-width:420px;max-width:420px;background:#0B1220;border:1px solid #1E293B;border-radius:12px;overflow:hidden;flex-shrink:0}
+.screen-header{padding:16px 20px;border-bottom:1px solid #1E293B;display:flex;align-items:center;justify-content:space-between}
+.screen-step{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px}
+.screen-step.s0{color:#06B6D4}.screen-step.s1{color:#22C55E}.screen-step.s15{color:#3B82F6}.screen-step.s2{color:#EAB308}.screen-step.s3{color:#A855F7}.screen-step.s4{color:#EF4444}
+.screen-title{font-size:15px;font-weight:600;color:#F8FAFC}
+.screen-body{padding:20px}
+.screen-desc{color:#94A3B8;font-size:13px;margin-bottom:16px;line-height:1.6}
+
+/* Mock UI components */
+.mock-input{background:#070B14;border:1px solid #1E293B;border-radius:8px;padding:12px 14px;color:#94A3B8;font-size:13px;width:100%;margin-bottom:10px}
+.mock-input.active{border-color:#22C55E;color:#F8FAFC}
+.mock-input.filled{border-color:#1E293B;color:#E2E8F0}
+.mock-btn{display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:600;border:none;cursor:pointer}
+.mock-btn.primary{background:#22C55E;color:#070B14}
+.mock-btn.secondary{background:transparent;border:1px solid #1E293B;color:#94A3B8}
+.mock-btn.disabled{background:#1E293B;color:#475569;cursor:not-allowed}
+.btn-row{display:flex;gap:10px;margin-top:16px}
+
+.mock-tag{display:inline-flex;align-items:center;gap:4px;background:#0F172A;border:1px solid #1E293B;border-radius:6px;padding:4px 10px;font-size:11px;color:#94A3B8;margin:3px}
+.mock-tag.added{border-color:#22C55E40;color:#22C55E;background:#22C55E10}
+.mock-radio{display:flex;align-items:center;gap:10px;padding:12px;background:#070B14;border:1px solid #1E293B;border-radius:8px;margin-bottom:8px;cursor:pointer}
+.mock-radio.selected{border-color:#22C55E;background:#22C55E08}
+.mock-radio-dot{width:16px;height:16px;border-radius:50%;border:2px solid #475569;flex-shrink:0}
+.mock-radio.selected .mock-radio-dot{border-color:#22C55E;background:radial-gradient(circle,#22C55E 40%,transparent 40%)}
+.mock-radio-label{font-size:13px;color:#E2E8F0}
+.mock-radio-desc{font-size:11px;color:#64748B;margin-top:2px}
+
+.scan-result{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#070B14;border:1px solid #1E293B;border-radius:8px;margin-bottom:8px}
+.scan-icon{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.scan-icon.live{background:#22C55E20;color:#22C55E}
+.scan-icon.parked{background:#EAB30820;color:#EAB308}
+.scan-icon.none{background:#47556920;color:#475569}
+.scan-icon.repo{background:#3B82F620;color:#3B82F6}
+.scan-label{font-size:12px;color:#E2E8F0}
+.scan-sub{font-size:10px;color:#64748B}
+.scan-badge{font-size:10px;padding:2px 8px;border-radius:4px;font-weight:600;margin-left:auto}
+.scan-badge.live{background:#22C55E20;color:#22C55E}
+.scan-badge.parked{background:#EAB30820;color:#EAB308}
+.scan-badge.none{background:#47556920;color:#475569}
+.scan-badge.found{background:#3B82F620;color:#3B82F6}
+
+.progress-bar{display:flex;gap:4px;margin-bottom:20px}
+.progress-bar .step{height:4px;flex:1;border-radius:2px;background:#1E293B}
+.progress-bar .step.done{background:#22C55E}
+.progress-bar .step.active{background:#22C55E80}
+.progress-bar .step.upcoming{background:#1E293B}
+
+.confirm-row{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#070B14;border:1px solid #1E293B;border-radius:8px;margin-bottom:8px}
+.confirm-label{font-size:12px;color:#94A3B8}
+.confirm-value{font-size:12px;color:#F8FAFC;font-weight:600}
+.confirm-value.green{color:#22C55E}
+.confirm-value.yellow{color:#EAB308}
+.confirm-value.blue{color:#3B82F6}
+
+.arrow-down{text-align:center;color:#22C55E;font-size:20px;margin:8px 0}
+.transition-label{text-align:center;font-size:10px;color:#22C55E;text-transform:uppercase;letter-spacing:1px;margin:4px 0 12px}
+
+/* DETAILED SCREENS */
+.detail-section{margin:0 32px 32px}
+.detail-card{background:#0B1220;border:1px solid #1E293B;border-radius:12px;overflow:hidden;margin-bottom:24px}
+.detail-header{display:flex;align-items:center;gap:12px;padding:20px 24px;border-bottom:1px solid #1E293B}
+.detail-num{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;flex-shrink:0}
+.detail-num.s0{background:#06B6D420;color:#06B6D4}.detail-num.s1{background:#22C55E20;color:#22C55E}
+.detail-num.s15{background:#3B82F620;color:#3B82F6}.detail-num.s2{background:#EAB30820;color:#EAB308}
+.detail-num.s3{background:#A855F720;color:#A855F7}.detail-num.s4{background:#EF444420;color:#EF4444}
+.detail-title{font-size:16px;font-weight:600;color:#F8FAFC}
+.detail-subtitle{font-size:12px;color:#64748B;margin-top:2px}
+.detail-body{padding:24px;display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.detail-body.single{grid-template-columns:1fr}
+.detail-left,.detail-right{display:flex;flex-direction:column;gap:12px}
+.field-group{margin-bottom:4px}
+.field-label{font-size:11px;color:#64748B;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px}
+.field-note{font-size:11px;color:#475569;margin-top:4px;font-style:italic}
+
+.mock-textarea{background:#070B14;border:1px solid #1E293B;border-radius:8px;padding:12px 14px;color:#94A3B8;font-size:13px;width:100%;min-height:80px;resize:none;font-family:inherit}
+.mock-toggle{display:flex;align-items:center;gap:10px}
+.toggle-track{width:36px;height:20px;background:#1E293B;border-radius:10px;position:relative;cursor:pointer}
+.toggle-track.on{background:#22C55E}
+.toggle-dot{width:16px;height:16px;background:#F8FAFC;border-radius:50%;position:absolute;top:2px;left:2px;transition:left 0.2s}
+.toggle-track.on .toggle-dot{left:18px}
+.toggle-label{font-size:12px;color:#E2E8F0}
+
+.error-state{background:#EF444410;border:1px solid #EF444440;border-radius:8px;padding:12px;margin-bottom:12px}
+.error-text{font-size:12px;color:#EF4444}
+.warning-state{background:#EAB30810;border:1px solid #EAB30840;border-radius:8px;padding:12px;margin-bottom:12px}
+.warning-text{font-size:12px;color:#EAB308}
+.success-state{background:#22C55E10;border:1px solid #22C55E40;border-radius:8px;padding:12px;margin-bottom:12px}
+.success-text{font-size:12px;color:#22C55E}
+
+.loading-bar{height:4px;background:#1E293B;border-radius:2px;overflow:hidden;margin:12px 0}
+.loading-bar .fill{height:100%;background:linear-gradient(90deg,#22C55E,#06B6D4);width:65%;border-radius:2px;animation:load 2s ease-in-out infinite}
+@keyframes load{0%{width:0}50%{width:65%}100%{width:100%}}
+
+.connector{display:flex;align-items:center;justify-content:center;min-width:40px;flex-shrink:0;color:#22C55E;font-size:24px}
+</style></head><body>
+<div class="header">
+  <div class="logo">▲ Greenlight Studio</div>
+  <span class="badge">ONBOARDING WIZARD</span>
+  <span style="color:#64748B;font-size:12px;margin-left:auto">User Flow + State Machine + Screen Mockups</span>
+</div>
+
+<!-- STATE MACHINE DIAGRAM -->
+<div class="section-label">State Machine — Onboarding Flow</div>
+<div class="state-machine">
+  <div class="sm-title">Wizard State Machine</div>
+  <div class="sm-diagram">
+<span class="cyan">┌──────────────────────────────────────────────────────────────────────────────────────────────┐</span>
+<span class="cyan">│                            GREENLIGHT STUDIO — ONBOARDING STATE MACHINE                       │</span>
+<span class="cyan">└──────────────────────────────────────────────────────────────────────────────────────────────┘</span>
+
+  <span class="green">[ START ]</span>
+      │
+      ▼
+  <span class="cyan">┌─────────────┐</span>     domain entered      <span class="green">┌──────────────────┐</span>     scan complete      <span class="blue">┌──────────────────┐</span>
+  <span class="cyan">│ S0: IMPORT  │</span> ──────────────────────▶ <span class="green">│ S1: DISCOVER     │</span> ──────────────────────▶ <span class="blue">│ S1.5: SCAN       │</span>
+  <span class="cyan">│             │</span>                         <span class="green">│ (asset discovery) │</span>                         <span class="blue">│ RESULTS          │</span>
+  <span class="cyan">│ • domain    │</span>     skip scan           <span class="green">│ • DNS check      │</span>     scan failed         <span class="blue">│ • live status    │</span>
+  <span class="cyan">│ • idea desc │</span> ─────────────┐          <span class="green">│ • HTTP probe     │</span> ──────────────┐          <span class="blue">│ • tech stack     │</span>
+  <span class="cyan">│ • repo URL  │</span>              │          <span class="green">│ • meta scrape    │</span>              │          <span class="blue">│ • competitors    │</span>
+  <span class="cyan">│ • file drop │</span>              │          <span class="green">│ • repo clone     │</span>              │          <span class="blue">│ • repo summary   │</span>
+  <span class="cyan">└─────────────┘</span>              │          <span class="green">└──────────────────┘</span>              │          <span class="blue">└──────────────────┘</span>
+                                │                                           │                │
+                                │                                           │                │ user confirms
+                                │                    ┌──────────────────────┘                │
+                                │                    │                                       ▼
+                                │                    ▼                               <span class="yellow">┌──────────────────┐</span>
+                                │          <span class="red">┌──────────────────┐</span>              <span class="yellow">│ S2: CLARIFY      │</span>
+                                └────────▶ <span class="red">│ S1.5e: SCAN      │</span>              <span class="yellow">│                  │</span>
+                                           <span class="red">│ ERROR/SKIP       │</span> ─────────▶   <span class="yellow">│ • runtime mode   │</span>
+                                           <span class="red">│                  │</span>  continue    <span class="yellow">│ • permissions    │</span>
+                                           <span class="red">│ • timeout        │</span>              <span class="yellow">│ • night shift    │</span>
+                                           <span class="red">│ • DNS failed     │</span>              <span class="yellow">│ • budget caps    │</span>
+                                           <span class="red">│ • user skipped   │</span>              <span class="yellow">│ • focus areas    │</span>
+                                           <span class="red">└──────────────────┘</span>              <span class="yellow">└──────────────────┘</span>
+                                                                                       │
+                                                                                       │ user confirms
+                                                                                       ▼
+                                                                               <span class="purple">┌──────────────────┐</span>
+                                                                               <span class="purple">│ S3: CONFIRM      │</span>
+                                                                               <span class="purple">│                  │</span>
+                                                                               <span class="purple">│ • review summary │</span>
+                                                                               <span class="purple">│ • edit any field │</span>
+                                                                               <span class="purple">│ • launch project │</span>
+                                                                               <span class="purple">└──────────────────┘</span>
+                                                                                       │
+                                                                          ┌────────────┤
+                                                                          │            │
+                                                                          ▼            ▼
+                                                                   <span class="green">[ LAUNCHED ]</span>    <span class="yellow">[ BACK ]</span>
+                                                                   CEO agent       (any step)
+                                                                   begins Phase 0
+  </div>
+  <div class="sm-legend">
+    <div class="sm-legend-item"><div class="sm-legend-dot" style="background:#06B6D4"></div> S0: Import</div>
+    <div class="sm-legend-item"><div class="sm-legend-dot" style="background:#22C55E"></div> S1: Discover</div>
+    <div class="sm-legend-item"><div class="sm-legend-dot" style="background:#3B82F6"></div> S1.5: Scan Results</div>
+    <div class="sm-legend-item"><div class="sm-legend-dot" style="background:#EAB308"></div> S2: Clarify</div>
+    <div class="sm-legend-item"><div class="sm-legend-dot" style="background:#A855F7"></div> S3: Confirm</div>
+    <div class="sm-legend-item"><div class="sm-legend-dot" style="background:#EF4444"></div> Error/Skip</div>
+    <div class="sm-legend-item"><div class="sm-legend-dot" style="background:#F8FAFC"></div> Terminal</div>
+  </div>
+</div>
+
+<!-- TRANSITION DIAGRAM -->
+<div class="section-label">Transition Rules</div>
+<div class="state-machine">
+  <div class="sm-title">State Transitions + Guards</div>
+  <div class="sm-diagram">
+<span class="cyan">TRANSITION TABLE</span>
+┌──────────────┬───────────────────────┬──────────────────────────────────┬──────────────┐
+│ <span class="cyan">From</span>         │ <span class="cyan">Event</span>                 │ <span class="cyan">Guard</span>                            │ <span class="cyan">To</span>           │
+├──────────────┼───────────────────────┼──────────────────────────────────┼──────────────┤
+│ S0: Import   │ SUBMIT_DOMAIN         │ domain ≠ empty                   │ S1: Discover │
+│ S0: Import   │ SKIP_SCAN             │ idea_desc ≠ empty                │ S2: Clarify  │
+│ S1: Discover │ SCAN_COMPLETE         │ results.status ∈ {live,parked}   │ S1.5: Results│
+│ S1: Discover │ SCAN_FAILED           │ timeout ∨ DNS_fail               │ S1.5e: Error │
+│ S1: Discover │ REPO_SCANNED          │ repo_url valid + cloned          │ S1.5: Results│
+│ S1.5: Results│ USER_CONFIRMS         │ —                                │ S2: Clarify  │
+│ S1.5: Results│ USER_EDITS            │ —                                │ S0: Import   │
+│ S1.5e: Error │ CONTINUE_ANYWAY       │ —                                │ S2: Clarify  │
+│ S1.5e: Error │ RETRY_SCAN            │ retries &lt; 3                      │ S1: Discover │
+│ S2: Clarify  │ USER_CONFIRMS         │ mode + perms selected            │ S3: Confirm  │
+│ S2: Clarify  │ BACK                  │ —                                │ S1.5 or S0   │
+│ S3: Confirm  │ LAUNCH                │ all required fields present      │ LAUNCHED     │
+│ S3: Confirm  │ EDIT_FIELD            │ —                                │ S0/S1/S2     │
+│ LAUNCHED     │ —                     │ terminal                         │ —            │
+└──────────────┴───────────────────────┴──────────────────────────────────┴──────────────┘
+
+<span class="green">DATA MODEL (wizard state)</span>
+┌─────────────────────────────────────────────────┐
+│ WizardState {                                   │
+│   step: 'import'|'discover'|'results'|          │
+│         'error'|'clarify'|'confirm'|'launched'  │
+│   domain: string | null                         │
+│   idea_description: string                      │
+│   repo_url: string | null                       │
+│   uploaded_files: File[]                         │
+│   scan_results: {                               │
+│     dns: 'live'|'parked'|'none'|null            │
+│     http_status: number | null                  │
+│     tech_stack: string[] | null                 │
+│     meta: {title,desc,og_image} | null          │
+│     existing_content: 'site'|'parked'|'none'    │
+│     competitors_found: Competitor[]             │
+│   } | null                                      │
+│   repo_summary: {                               │
+│     framework: string | null                    │
+│     language: string | null                     │
+│     loc: number | null                          │
+│     last_commit: Date | null                    │
+│     key_files: string[]                         │
+│   } | null                                      │
+│   runtime_mode: 'shared' | 'attached'           │
+│   permissions: {                                │
+│     repo_write: boolean (default: false)        │
+│     deploy: boolean (default: false)            │
+│     ads_budget_cap: number (default: 0)         │
+│     email_send: boolean (default: false)        │
+│   }                                             │
+│   night_shift: boolean (default: true)          │
+│   focus_areas: string[]                         │
+│ }                                               │
+└─────────────────────────────────────────────────┘
+  </div>
+</div>
+
+<!-- SCREEN FLOW: Horizontal scroll of all wizard screens -->
+<div class="section-label">Screen Flow — All Wizard Steps</div>
+<div class="screens-row">
+
+  <!-- S0: IMPORT -->
+  <div class="screen-card">
+    <div class="screen-header">
+      <span class="screen-step s0">Step 0 — Import</span>
+      <span style="color:#64748B;font-size:11px">Entry point</span>
+    </div>
+    <div class="screen-body">
+      <div class="progress-bar">
+        <div class="step active"></div>
+        <div class="step upcoming"></div>
+        <div class="step upcoming"></div>
+        <div class="step upcoming"></div>
+        <div class="step upcoming"></div>
+      </div>
+      <div style="font-size:20px;font-weight:700;color:#F8FAFC;margin-bottom:4px">What are you building?</div>
+      <div class="screen-desc">Drop in a domain, paste a repo URL, or just describe your idea. We'll take it from there.</div>
+      
+      <div class="field-label">Domain name (optional)</div>
+      <div class="mock-input active">offlinedad.com</div>
+      
+      <div class="field-label">Describe your idea</div>
+      <div class="mock-textarea" style="min-height:60px;color:#E2E8F0">Parenting app for dads who want to disconnect from screens and be more present with their kids</div>
+      
+      <div class="field-label">GitHub repo (optional)</div>
+      <div class="mock-input">https://github.com/user/offlinedad</div>
+      
+      <div class="field-label">Upload files (optional)</div>
+      <div style="border:2px dashed #1E293B;border-radius:8px;padding:20px;text-align:center;color:#475569;font-size:12px;margin-bottom:16px">
+        Drop pitch deck, wireframes, or docs here<br>
+        <span style="color:#64748B;font-size:10px">PDF, PPTX, DOCX, images</span>
+      </div>
+      
+      <div class="btn-row">
+        <div class="mock-btn primary">Scan &amp; Discover →</div>
+        <div class="mock-btn secondary">Skip scan, go to settings →</div>
+      </div>
+      <div class="field-note">Scanning checks your domain and repo (read-only). No changes are made.</div>
+    </div>
+  </div>
+  
+  <div class="connector">→</div>
+
+  <!-- S1: DISCOVER (scanning animation) -->
+  <div class="screen-card">
+    <div class="screen-header">
+      <span class="screen-step s1">Step 1 — Discover</span>
+      <span style="color:#64748B;font-size:11px">Asset scanning in progress</span>
+    </div>
+    <div class="screen-body">
+      <div class="progress-bar">
+        <div class="step done"></div>
+        <div class="step active"></div>
+        <div class="step upcoming"></div>
+        <div class="step upcoming"></div>
+        <div class="step upcoming"></div>
+      </div>
+      <div style="font-size:20px;font-weight:700;color:#F8FAFC;margin-bottom:4px">🔍 Scanning your assets…</div>
+      <div class="screen-desc">We're checking what already exists. This takes 10–30 seconds.</div>
+      
+      <div class="loading-bar"><div class="fill"></div></div>
+      
+      <div style="font-size:11px;color:#64748B;margin-bottom:16px">Running Pre-Phase 0 Asset Discovery</div>
+      
+      <div class="scan-result">
+        <div class="scan-icon live">✓</div>
+        <div><div class="scan-label">DNS Lookup</div><div class="scan-sub">offlinedad.com → 76.76.21.21</div></div>
+        <div class="scan-badge live">RESOLVED</div>
+      </div>
+      <div class="scan-result">
+        <div class="scan-icon live">✓</div>
+        <div><div class="scan-label">HTTP Probe</div><div class="scan-sub">200 OK · 340ms · TLS valid</div></div>
+        <div class="scan-badge live">LIVE</div>
+      </div>
+      <div class="scan-result">
+        <div class="scan-icon" style="background:#3B82F620;color:#3B82F6">⟳</div>
+        <div><div class="scan-label">Meta &amp; Content Scrape</div><div class="scan-sub">Extracting title, description, OG tags…</div></div>
+        <div class="scan-badge" style="background:#3B82F620;color:#3B82F6">RUNNING</div>
+      </div>
+      <div class="scan-result" style="opacity:0.5">
+        <div class="scan-icon none">○</div>
+        <div><div class="scan-label">Repository Clone</div><div class="scan-sub">github.com/user/offlinedad</div></div>
+        <div class="scan-badge none">QUEUED</div>
+      </div>
+      <div class="scan-result" style="opacity:0.5">
+        <div class="scan-icon none">○</div>
+        <div><div class="scan-label">Competitor Quick-scan</div><div class="scan-sub">Searching related domains…</div></div>
+        <div class="scan-badge none">QUEUED</div>
+      </div>
+      
+      <div class="btn-row">
+        <div class="mock-btn disabled">Waiting…</div>
+        <div class="mock-btn secondary">Skip scan →</div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="connector">→</div>
+
+  <!-- S1.5: SCAN RESULTS -->
+  <div class="screen-card">
+    <div class="screen-header">
+      <span class="screen-step s15">Step 1.5 — Scan Results</span>
+      <span style="color:#64748B;font-size:11px">Review what we found</span>
+    </div>
+    <div class="screen-body">
+      <div class="progress-bar">
+        <div class="step done"></div>
+        <div class="step done"></div>
+        <div class="step active"></div>
+        <div class="step upcoming"></div>
+        <div class="step upcoming"></div>
+      </div>
+      <div style="font-size:20px;font-weight:700;color:#F8FAFC;margin-bottom:4px">Here's what we found</div>
+      <div class="screen-desc">Review the scan results. We'll use this context to build your Phase 0 packet.</div>
+      
+      <div class="success-state">
+        <div class="success-text">✓ offlinedad.com is <strong>LIVE</strong> — existing site detected. We'll factor this into your pitch packet.</div>
+      </div>
+      
+      <div class="scan-result">
+        <div class="scan-icon live">🌐</div>
+        <div><div class="scan-label">offlinedad.com</div><div class="scan-sub">Next.js · Vercel · "OfflineDad — Unplug &amp; Connect"</div></div>
+        <div class="scan-badge live">LIVE</div>
+      </div>
+      <div class="scan-result">
+        <div class="scan-icon repo">📦</div>
+        <div><div class="scan-label">github.com/user/offlinedad</div><div class="scan-sub">TypeScript · 4,200 LOC · last commit 3 days ago</div></div>
+        <div class="scan-badge found">CLONED</div>
+      </div>
+      <div class="scan-result">
+        <div class="scan-icon" style="background:#A855F720;color:#A855F7">🏷</div>
+        <div><div class="scan-label">Tech Stack Detected</div><div class="scan-sub">Next.js 14, Tailwind CSS, Supabase, Clerk</div></div>
+      </div>
+      <div class="scan-result">
+        <div class="scan-icon" style="background:#EAB30820;color:#EAB308">⚔</div>
+        <div><div class="scan-label">3 Competitors Found</div><div class="scan-sub">FamilyTime, OurPact, Screen Time Labs</div></div>
+      </div>
+      
+      <div style="margin-top:12px">
+        <div class="field-label">Repo Summary (read-only)</div>
+        <div style="background:#070B14;border:1px solid #1E293B;border-radius:8px;padding:12px;font-size:11px;color:#94A3B8;font-family:monospace;line-height:1.6">
+├── src/app/ (Next.js 14 app router)<br>
+├── src/components/ (32 components)<br>
+├── src/lib/ (Supabase client, utils)<br>
+├── prisma/ (schema.prisma)<br>
+├── package.json (42 deps)<br>
+└── README.md (setup instructions)
+        </div>
+      </div>
+      
+      <div class="btn-row">
+        <div class="mock-btn primary">Looks good → Configure</div>
+        <div class="mock-btn secondary">← Edit inputs</div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="connector">→</div>
+
+  <!-- S2: CLARIFY -->
+  <div class="screen-card">
+    <div class="screen-header">
+      <span class="screen-step s2">Step 2 — Clarify</span>
+      <span style="color:#64748B;font-size:11px">Configure how agents work</span>
+    </div>
+    <div class="screen-body">
+      <div class="progress-bar">
+        <div class="step done"></div>
+        <div class="step done"></div>
+        <div class="step done"></div>
+        <div class="step active"></div>
+        <div class="step upcoming"></div>
+      </div>
+      <div style="font-size:20px;font-weight:700;color:#F8FAFC;margin-bottom:4px">How should we operate?</div>
+      <div class="screen-desc">Set permissions, runtime mode, and focus areas for your CEO agent.</div>
+      
+      <div class="field-label">Runtime Mode</div>
+      <div class="mock-radio selected">
+        <div class="mock-radio-dot"></div>
+        <div>
+          <div class="mock-radio-label">Mode B: Attached to your repo</div>
+          <div class="mock-radio-desc">Agents read your code, open PRs. You approve merges. Recommended when you have an existing codebase.</div>
+        </div>
+      </div>
+      <div class="mock-radio">
+        <div class="mock-radio-dot"></div>
+        <div>
+          <div class="mock-radio-label">Mode A: Shared runtime</div>
+          <div class="mock-radio-desc">We host landing pages and assets. Best for new ideas with no existing code.</div>
+        </div>
+      </div>
+      
+      <div class="field-label" style="margin-top:12px">Permissions (safe by default)</div>
+      <div class="mock-toggle" style="margin-bottom:8px">
+        <div class="toggle-track"><div class="toggle-dot"></div></div>
+        <div class="toggle-label">Repo write access (PRs only, never push to main)</div>
+      </div>
+      <div class="mock-toggle" style="margin-bottom:8px">
+        <div class="toggle-track"><div class="toggle-dot"></div></div>
+        <div class="toggle-label">Deploy permission (staging only)</div>
+      </div>
+      <div class="mock-toggle" style="margin-bottom:8px">
+        <div class="toggle-track"><div class="toggle-dot"></div></div>
+        <div class="toggle-label">Send emails (transactional only)</div>
+      </div>
+      <div class="mock-toggle" style="margin-bottom:8px">
+        <div class="toggle-track"><div class="toggle-dot"></div></div>
+        <div class="toggle-label">Ad spend (requires budget cap below)</div>
+      </div>
+      
+      <div class="field-label" style="margin-top:12px">Budget Cap (if ads enabled)</div>
+      <div class="mock-input">$0 / day — set during Phase 2 greenlight</div>
+      
+      <div class="field-label" style="margin-top:12px">Night Shift</div>
+      <div class="mock-toggle" style="margin-bottom:8px">
+        <div class="toggle-track on"><div class="toggle-dot"></div></div>
+        <div class="toggle-label">Enable autonomous night shift cycles</div>
+      </div>
+      <div class="field-note">CEO agent runs nightly, creates tasks, writes reports. You review in "While You Were Away."</div>
+      
+      <div class="field-label" style="margin-top:12px">Focus Areas</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:16px">
+        <div class="mock-tag added">✓ Market Research</div>
+        <div class="mock-tag added">✓ Competitor Analysis</div>
+        <div class="mock-tag added">✓ Landing Page</div>
+        <div class="mock-tag">Logo &amp; Brand</div>
+        <div class="mock-tag">Email Sequences</div>
+        <div class="mock-tag">Social Strategy</div>
+        <div class="mock-tag">Financial Model</div>
+      </div>
+      
+      <div class="btn-row">
+        <div class="mock-btn primary">Review &amp; Launch →</div>
+        <div class="mock-btn secondary">← Back</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="connector">→</div>
+
+  <!-- S3: CONFIRM -->
+  <div class="screen-card">
+    <div class="screen-header">
+      <span class="screen-step s3">Step 3 — Confirm</span>
+      <span style="color:#64748B;font-size:11px">Review everything</span>
+    </div>
+    <div class="screen-body">
+      <div class="progress-bar">
+        <div class="step done"></div>
+        <div class="step done"></div>
+        <div class="step done"></div>
+        <div class="step done"></div>
+        <div class="step active"></div>
+      </div>
+      <div style="font-size:20px;font-weight:700;color:#F8FAFC;margin-bottom:4px">Ready to launch?</div>
+      <div class="screen-desc">Review your project setup. Click any row to edit.</div>
+      
+      <div class="confirm-row">
+        <div class="confirm-label">Project</div>
+        <div class="confirm-value">OfflineDad</div>
+      </div>
+      <div class="confirm-row">
+        <div class="confirm-label">Domain</div>
+        <div class="confirm-value green">offlinedad.com (LIVE)</div>
+      </div>
+      <div class="confirm-row">
+        <div class="confirm-label">Repository</div>
+        <div class="confirm-value blue">github.com/user/offlinedad</div>
+      </div>
+      <div class="confirm-row">
+        <div class="confirm-label">Tech Stack</div>
+        <div class="confirm-value">Next.js 14 · Tailwind · Supabase · Clerk</div>
+      </div>
+      <div class="confirm-row">
+        <div class="confirm-label">Runtime Mode</div>
+        <div class="confirm-value blue">Attached (PRs to your repo)</div>
+      </div>
+      <div class="confirm-row">
+        <div class="confirm-label">Repo Write</div>
+        <div class="confirm-value" style="color:#EF4444">Off</div>
+      </div>
+      <div class="confirm-row">
+        <div class="confirm-label">Deploy</div>
+        <div class="confirm-value" style="color:#EF4444">Off</div>
+      </div>
+      <div class="confirm-row">
+        <div class="confirm-label">Email</div>
+        <div class="confirm-value" style="color:#EF4444">Off</div>
+      </div>
+      <div class="confirm-row">
+        <div class="confirm-label">Ad Budget</div>
+        <div class="confirm-value yellow">$0/day</div>
+      </div>
+      <div class="confirm-row">
+        <div class="confirm-label">Night Shift</div>
+        <div class="confirm-value green">Enabled</div>
+      </div>
+      <div class="confirm-row">
+        <div class="confirm-label">Focus Areas</div>
+        <div class="confirm-value">Market Research, Competitors, Landing Page</div>
+      </div>
+      <div class="confirm-row">
+        <div class="confirm-label">Competitors Found</div>
+        <div class="confirm-value yellow">3 (FamilyTime, OurPact, Screen Time Labs)</div>
+      </div>
+      
+      <div style="background:#22C55E10;border:1px solid #22C55E30;border-radius:8px;padding:12px;margin-top:16px">
+        <div style="font-size:12px;color:#22C55E;font-weight:600;margin-bottom:4px">What happens next</div>
+        <div style="font-size:11px;color:#94A3B8;line-height:1.6">
+          Your CEO agent will begin Phase 0 immediately — researching competitors, sizing the market, and drafting your greenlight packet. Night shift runs tonight. Expect your first packet in the Inbox by morning.
+        </div>
+      </div>
+      
+      <div class="btn-row">
+        <div class="mock-btn primary" style="font-size:15px;padding:14px 28px">🚀 Launch Project</div>
+        <div class="mock-btn secondary">← Edit</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ERROR STATE -->
+<div class="section-label">Error &amp; Edge Case Screens</div>
+<div class="screens-row">
+  <!-- SCAN ERROR -->
+  <div class="screen-card">
+    <div class="screen-header">
+      <span class="screen-step s4">Step 1.5e — Scan Error</span>
+      <span style="color:#64748B;font-size:11px">Graceful failure</span>
+    </div>
+    <div class="screen-body">
+      <div class="progress-bar">
+        <div class="step done"></div>
+        <div class="step" style="background:#EF4444"></div>
+        <div class="step upcoming"></div>
+        <div class="step upcoming"></div>
+        <div class="step upcoming"></div>
+      </div>
+      <div style="font-size:20px;font-weight:700;color:#F8FAFC;margin-bottom:4px">Scan couldn't complete</div>
+      <div class="screen-desc">No worries — scanning is optional. You can continue without it.</div>
+      
+      <div class="error-state">
+        <div class="error-text">✕ DNS lookup failed for offlinedad.com — domain may not be registered yet.</div>
+      </div>
+      <div class="warning-state">
+        <div class="warning-text">⚠ Repository clone timed out after 30s. The repo may be private or the URL may be incorrect.</div>
+      </div>
+      
+      <div style="font-size:12px;color:#94A3B8;margin:12px 0">This is fine. Many great projects start with just an idea and no existing assets. Your CEO agent will work with whatever context you provide.</div>
+      
+      <div class="btn-row">
+        <div class="mock-btn primary">Continue without scan →</div>
+        <div class="mock-btn secondary">Retry scan</div>
+        <div class="mock-btn secondary">← Edit inputs</div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="connector" style="color:#64748B">|</div>
+
+  <!-- PARKED DOMAIN -->
+  <div class="screen-card">
+    <div class="screen-header">
+      <span class="screen-step s15">Step 1.5 — Parked Domain</span>
+      <span style="color:#64748B;font-size:11px">Domain exists but parked</span>
+    </div>
+    <div class="screen-body">
+      <div class="progress-bar">
+        <div class="step done"></div>
+        <div class="step done"></div>
+        <div class="step active"></div>
+        <div class="step upcoming"></div>
+        <div class="step upcoming"></div>
+      </div>
+      <div style="font-size:20px;font-weight:700;color:#F8FAFC;margin-bottom:4px">Domain is parked</div>
+      <div class="screen-desc">The domain resolves but shows a parking page, not real content.</div>
+      
+      <div class="warning-state">
+        <div class="warning-text">⚠ offlinedad.com is <strong>PARKED</strong> — GoDaddy parking page detected. No existing product found.</div>
+      </div>
+      
+      <div class="scan-result">
+        <div class="scan-icon parked">P</div>
+        <div><div class="scan-label">offlinedad.com</div><div class="scan-sub">GoDaddy Parking · No real content</div></div>
+        <div class="scan-badge parked">PARKED</div>
+      </div>
+      
+      <div style="background:#0F172A;border-radius:8px;padding:12px;margin-top:12px">
+        <div style="font-size:11px;color:#22C55E;font-weight:600;margin-bottom:4px">💡 Good news</div>
+        <div style="font-size:11px;color:#94A3B8">You own the domain. We can build a landing page in Phase 1 and deploy it here (with your permission).</div>
+      </div>
+      
+      <div class="btn-row">
+        <div class="mock-btn primary">Continue → Configure</div>
+        <div class="mock-btn secondary">← Edit</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="connector" style="color:#64748B">|</div>
+
+  <!-- NO DOMAIN -->
+  <div class="screen-card">
+    <div class="screen-header">
+      <span class="screen-step s0">Step 0 — Ideas Only</span>
+      <span style="color:#64748B;font-size:11px">No domain, no repo</span>
+    </div>
+    <div class="screen-body">
+      <div class="progress-bar">
+        <div class="step active"></div>
+        <div class="step upcoming"></div>
+        <div class="step upcoming"></div>
+        <div class="step upcoming"></div>
+        <div class="step upcoming"></div>
+      </div>
+      <div style="font-size:20px;font-weight:700;color:#F8FAFC;margin-bottom:4px">What are you building?</div>
+      <div class="screen-desc">No domain or repo? No problem. Just describe your idea.</div>
+      
+      <div class="field-label">Domain name (optional)</div>
+      <div class="mock-input" style="color:#475569">e.g., myproject.com</div>
+      
+      <div class="field-label">Describe your idea</div>
+      <div class="mock-textarea" style="min-height:80px;color:#E2E8F0">A marketplace for vintage camera lenses where sellers get instant AI-generated condition reports from photos they upload. Think "Carfax for camera lenses."</div>
+      
+      <div style="background:#06B6D410;border:1px solid #06B6D440;border-radius:8px;padding:12px;margin-top:12px">
+        <div style="font-size:11px;color:#06B6D4;font-weight:600;margin-bottom:4px">No assets? That's fine.</div>
+        <div style="font-size:11px;color:#94A3B8">The scan step will be skipped. Your CEO agent will work from the description alone — research competitors, size the market, and draft a greenlight packet from scratch.</div>
+      </div>
+      
+      <div class="btn-row">
+        <div class="mock-btn primary">Skip scan, go to settings →</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- DETAILED SCREEN SPECS -->
+<div class="section-label">Detailed Screen Specifications</div>
+
+<!-- S0 Detail -->
+<div class="detail-section">
+  <div class="detail-card">
+    <div class="detail-header">
+      <div class="detail-num s0">S0</div>
+      <div>
+        <div class="detail-title">Import — Entry Point</div>
+        <div class="detail-subtitle">Collect project seed data from the user</div>
+      </div>
+    </div>
+    <div class="detail-body">
+      <div class="detail-left">
+        <div class="field-group">
+          <div class="field-label">Purpose</div>
+          <div style="font-size:13px;color:#E2E8F0">Gather the minimum viable seed for a project: at least an idea description. Domain and repo are optional enrichments that unlock the Pre-Phase 0 Asset Discovery step.</div>
+        </div>
+        <div class="field-group">
+          <div class="field-label">Required Fields</div>
+          <div class="mock-tag added">idea_description (min 20 chars)</div>
+        </div>
+        <div class="field-group">
+          <div class="field-label">Optional Fields</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px">
+            <div class="mock-tag">domain</div>
+            <div class="mock-tag">repo_url</div>
+            <div class="mock-tag">uploaded_files[]</div>
+          </div>
+        </div>
+        <div class="field-group">
+          <div class="field-label">Validation Rules</div>
+          <div style="font-size:11px;color:#94A3B8;line-height:1.8">
+            • idea_description: min 20 chars, max 2000<br>
+            • domain: valid TLD, no protocol prefix needed<br>
+            • repo_url: must match github.com/* or gitlab.com/*<br>
+            • files: max 5, max 10MB each, PDF/PPTX/DOCX/PNG/JPG
+          </div>
+        </div>
+      </div>
+      <div class="detail-right">
+        <div class="field-group">
+          <div class="field-label">Transitions Out</div>
+          <div style="font-size:12px;line-height:2">
+            <span style="color:#22C55E">→ S1: Discover</span> — if domain OR repo provided, "Scan &amp; Discover" clicked<br>
+            <span style="color:#EAB308">→ S2: Clarify</span> — if "Skip scan" clicked (idea_description required)
+          </div>
+        </div>
+        <div class="field-group">
+          <div class="field-label">Agent Activity</div>
+          <div style="font-size:12px;color:#94A3B8">None — this is a pure UI step. No agents are invoked until S1.</div>
+        </div>
+        <div class="field-group">
+          <div class="field-label">Polsia Lesson Applied</div>
+          <div style="background:#A855F710;border:1px solid #A855F730;border-radius:6px;padding:10px;font-size:11px;color:#A855F7;line-height:1.6">
+            <strong>Check what exists first.</strong> Polsia's biggest failure was building a duplicate site without checking conjureanything.com. We prevent this by making domain entry the first thing users see, and running asset discovery before any work begins.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- S1 Detail -->
+  <div class="detail-card">
+    <div class="detail-header">
+      <div class="detail-num s1">S1</div>
+      <div>
+        <div class="detail-title">Discover — Asset Scanning</div>
+        <div class="detail-subtitle">Pre-Phase 0 automated discovery (Scanner Agent + Repo Analyst)</div>
+      </div>
+    </div>
+    <div class="detail-body">
+      <div class="detail-left">
+        <div class="field-group">
+          <div class="field-label">Purpose</div>
+          <div style="font-size:13px;color:#E2E8F0">Run automated checks on user's domain and repo to build context before the CEO agent spends cycles generating packets. This is the "look before you leap" step.</div>
+        </div>
+        <div class="field-group">
+          <div class="field-label">Agents Invoked</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            <div class="mock-tag added">Scanner Agent (url-scanner-mcp)</div>
+            <div class="mock-tag added">Repo Analyst (server-github MCP)</div>
+          </div>
+        </div>
+        <div class="field-group">
+          <div class="field-label">Scan Pipeline</div>
+          <div style="font-size:11px;color:#94A3B8;line-height:2;font-family:monospace">
+            1. DNS lookup (A/AAAA/CNAME) → status<br>
+            2. HTTP HEAD → status code, TLS, redirect chain<br>
+            3. HTTP GET → HTML content (if 200)<br>
+            4. Meta scrape → title, description, OG tags<br>
+            5. Tech detection → framework, hosting, CMS<br>
+            6. "Looks Live?" heuristic → real site vs parking<br>
+            7. Repo clone (shallow) → language, LOC, structure<br>
+            8. Competitor quick-search → top 3-5 similar domains
+          </div>
+        </div>
+      </div>
+      <div class="detail-right">
+        <div class="field-group">
+          <div class="field-label">Timeout &amp; Fallback</div>
+          <div style="font-size:12px;color:#94A3B8;line-height:1.8">
+            Max scan time: 30 seconds<br>
+            If DNS fails → mark as "no domain" and continue<br>
+            If HTTP fails → mark as "unreachable" and continue<br>
+            If repo clone fails → skip repo summary<br>
+            Always transitions forward — never blocks onboarding
+          </div>
+        </div>
+        <div class="field-group">
+          <div class="field-label">Transitions Out</div>
+          <div style="font-size:12px;line-height:2">
+            <span style="color:#3B82F6">→ S1.5: Results</span> — scan completed (full or partial)<br>
+            <span style="color:#EF4444">→ S1.5e: Error</span> — scan fully failed (all checks errored)
+          </div>
+        </div>
+        <div class="field-group">
+          <div class="field-label">Polsia Lesson Applied</div>
+          <div style="background:#A855F710;border:1px solid #A855F730;border-radius:6px;padding:10px;font-size:11px;color:#A855F7;line-height:1.6">
+            <strong>Read before you write.</strong> Polsia's engineering agent pushed code to GitHub without ever browsing the live site. Our Scanner Agent does what Polsia's Browser Agent should have done: look at the user's existing presence first, then factor it into every subsequent decision.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- S1.5 Detail -->
+  <div class="detail-card">
+    <div class="detail-header">
+      <div class="detail-num s15">1.5</div>
+      <div>
+        <div class="detail-title">Scan Results — Review &amp; Confirm</div>
+        <div class="detail-subtitle">Show the user what we found before proceeding</div>
+      </div>
+    </div>
+    <div class="detail-body">
+      <div class="detail-left">
+        <div class="field-group">
+          <div class="field-label">Purpose</div>
+          <div style="font-size:13px;color:#E2E8F0">Present scan findings in a clear, actionable format. Let the user verify accuracy and correct mistakes before these results get baked into the Phase 0 packet.</div>
+        </div>
+        <div class="field-group">
+          <div class="field-label">Display Sections</div>
+          <div style="font-size:11px;color:#94A3B8;line-height:2">
+            1. Domain status (live / parked / none / error)<br>
+            2. Tech stack detection (if live)<br>
+            3. Content summary (title, desc, OG image preview)<br>
+            4. Repo summary tree (if attached)<br>
+            5. Competitors found (quick list with links)<br>
+            6. Existing presence assessment sentence
+          </div>
+        </div>
+      </div>
+      <div class="detail-right">
+        <div class="field-group">
+          <div class="field-label">User Actions Available</div>
+          <div style="font-size:12px;line-height:2">
+            ✓ Confirm results → proceed to S2<br>
+            ✎ Edit inputs → go back to S0<br>
+            ✕ Remove repo → detach repo, proceed as shared mode
+          </div>
+        </div>
+        <div class="field-group">
+          <div class="field-label">Data Passed to Phase 0</div>
+          <div style="font-size:11px;color:#94A3B8">
+            Everything from this screen feeds directly into the CEO Agent's Phase 0 packet generation. The "Existing Presence Check" section in the packet (see Packet Viewer mockup) is populated from these scan results.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- S2 Detail -->
+  <div class="detail-card">
+    <div class="detail-header">
+      <div class="detail-num s2">S2</div>
+      <div>
+        <div class="detail-title">Clarify — Runtime Configuration</div>
+        <div class="detail-subtitle">Set permissions, mode, and operating parameters</div>
+      </div>
+    </div>
+    <div class="detail-body">
+      <div class="detail-left">
+        <div class="field-group">
+          <div class="field-label">Purpose</div>
+          <div style="font-size:13px;color:#E2E8F0">Let the user control how much autonomy the agents have. Everything is off by default (safe-by-default). Permissions are granted progressively through the Permission Ladder as the project advances through phases.</div>
+        </div>
+        <div class="field-group">
+          <div class="field-label">Configuration Options</div>
+          <div style="font-size:11px;color:#94A3B8;line-height:2">
+            <strong style="color:#E2E8F0">Runtime Mode</strong><br>
+            &nbsp; A: Shared — agents build on our Next.js runtime<br>
+            &nbsp; B: Attached — agents read/PR to user's repo<br><br>
+            <strong style="color:#E2E8F0">Permission Toggles (all OFF by default)</strong><br>
+            &nbsp; • Repo write (PRs only, never main)<br>
+            &nbsp; • Deploy (staging only)<br>
+            &nbsp; • Email send (transactional)<br>
+            &nbsp; • Ad spend (requires budget cap)<br><br>
+            <strong style="color:#E2E8F0">Night Shift</strong> (ON by default)<br>
+            &nbsp; CEO agent runs autonomous nightly cycles<br><br>
+            <strong style="color:#E2E8F0">Focus Areas</strong> (multi-select)<br>
+            &nbsp; What should the CEO agent prioritize?
+          </div>
+        </div>
+      </div>
+      <div class="detail-right">
+        <div class="field-group">
+          <div class="field-label">Permission Ladder</div>
+          <div style="font-family:monospace;font-size:10px;color:#94A3B8;line-height:1.5;background:#070B14;padding:12px;border-radius:8px;border:1px solid #1E293B">
+Phase 0: read-only (default)<br>
+&nbsp; └─ scan domain, read repo, web research<br>
+Phase 1: +write with approval<br>
+&nbsp; └─ PRs, landing page deploy (staging)<br>
+Phase 2: +outreach with caps<br>
+&nbsp; └─ email send, ad spend (budget capped)<br>
+Phase 3: +deploy with review<br>
+&nbsp; └─ Codex 5.3 PRs, production deploy<br>
+<br>
+<span style="color:#EF4444">NEVER: push to main, delete repos,<br>
+&nbsp; spend above cap, send without template</span>
+          </div>
+        </div>
+        <div class="field-group">
+          <div class="field-label">Polsia Lesson Applied</div>
+          <div style="background:#A855F710;border:1px solid #A855F730;border-radius:6px;padding:10px;font-size:11px;color:#A855F7;line-height:1.6">
+            <strong>Explicit permissions, not implied.</strong> Polsia assumed it could build + deploy + email without asking. Our permission toggles are all OFF by default. Users opt-in to each capability explicitly. The CEO agent can still research and plan at Phase 0 with zero permissions granted.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- S3 Detail -->
+  <div class="detail-card">
+    <div class="detail-header">
+      <div class="detail-num s3">S3</div>
+      <div>
+        <div class="detail-title">Confirm — Review &amp; Launch</div>
+        <div class="detail-subtitle">Final review before CEO agent begins work</div>
+      </div>
+    </div>
+    <div class="detail-body">
+      <div class="detail-left">
+        <div class="field-group">
+          <div class="field-label">Purpose</div>
+          <div style="font-size:13px;color:#E2E8F0">Show a complete summary of all inputs, scan results, and configuration. Every row is clickable to jump back and edit. The "Launch" button creates the project in Supabase and dispatches the first CEO Agent task.</div>
+        </div>
+        <div class="field-group">
+          <div class="field-label">What Launching Does</div>
+          <div style="font-size:11px;color:#94A3B8;line-height:2">
+            1. Creates project row in Supabase (status: phase_0)<br>
+            2. Saves scan_results + wizard_state as JSON<br>
+            3. Dispatches CEO Agent with Phase 0 task:<br>
+            &nbsp;&nbsp; "Generate greenlight packet for [project]"<br>
+            4. If night_shift enabled, schedules first cycle<br>
+            5. Redirects user to Project Workspace
+          </div>
+        </div>
+      </div>
+      <div class="detail-right">
+        <div class="field-group">
+          <div class="field-label">Post-Launch Flow</div>
+          <div style="font-family:monospace;font-size:10px;color:#94A3B8;line-height:1.5;background:#070B14;padding:12px;border-radius:8px;border:1px solid #1E293B">
+User clicks Launch<br>
+  │<br>
+  ├─▶ Supabase: INSERT project<br>
+  ├─▶ BullMQ: enqueue CEO phase_0 task<br>
+  ├─▶ Redirect → /workspace/[project_id]<br>
+  │<br>
+  └─▶ CEO Agent begins:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;├─ Research Agent: competitors<br>
+&nbsp;&nbsp;&nbsp;&nbsp;├─ Finance Agent: market sizing (.xlsx)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;├─ Brand Agent: logo + colors<br>
+&nbsp;&nbsp;&nbsp;&nbsp;├─ CEO: synthesize packet (.pptx)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;└─ Push to Greenlight Inbox
+          </div>
+        </div>
+        <div class="field-group">
+          <div class="field-label">Polsia Lesson Applied</div>
+          <div style="background:#A855F710;border:1px solid #A855F730;border-radius:6px;padding:10px;font-size:11px;color:#A855F7;line-height:1.6">
+            <strong>Transparency before action.</strong> Polsia started working immediately after onboarding with no summary review. We show everything — domain status, repo, permissions, mode — and let the user confirm before any agent work begins. No surprises.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="text-align:center;padding:32px;color:#475569;font-size:12px;border-top:1px solid #1E293B;margin-top:16px">
+  Greenlight Studio — Onboarding Wizard Flow · Feb 2026
+</div>
+</body></html>

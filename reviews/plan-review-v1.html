@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Greenlight Studio — Plan Review (Garry Tan Skill)</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#070B14;color:#E2E8F0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;line-height:1.6}
+.header{background:#0B1220;border-bottom:1px solid #1E293B;padding:16px 32px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100}
+.logo{color:#22C55E;font-weight:700;font-size:18px}
+.badge{background:#EAB30820;color:#EAB308;font-size:11px;padding:2px 8px;border-radius:4px;font-weight:600}
+.content{max-width:900px;margin:0 auto;padding:32px}
+h1{font-size:24px;font-weight:700;color:#F8FAFC;margin-bottom:8px}
+h2{font-size:18px;font-weight:600;color:#F8FAFC;margin:32px 0 16px;padding-bottom:8px;border-bottom:1px solid #1E293B}
+h3{font-size:15px;font-weight:600;color:#F8FAFC;margin:20px 0 10px}
+p{color:#CBD5E1;font-size:14px;margin-bottom:12px}
+.subtitle{color:#94A3B8;font-size:14px;margin-bottom:24px}
+.meta{display:flex;gap:16px;margin-bottom:24px;flex-wrap:wrap}
+.meta-item{background:#0F172A;border:1px solid #1E293B;border-radius:8px;padding:10px 16px;font-size:12px}
+.meta-item .label{color:#64748B;margin-bottom:2px}
+.meta-item .val{color:#F8FAFC;font-weight:600}
+
+.section{background:#0B1220;border:1px solid #1E293B;border-radius:12px;padding:24px;margin-bottom:24px}
+.section-title{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+.section-num{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0}
+.section-num.s0{background:#EF444420;color:#EF4444}
+.section-num.s1{background:#3B82F620;color:#3B82F6}
+.section-num.s2{background:#A855F720;color:#A855F7}
+.section-num.s3{background:#22C55E20;color:#22C55E}
+.section-num.s4{background:#EAB30820;color:#EAB308}
+
+.issue{background:#070B14;border:1px solid #1E293B;border-radius:8px;padding:16px;margin-bottom:16px}
+.issue-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.issue-num{font-size:12px;font-weight:700;color:#94A3B8;min-width:24px}
+.issue-title{font-size:14px;font-weight:600;color:#F8FAFC}
+.issue-sev{font-size:10px;padding:2px 8px;border-radius:4px;font-weight:600}
+.issue-sev.high{background:#EF444420;color:#EF4444}
+.issue-sev.med{background:#EAB30820;color:#EAB308}
+.issue-sev.low{background:#3B82F620;color:#3B82F6}
+.issue-desc{font-size:13px;color:#94A3B8;margin-bottom:12px;line-height:1.6}
+
+.option{background:#0B1220;border:1px solid #1E293B;border-radius:6px;padding:10px 12px;margin-bottom:6px;font-size:12px;display:flex;gap:8px}
+.option.recommended{border-color:#22C55E40;background:#22C55E08}
+.option-letter{font-weight:700;color:#22C55E;min-width:20px;flex-shrink:0}
+.option.recommended .option-letter{color:#22C55E}
+.option:not(.recommended) .option-letter{color:#64748B}
+.option-text{color:#CBD5E1}
+.option-meta{color:#475569;font-size:10px;margin-top:4px}
+.rec-tag{font-size:10px;background:#22C55E20;color:#22C55E;padding:1px 6px;border-radius:3px;margin-left:4px;font-weight:600}
+
+.diagram{background:#070B14;border:1px solid #1E293B;border-radius:8px;padding:16px;font-family:'SF Mono',Consolas,'Courier New',monospace;font-size:11px;line-height:1.5;color:#94A3B8;white-space:pre;overflow-x:auto;margin:16px 0}
+.diagram .green{color:#22C55E}
+.diagram .blue{color:#3B82F6}
+.diagram .yellow{color:#EAB308}
+.diagram .red{color:#EF4444}
+.diagram .purple{color:#A855F7}
+.diagram .cyan{color:#06B6D4}
+
+.scope-item{display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid #1E293B20}
+.scope-icon{font-size:14px;margin-top:2px}
+.scope-text{font-size:13px;color:#CBD5E1}
+.scope-reason{font-size:11px;color:#64748B;margin-top:2px}
+
+.summary-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.summary-cell{background:#070B14;border:1px solid #1E293B;border-radius:8px;padding:12px}
+.summary-label{font-size:11px;color:#64748B;margin-bottom:4px}
+.summary-val{font-size:14px;font-weight:600}
+.summary-val.green{color:#22C55E}
+.summary-val.yellow{color:#EAB308}
+.summary-val.red{color:#EF4444}
+.summary-val.blue{color:#3B82F6}
+
+.todo-item{background:#070B14;border:1px solid #1E293B;border-radius:8px;padding:14px;margin-bottom:10px}
+.todo-what{font-size:13px;font-weight:600;color:#F8FAFC;margin-bottom:4px}
+.todo-why{font-size:12px;color:#94A3B8;margin-bottom:4px}
+.todo-context{font-size:11px;color:#64748B;line-height:1.6}
+.todo-depends{font-size:10px;color:#A855F7;margin-top:4px}
+
+.exists-item{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid #1E293B20}
+.exists-icon{font-size:12px;margin-top:3px;min-width:20px;text-align:center}
+.exists-name{font-size:13px;font-weight:600;color:#E2E8F0}
+.exists-desc{font-size:11px;color:#64748B;margin-top:2px}
+
+.failure-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:8px;padding:8px 0;border-bottom:1px solid #1E293B20;font-size:11px}
+.failure-row.header{color:#64748B;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;font-size:10px}
+.failure-path{color:#E2E8F0}.failure-mode{color:#EAB308}
+.yes{color:#22C55E;font-weight:600}.no{color:#EF4444;font-weight:600}.partial{color:#EAB308;font-weight:600}
+.critical{background:#EF444410;border:1px solid #EF444430;border-radius:6px;padding:8px 12px;margin:8px 0;font-size:12px;color:#EF4444}
+</style></head><body>
+<div class="header">
+  <div class="logo">▲ Greenlight Studio</div>
+  <span class="badge">PLAN-EXIT-REVIEW v2.0</span>
+  <span style="color:#64748B;font-size:12px;margin-left:auto">Applying Garry Tan's skill to our current spec</span>
+</div>
+<div class="content">
+  <h1>Plan Review: Greenlight Studio v2.2</h1>
+  <div class="subtitle">Rigorous review of the Greenlight Studio implementation plan using Garry Tan's plan-exit-review methodology. Challenges scope, reviews architecture/code quality/tests/performance, walks through issues with opinionated recommendations.</div>
+  
+  <div class="meta">
+    <div class="meta-item"><div class="label">Plan Scope</div><div class="val">8 agents, 5 custom MCPs, 5-phase pipeline, shared Next.js runtime</div></div>
+    <div class="meta-item"><div class="label">Estimated Files</div><div class="val">~45-60 files</div></div>
+    <div class="meta-item"><div class="label">New Services/Classes</div><div class="val">~12 (5 MCP servers, 8 agents, orchestrator)</div></div>
+    <div class="meta-item"><div class="label">Complexity Smell</div><div class="val" style="color:#EF4444">⚠ Triggered (&gt;8 files, &gt;2 new services)</div></div>
+  </div>
+
+  <!-- STEP 0: SCOPE CHALLENGE -->
+  <div class="section">
+    <div class="section-title">
+      <div class="section-num s0">0</div>
+      <div>
+        <div style="font-size:16px;font-weight:600;color:#F8FAFC">Step 0: Scope Challenge</div>
+        <div style="font-size:12px;color:#64748B">Before reviewing anything — challenge whether we need all of this.</div>
+      </div>
+    </div>
+
+    <h3>1. What existing code already solves each sub-problem?</h3>
+    <div class="diagram">
+<span class="cyan">EXISTING SOLUTIONS MAP</span>
+
+<span class="green">Problem</span>                    <span class="blue">Existing Solution</span>                    <span class="yellow">Our Plan</span>
+─────────────────────────── ─────────────────────────────────── ────────────────────────────
+Agent orchestration          Claude Agent SDK (built-in)           ✅ Reusing
+Sub-agent dispatch           SDK subagent() / task() built-in     ✅ Reusing
+File generation (.pptx etc)  Claude Console Skills (built-in)     ✅ Reusing
+Frontend code generation     frontend-design plugin (built-in)    ✅ Reusing
+Code review                  code-review plugin (built-in)        ✅ Reusing
+GitHub integration           @modelcontextprotocol/server-github  ✅ Reusing (community MCP)
+Browser screenshots          @anthropic/mcp-puppeteer             ✅ Reusing (community MCP)
+Stripe integration           @stripe/mcp-server-stripe            ✅ Reusing (community MCP)
+Web search/fetch             SDK built-in WebSearch/WebFetch      ✅ Reusing
+User Q&amp;A                     SDK built-in AskUserQuestion         ✅ Reusing
+Database                     Supabase (existing service)          ✅ Reusing
+Auth                         Clerk (existing service)             ✅ Reusing
+Task queue                   BullMQ + Redis                       <span class="red">⚠ NEW — do we need this Day 1?</span>
+URL scanning                 url-scanner-mcp                      <span class="red">⚠ NEW — custom MCP</span>
+Image generation             image-gen-mcp                        <span class="red">⚠ NEW — custom MCP wrapping Gemini</span>
+Supabase ORM                 supabase-mcp                         <span class="red">⚠ NEW — custom MCP</span>
+Email sending                email-mcp                            <span class="red">⚠ NEW — custom MCP</span>
+Codex integration            codex-mcp                            <span class="red">⚠ NEW — custom MCP (Phase 3 only)</span>
+Shared Next.js runtime       —                                    <span class="red">⚠ NEW — full web app</span>
+Greenlight Inbox UI          —                                    <span class="red">⚠ NEW — React component</span>
+Phase Packet Viewer UI       —                                    <span class="red">⚠ NEW — React component</span>
+Onboarding Wizard UI         —                                    <span class="red">⚠ NEW — React component</span>
+    </div>
+
+    <h3>2. What is the minimum set of changes that achieves the stated goal?</h3>
+    <p>The stated goal is: "a system where users upload domains/ideas, a CEO agent produces meeting-style greenlight packets, and ideas progress through phases with approval gates." The minimum viable version:</p>
+    
+    <div class="diagram">
+<span class="green">MINIMUM VIABLE GREENLIGHT (MVG)</span>
+
+<span class="cyan">MUST HAVE (Day 1)</span>
+├── CEO Agent (orchestrator) — Claude Agent SDK, TypeScript
+├── Research Agent (subagent) — WebSearch + WebFetch
+├── 1 custom MCP: supabase-mcp (project CRUD + packet storage)
+├── Phase 0 packet generation (JSON → rendered in UI)
+├── Greenlight Inbox (approve/reject/revise)
+├── Onboarding form (domain + idea + optional repo)
+└── Supabase tables: users, projects, phase_packets, approval_queue
+
+<span class="yellow">DEFER TO WEEK 2-3</span>
+├── Scanner Agent + url-scanner-mcp (use WebFetch for basic checks)
+├── Brand Agent + image-gen-mcp (manual logo upload works)
+├── Finance Agent + xlsx skill (CEO can do simple TAM in packet)
+├── BullMQ task queue (use simple in-process queue or just await)
+├── Night Shift autonomous cycles (manual trigger works)
+├── .pptx/.xlsx/.pdf generation (JSON packets are fine Day 1)
+└── Repo Analyst agent (GitHub MCP can be added later)
+
+<span class="red">DEFER TO PHASE 2-3 (Don't build until proven)</span>
+├── codex-mcp (Phase 3 only, no repo to code against yet)
+├── email-mcp (Phase 1-2 feature)
+├── Meta Ads integration (Phase 2+)
+├── Cold outreach (Phase 2+)
+├── Template library (5-8 templates, build as you go)
+└── Multi-model routing (use Claude Sonnet for everything v1)
+    </div>
+
+    <h3>3. Complexity check</h3>
+    <p>The full plan touches <strong>~50 files</strong> and introduces <strong>12+ new services</strong>. That's well over the 8-file/2-service smell threshold. The core goal can be achieved with <strong>~12 files and 3 new services</strong> (CEO agent, Research subagent, supabase-mcp).</p>
+
+    <h3 style="color:#EAB308;margin-top:20px">⚡ Scope Decision Required</h3>
+    <div class="option recommended">
+      <div class="option-letter">A</div>
+      <div>
+        <div class="option-text"><strong>SCOPE REDUCTION:</strong> Build MVG first — CEO Agent + Research Agent + supabase-mcp + Inbox UI. Ship in 1 week. Add agents/MCPs incrementally as needed.</div>
+        <div class="option-meta">Effort: 1 week · Risk: Low · Maps to: minimal diff, DRY, explicit &gt; clever</div>
+        <span class="rec-tag">RECOMMENDED</span>
+      </div>
+    </div>
+    <div class="option">
+      <div class="option-letter">B</div>
+      <div>
+        <div class="option-text"><strong>BIG CHANGE:</strong> Build full 8-agent system but in phased sprints. Sprint 1: CEO+Research+Scanner. Sprint 2: Design+Brand+Finance. Sprint 3: Engineering+RepoAnalyst. Review each sprint.</div>
+        <div class="option-meta">Effort: 3-4 weeks · Risk: Medium · Scope creep likely</div>
+      </div>
+    </div>
+    <div class="option">
+      <div class="option-letter">C</div>
+      <div>
+        <div class="option-text"><strong>BIG CHANGE (full):</strong> Build everything as spec'd. Accept the complexity. Ship when complete.</div>
+        <div class="option-meta">Effort: 4-6 weeks · Risk: High · Over-engineering smell</div>
+      </div>
+    </div>
+
+    <p style="margin-top:16px;color:#22C55E;font-size:13px;font-weight:600">We recommend A: Start with MVG. The full agent fleet is premature — you don't know which agents users actually need until they're generating packets. Build the CEO + Research core, ship it, then add agents based on real usage data. This is explicit &gt; clever and minimal diff.</p>
+  </div>
+
+  <!-- SECTION 1: ARCHITECTURE REVIEW -->
+  <div class="section">
+    <div class="section-title">
+      <div class="section-num s1">1</div>
+      <div>
+        <div style="font-size:16px;font-weight:600;color:#F8FAFC">Architecture Review</div>
+        <div style="font-size:12px;color:#64748B">System design, component boundaries, data flow, scaling, security</div>
+      </div>
+    </div>
+
+    <div class="issue">
+      <div class="issue-head">
+        <div class="issue-num">#1</div>
+        <div class="issue-title">Task Queue: BullMQ + Redis is premature</div>
+        <span class="issue-sev high">HIGH</span>
+      </div>
+      <div class="issue-desc">The spec calls for BullMQ + Redis for task dispatch. But Day 1, you have one CEO agent calling one Research subagent. You're adding an entire distributed queue infrastructure for a system that can use simple async/await with the Agent SDK's built-in task() and subagent() primitives.</div>
+      <div class="option recommended">
+        <div class="option-letter">1A</div>
+        <div><div class="option-text"><strong>Do 1A: Use Agent SDK's built-in orchestration.</strong> CEO agent calls subagent(research, {task}) directly. No external queue. Add BullMQ when you have &gt;3 concurrent agents or need retry/dead-letter semantics.</div><div class="option-meta">Effort: None (less code) · Risk: None · Maintenance: Zero</div><span class="rec-tag">RECOMMENDED</span></div>
+      </div>
+      <div class="option">
+        <div class="option-letter">1B</div>
+        <div><div class="option-text">Keep BullMQ but make it optional — use in-process queue by default, BullMQ behind a feature flag.</div><div class="option-meta">Effort: Medium · Risk: Low · Maintenance: Two queue implementations to maintain</div></div>
+      </div>
+      <div class="option">
+        <div class="option-letter">1C</div>
+        <div><div class="option-text">Do nothing — build with BullMQ from Day 1.</div><div class="option-meta">Effort: High · Risk: Over-engineering · Maintenance: Redis infra to manage</div></div>
+      </div>
+    </div>
+
+    <div class="issue">
+      <div class="issue-head">
+        <div class="issue-num">#2</div>
+        <div class="issue-title">5 Custom MCP Servers is too many for v1</div>
+        <span class="issue-sev high">HIGH</span>
+      </div>
+      <div class="issue-desc">The plan calls for url-scanner-mcp, image-gen-mcp, supabase-mcp, email-mcp, and codex-mcp. Each is a separate TypeScript service with Zod schemas, error handling, retry logic, and tests. That's 5 services before you've built the actual product. Many of these can be simple function calls inside the agent, not full MCP servers.</div>
+      <div class="option recommended">
+        <div class="option-letter">2A</div>
+        <div><div class="option-text"><strong>Do 2A: Start with 1 MCP (supabase-mcp) + inline helpers.</strong> URL scanning = WebFetch + a classify function. Image gen = direct Gemini API call inside Brand Agent. Email = direct Resend SDK call. Promote to MCP only when multiple agents need the same tool.</div><div class="option-meta">Effort: Much less · Risk: None · Maintenance: 1 MCP vs 5</div><span class="rec-tag">RECOMMENDED</span></div>
+      </div>
+      <div class="option">
+        <div class="option-letter">2B</div>
+        <div><div class="option-text">Build supabase-mcp + url-scanner-mcp Day 1, defer the rest.</div><div class="option-meta">Effort: Medium · Risk: Low · Maintenance: 2 MCPs</div></div>
+      </div>
+      <div class="option">
+        <div class="option-letter">2C</div>
+        <div><div class="option-text">Build all 5 as planned.</div><div class="option-meta">Effort: Very high · Risk: High · DRY violation: shared patterns across 5 servers not yet established</div></div>
+      </div>
+    </div>
+
+    <div class="issue">
+      <div class="issue-head">
+        <div class="issue-num">#3</div>
+        <div class="issue-title">Shared Multi-Tenant Next.js Runtime is a scaling trap</div>
+        <span class="issue-sev med">MEDIUM</span>
+      </div>
+      <div class="issue-desc">The spec says "shared multi-tenant Next.js runtime (not repo-per-project) until Phase 2." This means all user-generated landing pages live in one Next.js app. This creates tenant isolation concerns, route collision risks, and makes the runtime a single point of failure. If one user's landing page has a bug, it could affect all users.</div>
+      <div class="option recommended">
+        <div class="option-letter">3A</div>
+        <div><div class="option-text"><strong>Do 3A: Use static HTML export + Cloudflare R2 for landing pages.</strong> Each landing page is a self-contained HTML file uploaded to R2 with a project-specific subdomain. Zero tenant isolation concerns. Scales to infinity. The Next.js app is just the dashboard/inbox, not user-generated content.</div><div class="option-meta">Effort: Less · Risk: None · Maintenance: Simpler. Maps to: minimal diff, explicit &gt; clever</div><span class="rec-tag">RECOMMENDED</span></div>
+      </div>
+      <div class="option">
+        <div class="option-letter">3B</div>
+        <div><div class="option-text">Keep shared runtime but add tenant sandboxing (route prefixes, error boundaries per tenant).</div><div class="option-meta">Effort: Medium · Risk: Medium · Maintenance: Custom sandboxing code</div></div>
+      </div>
+      <div class="option">
+        <div class="option-letter">3C</div>
+        <div><div class="option-text">Do nothing — accept the risk at small scale.</div><div class="option-meta">Effort: None · Risk: High at scale · Debt: Will force rewrite later</div></div>
+      </div>
+    </div>
+
+    <div class="issue">
+      <div class="issue-head">
+        <div class="issue-num">#4</div>
+        <div class="issue-title">No auth boundary between agent actions and user data</div>
+        <span class="issue-sev med">MEDIUM</span>
+      </div>
+      <div class="issue-desc">The spec has a Permission Ladder but no description of how it's enforced at the API/MCP level. If the Engineering Agent has supabase-mcp access, what prevents it from reading Project B's data while working on Project A? Row-level security (RLS) in Supabase should be the enforcement layer, but the spec doesn't mention it.</div>
+      <div class="option recommended">
+        <div class="option-letter">4A</div>
+        <div><div class="option-text"><strong>Do 4A: Enforce project scoping in supabase-mcp.</strong> Every MCP tool call requires project_id. supabase-mcp validates that the calling agent is authorized for that project. Use Supabase RLS policies as defense-in-depth.</div><div class="option-meta">Effort: Low · Risk: None · Maintenance: RLS policies are declarative. Maps to: explicit &gt; clever, handle edge cases</div><span class="rec-tag">RECOMMENDED</span></div>
+      </div>
+      <div class="option">
+        <div class="option-letter">4B</div>
+        <div><div class="option-text">Rely solely on Supabase RLS — no application-level checks.</div><div class="option-meta">Effort: Low · Risk: Medium · If RLS policy has a bug, data leaks across projects</div></div>
+      </div>
+    </div>
+
+    <h3>Architecture Diagram (proposed)</h3>
+    <div class="diagram">
+<span class="cyan">GREENLIGHT STUDIO — PROPOSED ARCHITECTURE (MVG)</span>
+
+                          ┌─────────────────────────────┐
+                          │     <span class="green">Next.js Dashboard</span>        │
+                          │  Onboarding · Inbox · Viewer │
+                          │  Workspace · Auth (Clerk)    │
+                          └──────────────┬──────────────┘
+                                         │ API routes
+                                         ▼
+                          ┌─────────────────────────────┐
+                          │     <span class="blue">CEO Agent (TypeScript)</span>    │
+                          │  Claude Agent SDK orchestrator│
+                          │  ┌───────────┐ ┌───────────┐│
+                          │  │ Research   │ │ Scanner*  ││
+                          │  │ (subagent) │ │ (inline)  ││
+                          │  └───────────┘ └───────────┘│
+                          │  * Scanner = WebFetch +      │
+                          │    classify helper function   │
+                          └──────────────┬──────────────┘
+                                         │ MCP
+                                         ▼
+                    ┌────────────────────────────────────────┐
+                    │          <span class="yellow">supabase-mcp</span>                   │
+                    │  create_project · save_packet ·        │
+                    │  update_phase · get_approval_queue ·   │
+                    │  log_task                               │
+                    └────────────────────┬───────────────────┘
+                                         │
+                                         ▼
+                          ┌─────────────────────────────┐
+                          │     <span class="purple">Supabase Postgres</span>        │
+                          │  + RLS per project_id        │
+                          │  + Cloudflare R2 (files)     │
+                          └─────────────────────────────┘
+
+<span class="green">Day 1 surface:</span> ~12 files, 1 MCP server, 2 agents
+<span class="yellow">Week 2-3 additions:</span> Design Agent, Brand Agent, Finance Agent, image-gen, .pptx/.xlsx skills
+<span class="red">Phase 2-3:</span> Engineering Agent, Codex MCP, email, ads — only if users reach those phases
+    </div>
+  </div>
+
+  <!-- SECTION 2: CODE QUALITY REVIEW -->
+  <div class="section">
+    <div class="section-title">
+      <div class="section-num s2">2</div>
+      <div>
+        <div style="font-size:16px;font-weight:600;color:#F8FAFC">Code Quality Review</div>
+        <div style="font-size:12px;color:#64748B">Organization, DRY, error handling, edge cases, over/under-engineering</div>
+      </div>
+    </div>
+
+    <div class="issue">
+      <div class="issue-head">
+        <div class="issue-num">#5</div>
+        <div class="issue-title">DRY violation: Agent boilerplate will be repeated 8 times</div>
+        <span class="issue-sev med">MEDIUM</span>
+      </div>
+      <div class="issue-desc">Each of the 8 agents will need: system prompt construction, MCP server connections, error handling, reasoning synopsis logging, task status updates. Without a shared base agent class/factory, you'll repeat this pattern 8 times.</div>
+      <div class="option recommended">
+        <div class="option-letter">5A</div>
+        <div><div class="option-text"><strong>Do 5A: Create a BaseAgent factory.</strong> createAgent({name, systemPrompt, mcpServers, tools}) returns a configured agent with standard lifecycle hooks (onStart, onComplete, onError, logSynopsis). Each agent is ~20 lines of config, not 100+ lines of boilerplate.</div><div class="option-meta">Effort: Low · Risk: None · Maps to: DRY, explicit &gt; clever</div><span class="rec-tag">RECOMMENDED</span></div>
+      </div>
+      <div class="option">
+        <div class="option-letter">5B</div>
+        <div><div class="option-text">Use Agent SDK's built-in patterns without abstraction — accept some repetition.</div><div class="option-meta">Effort: None · Risk: Low · Maintenance: Copy-paste bugs across agents</div></div>
+      </div>
+    </div>
+
+    <div class="issue">
+      <div class="issue-head">
+        <div class="issue-num">#6</div>
+        <div class="issue-title">Reasoning Synopsis schema not enforced</div>
+        <span class="issue-sev med">MEDIUM</span>
+      </div>
+      <div class="issue-desc">The spec calls Reasoning Synopsis a "first-class JSON artifact" but doesn't show how agents are forced to produce it. If it's just a prompt instruction, agents will sometimes skip it or produce malformed JSON. This is your audit trail — it needs to be reliable.</div>
+      <div class="option recommended">
+        <div class="option-letter">6A</div>
+        <div><div class="option-text"><strong>Do 6A: Use Zod schema validation in the BaseAgent's onComplete hook.</strong> Every task completion passes through a synopsis validator. If malformed, the agent retries with explicit schema feedback. Store synopsis as a JSONB column with a CHECK constraint.</div><div class="option-meta">Effort: Low · Risk: None · Maps to: handle edge cases, explicit &gt; clever</div><span class="rec-tag">RECOMMENDED</span></div>
+      </div>
+      <div class="option">
+        <div class="option-letter">6B</div>
+        <div><div class="option-text">Validate at the database level only — JSONB with jsonschema extension.</div><div class="option-meta">Effort: Low · Risk: Medium · Agent doesn't know why its write failed</div></div>
+      </div>
+    </div>
+
+    <div class="issue">
+      <div class="issue-head">
+        <div class="issue-num">#7</div>
+        <div class="issue-title">Error handling for external API failures (Gemini, Codex) not specified</div>
+        <span class="issue-sev med">MEDIUM</span>
+      </div>
+      <div class="issue-desc">Brand Agent calls Gemini for image gen. Engineering Agent calls Codex 5.3. Both are external APIs that can timeout, rate-limit, or return garbage. The spec has no retry strategy, fallback behavior, or error reporting to the user.</div>
+      <div class="option recommended">
+        <div class="option-letter">7A</div>
+        <div><div class="option-text"><strong>Do 7A: Standard retry wrapper with exponential backoff + user-visible error in Inbox.</strong> Max 3 retries, then mark task as FAILED with clear error in approval queue. User sees "Brand Agent couldn't generate logo — Gemini API timeout. Retry or upload manually."</div><div class="option-meta">Effort: Low · Risk: None · Maps to: handle edge cases, thoughtfulness &gt; speed</div><span class="rec-tag">RECOMMENDED</span></div>
+      </div>
+      <div class="option">
+        <div class="option-letter">7B</div>
+        <div><div class="option-text">Let agents handle errors individually — no centralized retry.</div><div class="option-meta">Effort: None · Risk: Medium · Inconsistent error UX</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 3: TEST REVIEW -->
+  <div class="section">
+    <div class="section-title">
+      <div class="section-num s3">3</div>
+      <div>
+        <div style="font-size:16px;font-weight:600;color:#F8FAFC">Test Review</div>
+        <div style="font-size:12px;color:#64748B">UX flows, data flows, codepaths, branching — what needs tests</div>
+      </div>
+    </div>
+
+    <h3>Test Coverage Diagram</h3>
+    <div class="diagram">
+<span class="cyan">NEW UX FLOWS</span>                              <span class="green">TEST NEEDED</span>
+────────────────────────────────────────── ──────────────────────────────
+Onboarding: Import → Discover → Results    <span class="green">✓ E2E: wizard completion flow</span>
+  → Clarify → Confirm → Launch             <span class="green">✓ E2E: each step transition</span>
+  → Skip scan path                         <span class="green">✓ E2E: skip scan shortcut</span>
+  → Scan error/retry path                  <span class="green">✓ E2E: error recovery</span>
+Inbox: view items → expand → approve/deny  <span class="green">✓ E2E: approval flow</span>
+Packet Viewer: read packet → greenlight    <span class="green">✓ E2E: packet rendering</span>
+Workspace: project overview + CEO chat     <span class="yellow">⚠ Defer — complex, not Day 1</span>
+
+<span class="cyan">NEW DATA FLOWS</span>                             <span class="green">TEST NEEDED</span>
+────────────────────────────────────────── ──────────────────────────────
+User submits domain → Scanner checks DNS   <span class="green">✓ Unit: DNS resolver mock</span>
+  → HTTP probe → meta scrape → classify    <span class="green">✓ Unit: classifier (live/parked/none)</span>
+User submits repo → clone → analyze        <span class="green">✓ Unit: repo analyzer mock</span>
+User launches project → Supabase INSERT    <span class="green">✓ Integration: project creation</span>
+  → CEO Agent dispatched                   <span class="green">✓ Integration: agent dispatch</span>
+CEO → Research subagent → WebSearch        <span class="green">✓ Unit: research agent mock</span>
+CEO synthesizes packet → save              <span class="green">✓ Integration: packet creation</span>
+Packet → Approval Queue → Inbox            <span class="green">✓ Integration: queue → UI</span>
+User approves → Phase transition           <span class="green">✓ Integration: state machine</span>
+
+<span class="cyan">NEW BRANCHING / IF-STATEMENTS</span>              <span class="green">TEST NEEDED</span>
+────────────────────────────────────────── ──────────────────────────────
+if domain exists → scan; else → skip       <span class="green">✓ Unit: both branches</span>
+if scan.dns == 'live' → full scan          <span class="green">✓ Unit: live path</span>
+if scan.dns == 'parked' → mark parked      <span class="green">✓ Unit: parked path</span>
+if scan.dns == null → error/skip           <span class="green">✓ Unit: error path</span>
+if repo_url → clone + analyze              <span class="green">✓ Unit: with/without repo</span>
+if mode == 'attached' → PR workflow        <span class="yellow">⚠ Phase 1+ — defer test</span>
+if mode == 'shared' → deploy to runtime    <span class="yellow">⚠ Phase 1+ — defer test</span>
+if permission.repo_write → allow PR        <span class="green">✓ Unit: permission check</span>
+if night_shift → schedule cycle            <span class="green">✓ Integration: scheduler mock</span>
+if confidence &lt; 50 → CEO recommends Kill   <span class="green">✓ Unit: recommendation logic</span>
+if confidence &gt;= 70 → recommends Greenlight<span class="green">✓ Unit: recommendation logic</span>
+Approval: approve/deny/revise/kill         <span class="green">✓ Unit: each action path</span>
+
+<span class="cyan">SUMMARY: 22 test cases identified</span>
+  <span class="green">18 needed for Day 1 (MVG)</span>
+  <span class="yellow">4 deferred to Phase 1+</span>
+    </div>
+
+    <div class="issue">
+      <div class="issue-head">
+        <div class="issue-num">#8</div>
+        <div class="issue-title">No eval suite for LLM prompt changes</div>
+        <span class="issue-sev high">HIGH</span>
+      </div>
+      <div class="issue-desc">Every agent has a system prompt. When you change a prompt, you need to know if it degraded output quality. The spec has no mention of eval suites, golden test cases, or baseline comparisons for agent outputs. This is the biggest quality risk.</div>
+      <div class="option recommended">
+        <div class="option-letter">8A</div>
+        <div><div class="option-text"><strong>Do 8A: Create golden test fixtures for CEO and Research agents.</strong> 5 seed projects with known-good packet outputs. Run after every prompt change. Compare: does the packet still have all required sections? Is confidence score within 10% of baseline? Are competitors found?</div><div class="option-meta">Effort: Medium · Risk: None · Maps to: well-tested code is non-negotiable</div><span class="rec-tag">RECOMMENDED</span></div>
+      </div>
+      <div class="option">
+        <div class="option-letter">8B</div>
+        <div><div class="option-text">Manual review of agent outputs after each prompt change.</div><div class="option-meta">Effort: Low · Risk: High · Doesn't scale, misses regressions</div></div>
+      </div>
+      <div class="option">
+        <div class="option-letter">8C</div>
+        <div><div class="option-text">Do nothing — ship and iterate based on user feedback.</div><div class="option-meta">Effort: None · Risk: Very high · Silent quality degradation</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 4: PERFORMANCE REVIEW -->
+  <div class="section">
+    <div class="section-title">
+      <div class="section-num s4">4</div>
+      <div>
+        <div style="font-size:16px;font-weight:600;color:#F8FAFC">Performance Review</div>
+        <div style="font-size:12px;color:#64748B">N+1 queries, memory, caching, slow codepaths</div>
+      </div>
+    </div>
+
+    <div class="issue">
+      <div class="issue-head">
+        <div class="issue-num">#9</div>
+        <div class="issue-title">Phase 0 packet generation is slow (~2-5 min cold start)</div>
+        <span class="issue-sev med">MEDIUM</span>
+      </div>
+      <div class="issue-desc">After user launches a project, the CEO Agent calls Research (WebSearch × multiple queries), Finance (market sizing), Brand (image gen), then synthesizes the packet. Total wall-clock: 2-5 minutes. User stares at a loading screen.</div>
+      <div class="option recommended">
+        <div class="option-letter">9A</div>
+        <div><div class="option-text"><strong>Do 9A: Streaming progress + async notification.</strong> After launch, redirect to Workspace immediately. Show real-time progress: "Research Agent: searching competitors…" "CEO: drafting packet…". Push notification when packet lands in Inbox. Never block the UI.</div><div class="option-meta">Effort: Low (SSE or polling) · Risk: None · UX: Much better</div><span class="rec-tag">RECOMMENDED</span></div>
+      </div>
+      <div class="option">
+        <div class="option-letter">9B</div>
+        <div><div class="option-text">Show loading screen with estimated time. Simple but boring.</div><div class="option-meta">Effort: Very low · Risk: Low · UX: Acceptable but not great</div></div>
+      </div>
+    </div>
+
+    <div class="issue">
+      <div class="issue-head">
+        <div class="issue-num">#10</div>
+        <div class="issue-title">URL scanner could hammer target domains</div>
+        <span class="issue-sev low">LOW</span>
+      </div>
+      <div class="issue-desc">If multiple users onboard domains on the same host (e.g., Shopify sites), the scanner could trigger rate limits or get blocked. Need request throttling and caching.</div>
+      <div class="option recommended">
+        <div class="option-letter">10A</div>
+        <div><div class="option-text"><strong>Do 10A: Cache scan results by domain for 24h + rate limit to 1 req/sec per target.</strong> Since scans are optional + one-time during onboarding, this is rarely an issue. But the cache prevents re-scanning the same domain if multiple projects use it.</div><div class="option-meta">Effort: Low · Risk: None · Maps to: handle edge cases</div><span class="rec-tag">RECOMMENDED</span></div>
+      </div>
+      <div class="option">
+        <div class="option-letter">10B</div>
+        <div><div class="option-text">Do nothing — low volume at launch makes this unlikely.</div><div class="option-meta">Effort: None · Risk: Low at small scale</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- NOT IN SCOPE -->
+  <h2>NOT In Scope</h2>
+  <div class="section" style="background:#070B14;border-color:#EF444440">
+    <p style="font-size:13px;color:#EF4444;margin-bottom:16px">Work considered and explicitly deferred, with rationale:</p>
+    
+    <div class="scope-item">
+      <div class="scope-icon">✕</div>
+      <div>
+        <div class="scope-text"><strong>Multi-model routing with learning</strong></div>
+        <div class="scope-reason">Polsia's dynamic model routing is impressive but premature for us. Use Claude Sonnet for everything v1. Add routing when we have usage data to optimize against.</div>
+      </div>
+    </div>
+    <div class="scope-item">
+      <div class="scope-icon">✕</div>
+      <div>
+        <div class="scope-text"><strong>Codex 5.3 integration (codex-mcp)</strong></div>
+        <div class="scope-reason">Phase 3 only. No users will reach Phase 3 in the first month. Build when the first project gets greenlit to Phase 2.</div>
+      </div>
+    </div>
+    <div class="scope-item">
+      <div class="scope-icon">✕</div>
+      <div>
+        <div class="scope-text"><strong>Meta Ads integration</strong></div>
+        <div class="scope-reason">Phase 2+ feature. No projects will be running ads in v1. Build when a user actually reaches Phase 2 distribution.</div>
+      </div>
+    </div>
+    <div class="scope-item">
+      <div class="scope-icon">✕</div>
+      <div>
+        <div class="scope-text"><strong>Cold outreach pipeline (Hunter.io)</strong></div>
+        <div class="scope-reason">Phase 2+ feature. Legal and compliance concerns with automated outreach. Defer entirely.</div>
+      </div>
+    </div>
+    <div class="scope-item">
+      <div class="scope-icon">✕</div>
+      <div>
+        <div class="scope-text"><strong>UGC video generation (Sora 2)</strong></div>
+        <div class="scope-reason">Aspirational. Sora 2 API availability is uncertain. Not needed for core greenlight workflow.</div>
+      </div>
+    </div>
+    <div class="scope-item">
+      <div class="scope-icon">✕</div>
+      <div>
+        <div class="scope-text"><strong>5-8 landing page templates</strong></div>
+        <div class="scope-reason">Start with 1-2 templates. Build more as users request different styles. Template proliferation before user data is waste.</div>
+      </div>
+    </div>
+    <div class="scope-item">
+      <div class="scope-icon">✕</div>
+      <div>
+        <div class="scope-text"><strong>Browser automation (Browserbase MCP)</strong></div>
+        <div class="scope-reason">Nice-to-have for QA. WebFetch + Puppeteer screenshots cover 90% of scanner needs. Full browser automation adds complexity without clear Day 1 value.</div>
+      </div>
+    </div>
+    <div class="scope-item">
+      <div class="scope-icon">✕</div>
+      <div>
+        <div class="scope-text"><strong>Studio Board (portfolio view)</strong></div>
+        <div class="scope-reason">Can be a simple list in the dashboard. Full kanban/portfolio view is a polish feature, not core functionality.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- WHAT ALREADY EXISTS -->
+  <h2>What Already Exists</h2>
+  <div class="section">
+    <p style="font-size:13px;color:#94A3B8;margin-bottom:16px">Existing code/flows that partially solve sub-problems in this plan:</p>
+    
+    <div class="exists-item">
+      <div class="exists-icon" style="color:#22C55E">✓</div>
+      <div>
+        <div class="exists-name">Claude Agent SDK — full agent orchestration</div>
+        <div class="exists-desc">Built-in subagent(), task(), tool(), createSdkMcpServer(). We're reusing all of this. No custom orchestration layer needed.</div>
+      </div>
+    </div>
+    <div class="exists-item">
+      <div class="exists-icon" style="color:#22C55E">✓</div>
+      <div>
+        <div class="exists-name">Console Skills — xlsx, pptx, pdf, docx generation</div>
+        <div class="exists-desc">Pre-built skills for all file output formats. Plan correctly reuses these. No custom file generation needed.</div>
+      </div>
+    </div>
+    <div class="exists-item">
+      <div class="exists-icon" style="color:#22C55E">✓</div>
+      <div>
+        <div class="exists-name">Claude Code Plugins — frontend-design, code-review, feature-dev</div>
+        <div class="exists-desc">Pre-built plugins for UI generation, code review (4 parallel agents), and feature development (7-phase workflow). Plan reuses these correctly.</div>
+      </div>
+    </div>
+    <div class="exists-item">
+      <div class="exists-icon" style="color:#22C55E">✓</div>
+      <div>
+        <div class="exists-name">Community MCP Servers — GitHub, Puppeteer, Stripe</div>
+        <div class="exists-desc">Pre-built, battle-tested MCP servers. Plan correctly uses these instead of building custom alternatives.</div>
+      </div>
+    </div>
+    <div class="exists-item">
+      <div class="exists-icon" style="color:#22C55E">✓</div>
+      <div>
+        <div class="exists-name">Supabase — database, auth, storage, realtime</div>
+        <div class="exists-desc">Provides Postgres, Row Level Security, file storage, and realtime subscriptions out of the box. Only need a thin MCP wrapper.</div>
+      </div>
+    </div>
+    <div class="exists-item">
+      <div class="exists-icon" style="color:#EAB308">⚠</div>
+      <div>
+        <div class="exists-name">WebFetch (SDK built-in) — partially replaces url-scanner-mcp</div>
+        <div class="exists-desc">Can do HTTP GET with headers, follows redirects, returns HTML. Combined with a simple classify() function, this covers 80% of what url-scanner-mcp would do. The custom MCP adds DNS lookup and tech detection — nice but not Day 1 essential.</div>
+      </div>
+    </div>
+    <div class="exists-item">
+      <div class="exists-icon" style="color:#EAB308">⚠</div>
+      <div>
+        <div class="exists-name">Gemini API (direct) — partially replaces image-gen-mcp</div>
+        <div class="exists-desc">A single generateLogo(prompt) helper function calling Gemini's API is simpler than a full MCP server. Only promote to MCP if multiple agents need image generation (currently only Brand Agent does).</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FAILURE MODES -->
+  <h2>Failure Modes</h2>
+  <div class="section">
+    <div class="failure-row header">
+      <div>Codepath</div>
+      <div>Failure Mode</div>
+      <div>Test?</div>
+      <div>Error Handling?</div>
+    </div>
+    <div class="failure-row">
+      <div class="failure-path">Onboarding → DNS lookup</div>
+      <div class="failure-mode">DNS timeout (&gt;5s)</div>
+      <div class="yes">Yes (mock)</div>
+      <div class="yes">Yes → skip scan</div>
+    </div>
+    <div class="failure-row">
+      <div class="failure-path">Onboarding → HTTP probe</div>
+      <div class="failure-mode">Connection refused / TLS error</div>
+      <div class="yes">Yes (mock)</div>
+      <div class="yes">Yes → mark unreachable</div>
+    </div>
+    <div class="failure-row">
+      <div class="failure-path">Onboarding → Repo clone</div>
+      <div class="failure-mode">Private repo / auth needed</div>
+      <div class="yes">Yes (mock)</div>
+      <div class="yes">Yes → skip repo summary</div>
+    </div>
+    <div class="failure-row">
+      <div class="failure-path">CEO → Research subagent</div>
+      <div class="failure-mode">WebSearch returns empty</div>
+      <div class="yes">Yes (fixture)</div>
+      <div class="partial">Partial → CEO uses idea desc only</div>
+    </div>
+    <div class="failure-row">
+      <div class="failure-path">CEO → Packet synthesis</div>
+      <div class="failure-mode">LLM generates malformed JSON</div>
+      <div class="yes">Yes (schema val)</div>
+      <div class="yes">Yes → retry with schema feedback</div>
+    </div>
+    <div class="failure-row">
+      <div class="failure-path">Packet → Supabase save</div>
+      <div class="failure-mode">DB connection timeout</div>
+      <div class="no">No</div>
+      <div class="no">No → silent failure</div>
+    </div>
+    <div class="failure-row">
+      <div class="failure-path">Approval → Phase transition</div>
+      <div class="failure-mode">Race condition (double-approve)</div>
+      <div class="no">No</div>
+      <div class="no">No → duplicate phase advance</div>
+    </div>
+    <div class="failure-row">
+      <div class="failure-path">Night shift → CEO wake</div>
+      <div class="failure-mode">Scheduler fails / agent crash</div>
+      <div class="no">No</div>
+      <div class="no">No → silent missed cycle</div>
+    </div>
+    <div class="failure-row">
+      <div class="failure-path">Brand Agent → Gemini API</div>
+      <div class="failure-mode">Rate limit / 429 / timeout</div>
+      <div class="yes">Yes (mock)</div>
+      <div class="partial">Partial → needs retry wrapper</div>
+    </div>
+
+    <div class="critical">
+      ⚠ CRITICAL GAPS: 3 codepaths have no test AND no error handling AND would fail silently:<br>
+      &nbsp;&nbsp;• Packet → Supabase save failure (user loses their packet with no error)<br>
+      &nbsp;&nbsp;• Double-approve race condition (project could advance two phases)<br>
+      &nbsp;&nbsp;• Night shift scheduler failure (user thinks agents are working, nothing happens)
+    </div>
+  </div>
+
+  <!-- TODOS.md -->
+  <h2>TODOS.md — Deferred Work</h2>
+  <div class="section">
+    <p style="font-size:13px;color:#94A3B8;margin-bottom:16px">Genuinely valuable deferred work with full context:</p>
+    
+    <div class="todo-item">
+      <div class="todo-what">1. Add url-scanner-mcp for deep domain analysis</div>
+      <div class="todo-why">WebFetch + classify covers basic "is it live?" but misses DNS record analysis, tech stack detection (Wappalyzer-style), and structured competitor search. Power users with existing sites will want richer scan data.</div>
+      <div class="todo-context">Current implementation: WebFetch(domain) → check status code → classify as live/parked/none. Missing: DNS A/AAAA/CNAME/MX records, TLS cert details, framework detection via response headers/HTML patterns, automated competitor search. The Scanner Agent's system prompt already defines this — it just needs the MCP to be built.</div>
+      <div class="todo-depends">Depends on: Core MVP shipped. Blocked by: nothing.</div>
+    </div>
+    
+    <div class="todo-item">
+      <div class="todo-what">2. Add .pptx pitch deck generation to Phase 0 packets</div>
+      <div class="todo-why">Users want to take their greenlight packet to investor meetings. A JSON packet in the UI is useful for the product; a .pptx they can download is useful for the real world.</div>
+      <div class="todo-context">The pptx Console Skill exists and works. CEO Agent just needs a post-packet-generation step: "Now create a pitch deck from this packet." Template: 8-slide standard deck (Title, Problem, Solution, Market Size, Competition, MVP Scope, Timeline, Ask). Stored in R2, linked from packet viewer.</div>
+      <div class="todo-depends">Depends on: Core MVP (packets exist). Blocked by: nothing.</div>
+    </div>
+    
+    <div class="todo-item">
+      <div class="todo-what">3. Add Design + Brand agents for landing page generation</div>
+      <div class="todo-why">Phase 1 requires a landing page. Without Design Agent, the user has to build it themselves, defeating the "AI does the work" premise.</div>
+      <div class="todo-context">Design Agent uses frontend-design plugin. Brand Agent calls Gemini for logo/images. Both need supabase-mcp access to read project context. The frontend-design plugin auto-generates production-ready pages — this is the highest-leverage Phase 1 feature. Start with 1-2 landing page templates (SaaS hero, Coming Soon), expand based on demand.</div>
+      <div class="todo-depends">Depends on: Core MVP + at least 1 project greenlit to Phase 1.</div>
+    </div>
+    
+    <div class="todo-item">
+      <div class="todo-what">4. Implement Night Shift with dead-letter queue for failed cycles</div>
+      <div class="todo-why">Autonomous nightly cycles are a key differentiator vs Polsia (which has this). But a scheduler that silently fails is worse than no scheduler — users think work is happening when it isn't.</div>
+      <div class="todo-context">Implementation: cron job or Supabase pg_cron triggers CEO Agent nightly. Need: health check endpoint, dead-letter queue for failed tasks, "While You Were Away" summary email. Failure mode: if CEO agent crashes mid-cycle, partial results should still be saved and visible.</div>
+      <div class="todo-depends">Depends on: Core MVP. Blocked by: need to decide on cron provider (Vercel Cron, pg_cron, or external).</div>
+    </div>
+    
+    <div class="todo-item">
+      <div class="todo-what">5. Add optimistic locking to approval queue (prevent double-approve)</div>
+      <div class="todo-why">Race condition identified in failure modes: if two browser tabs approve the same item, the project could advance two phases. This is a data integrity bug.</div>
+      <div class="todo-context">Fix: Add a version column to approval_queue. UPDATE ... WHERE id = ? AND version = ? AND status = 'pending'. If 0 rows affected, return "already processed." Supabase RLS can't prevent this — it's an application-level concern.</div>
+      <div class="todo-depends">Depends on: nothing (can be added anytime). Should be done before multi-user access.</div>
+    </div>
+  </div>
+
+  <!-- COMPLETION SUMMARY -->
+  <h2>Completion Summary</h2>
+  <div class="section">
+    <div class="summary-grid">
+      <div class="summary-cell">
+        <div class="summary-label">Step 0: Scope Challenge</div>
+        <div class="summary-val yellow">User chose: ___</div>
+        <div style="font-size:11px;color:#64748B;margin-top:4px">Options: A (MVG), B (phased sprints), C (full build)</div>
+      </div>
+      <div class="summary-cell">
+        <div class="summary-label">Architecture Review</div>
+        <div class="summary-val blue">4 issues found</div>
+        <div style="font-size:11px;color:#64748B;margin-top:4px">#1 BullMQ premature, #2 5 MCPs too many, #3 shared runtime trap, #4 auth boundary</div>
+      </div>
+      <div class="summary-cell">
+        <div class="summary-label">Code Quality Review</div>
+        <div class="summary-val blue">3 issues found</div>
+        <div style="font-size:11px;color:#64748B;margin-top:4px">#5 DRY agent boilerplate, #6 synopsis schema, #7 API error handling</div>
+      </div>
+      <div class="summary-cell">
+        <div class="summary-label">Test Review</div>
+        <div class="summary-val green">Diagram produced, 22 cases</div>
+        <div style="font-size:11px;color:#64748B;margin-top:4px">18 Day 1, 4 deferred. 1 critical gap: no eval suite for prompts</div>
+      </div>
+      <div class="summary-cell">
+        <div class="summary-label">Performance Review</div>
+        <div class="summary-val blue">2 issues found</div>
+        <div style="font-size:11px;color:#64748B;margin-top:4px">#9 slow packet gen UX, #10 scanner rate limiting</div>
+      </div>
+      <div class="summary-cell">
+        <div class="summary-label">NOT in Scope</div>
+        <div class="summary-val green">Written — 8 items deferred</div>
+        <div style="font-size:11px;color:#64748B;margin-top:4px">Codex, Meta Ads, Hunter.io, Sora, templates, Browserbase, Studio Board, multi-model</div>
+      </div>
+      <div class="summary-cell">
+        <div class="summary-label">What Already Exists</div>
+        <div class="summary-val green">Written — 7 items identified</div>
+        <div style="font-size:11px;color:#64748B;margin-top:4px">SDK, Skills, Plugins, Community MCPs, Supabase, WebFetch, Gemini API</div>
+      </div>
+      <div class="summary-cell">
+        <div class="summary-label">TODOS.md</div>
+        <div class="summary-val yellow">5 items proposed</div>
+        <div style="font-size:11px;color:#64748B;margin-top:4px">url-scanner, pptx gen, Design+Brand agents, Night Shift, optimistic locking</div>
+      </div>
+      <div class="summary-cell">
+        <div class="summary-label">Failure Modes</div>
+        <div class="summary-val red">3 critical gaps flagged</div>
+        <div style="font-size:11px;color:#64748B;margin-top:4px">DB save failure, double-approve race, silent scheduler failure</div>
+      </div>
+      <div class="summary-cell">
+        <div class="summary-label">Overall Assessment</div>
+        <div class="summary-val yellow">SCOPE REDUCTION recommended</div>
+        <div style="font-size:11px;color:#64748B;margin-top:4px">Plan is well-researched but over-built for Day 1. Ship MVG, iterate.</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="text-align:center;padding:32px 0;color:#475569;font-size:12px;border-top:1px solid #1E293B;margin-top:16px">
+    Greenlight Studio — Plan Review (Garry Tan's plan-exit-review v2.0) · Feb 2026
+  </div>
+</div>
+</body></html>

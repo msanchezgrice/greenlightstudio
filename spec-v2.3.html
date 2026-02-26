@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Greenlight Studio — Spec v2.3</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#070B14;color:#E2E8F0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;line-height:1.6;display:flex}
+.sidebar{width:260px;background:#0B1220;border-right:1px solid #1E293B;padding:20px 16px;position:fixed;top:0;left:0;height:100vh;overflow-y:auto}
+.sidebar-logo{color:#22C55E;font-weight:700;font-size:16px;margin-bottom:4px}
+.sidebar-ver{color:#64748B;font-size:11px;margin-bottom:20px}
+.nav-section{font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:1px;margin:16px 0 6px;font-weight:600}
+.nav-link{display:block;color:#94A3B8;font-size:12px;padding:4px 8px;border-radius:4px;text-decoration:none;margin-bottom:2px;cursor:pointer}
+.nav-link:hover{background:#1E293B;color:#F8FAFC}
+.nav-link.active{background:#22C55E15;color:#22C55E}
+.main{margin-left:260px;padding:32px 48px;max-width:960px;flex:1}
+h1{font-size:26px;font-weight:700;color:#F8FAFC;margin-bottom:8px}
+h2{font-size:18px;font-weight:600;color:#F8FAFC;margin:32px 0 12px;padding-bottom:8px;border-bottom:1px solid #1E293B}
+h3{font-size:15px;font-weight:600;color:#F8FAFC;margin:20px 0 8px}
+p{font-size:14px;color:#CBD5E1;margin-bottom:12px}
+.badge{display:inline-block;font-size:10px;padding:2px 8px;border-radius:4px;font-weight:600;margin-right:4px}
+.badge.green{background:#22C55E20;color:#22C55E}.badge.blue{background:#3B82F620;color:#3B82F6}
+.badge.yellow{background:#EAB30820;color:#EAB308}.badge.red{background:#EF444420;color:#EF4444}
+.badge.purple{background:#A855F720;color:#A855F7}.badge.cyan{background:#06B6D420;color:#06B6D4}
+
+.card{background:#0B1220;border:1px solid #1E293B;border-radius:10px;padding:20px;margin-bottom:16px}
+.card-title{font-size:15px;font-weight:600;color:#F8FAFC;margin-bottom:8px}
+.card-desc{font-size:13px;color:#94A3B8}
+
+.agent-card{background:#0B1220;border:1px solid #1E293B;border-radius:10px;padding:20px;margin-bottom:16px}
+.agent-header{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.agent-icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+.agent-name{font-size:15px;font-weight:600;color:#F8FAFC}
+.agent-model{font-size:11px;color:#64748B}
+.agent-section{margin-bottom:12px}
+.agent-label{font-size:11px;color:#475569;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600}
+.tool-tag{display:inline-block;background:#0F172A;border:1px solid #1E293B;border-radius:4px;padding:2px 8px;font-size:10px;color:#94A3B8;margin:2px}
+.polsia-box{background:#A855F708;border:1px solid #A855F730;border-radius:8px;padding:12px;margin-top:8px}
+.polsia-label{font-size:10px;color:#A855F7;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px}
+.polsia-text{font-size:12px;color:#CBD5E1;line-height:1.6}
+
+.diagram{background:#070B14;border:1px solid #1E293B;border-radius:8px;padding:16px;font-family:'SF Mono',Consolas,monospace;font-size:11px;line-height:1.5;color:#94A3B8;white-space:pre;overflow-x:auto;margin:12px 0}
+.diagram .g{color:#22C55E}.diagram .b{color:#3B82F6}.diagram .y{color:#EAB308}.diagram .r{color:#EF4444}.diagram .p{color:#A855F7}.diagram .c{color:#06B6D4}
+
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:12px}
+th{text-align:left;color:#64748B;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;padding:8px;border-bottom:1px solid #1E293B}
+td{padding:8px;border-bottom:1px solid #1E293B10;color:#CBD5E1}
+tr:hover{background:#0F172A}
+
+.screen-link{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#070B14;border:1px solid #1E293B;border-radius:8px;margin-bottom:6px;cursor:pointer;text-decoration:none;color:#E2E8F0;font-size:13px}
+.screen-link:hover{border-color:#22C55E40;background:#22C55E05}
+.screen-link .arrow{color:#22C55E;font-size:14px}
+</style></head><body>
+<div class="sidebar">
+  <div class="sidebar-logo">▲ Greenlight Studio</div>
+  <div class="sidebar-ver">Spec v2.3 · Polsia Practices + Plan Review</div>
+  
+  <div class="nav-section">Overview</div>
+  <a class="nav-link active" href="#overview">Product Overview</a>
+  <a class="nav-link" href="#mvg">MVG (Minimum Viable)</a>
+  <a class="nav-link" href="#review-summary">Plan Review Summary</a>
+  
+  <div class="nav-section">Architecture</div>
+  <a class="nav-link" href="#phases">Phase Pipeline</a>
+  <a class="nav-link" href="#agents">Agents + Polsia Practices</a>
+  <a class="nav-link" href="#tools">Tooling Map</a>
+  <a class="nav-link" href="#data">Data Model</a>
+  
+  <div class="nav-section">Flows</div>
+  <a class="nav-link" href="#onboarding">Onboarding Wizard</a>
+  <a class="nav-link" href="#permissions">Permission Ladder</a>
+  <a class="nav-link" href="#nightshift">Night Shift</a>
+  
+  <div class="nav-section">Analysis</div>
+  <a class="nav-link" href="#polsia">Polsia Gap Analysis</a>
+  <a class="nav-link" href="#garry">Garry Tan Review</a>
+  <a class="nav-link" href="#codex">Codex 5.3 (Phase 3)</a>
+  
+  <div class="nav-section">Screens</div>
+  <a class="nav-link" href="#screens">All Mockups</a>
+</div>
+
+<div class="main">
+<h1 id="overview">Greenlight Studio — Spec v2.3</h1>
+<p>Updated with Polsia best practices integrated into every agent, Garry Tan plan-exit-review applied, and onboarding wizard fully spec'd. This is the implementation-ready spec.</p>
+
+<div style="display:flex;gap:12px;margin:16px 0;flex-wrap:wrap">
+  <span class="badge green">v2.3</span>
+  <span class="badge purple">Polsia practices integrated</span>
+  <span class="badge yellow">Garry Tan review applied</span>
+  <span class="badge cyan">Onboarding wizard spec'd</span>
+  <span class="badge blue">MVG scoped</span>
+</div>
+
+<!-- MVG -->
+<h2 id="mvg">Minimum Viable Greenlight (MVG)</h2>
+<p>Per the Garry Tan plan-exit-review, the full 8-agent system is over-built for Day 1. The MVG ships in ~1 week with the core loop working.</p>
+
+<div class="diagram">
+<span class="g">DAY 1 (MVG — ship in 1 week)</span>
+├── CEO Agent (orchestrator) — Claude Agent SDK
+├── Research Agent (subagent) — WebSearch + WebFetch
+├── 1 custom MCP: supabase-mcp
+├── Phase 0 packet generation (JSON)
+├── Greenlight Inbox (approve/reject/revise)
+├── Onboarding form (domain + idea + optional repo)
+├── Scanner (inline WebFetch + classify helper, NOT full MCP)
+└── Supabase: users, projects, phase_packets, approval_queue
+
+<span class="y">WEEK 2-3 (add when MVG is proven)</span>
+├── Design Agent + frontend-design plugin
+├── Brand Agent + Gemini image gen (inline, not MCP)
+├── Finance Agent + xlsx skill
+├── .pptx pitch deck generation
+├── Night Shift scheduler
+└── Repo Analyst + GitHub MCP
+
+<span class="r">PHASE 2-3 (build only when users reach these phases)</span>
+├── codex-mcp (Codex 5.3 integration)
+├── email-mcp (Resend/Postmark)
+├── BullMQ + Redis (when &gt;3 concurrent agents)
+├── Meta Ads MCP, Cold Outreach MCP
+└── Template library (expand from 1-2 → 5-8)
+</div>
+
+<!-- REVIEW SUMMARY -->
+<h2 id="review-summary">Plan Review Summary (Garry Tan)</h2>
+<p>Full plan-exit-review applied. 10 issues found across 4 review sections. Key recommendations adopted:</p>
+
+<table>
+<tbody><tr><th>Area</th><th>Issues</th><th>Key Decision</th></tr>
+<tr><td>Scope</td><td>Over-built</td><td>Start with MVG: 2 agents + 1 MCP + Inbox UI</td></tr>
+<tr><td>Architecture</td><td>4 issues</td><td>Drop BullMQ Day 1, start with 1 MCP not 5, use static HTML + R2 for landing pages</td></tr>
+<tr><td>Code Quality</td><td>3 issues</td><td>BaseAgent factory for DRY, Zod schema for synopsis, centralized retry wrapper</td></tr>
+<tr><td>Tests</td><td>22 cases, 1 gap</td><td>Golden test fixtures for agent prompts, eval suite for LLM output quality</td></tr>
+<tr><td>Performance</td><td>2 issues</td><td>Streaming progress for packet gen, scan result caching</td></tr>
+<tr><td>Failure Modes</td><td>3 critical</td><td>DB save retry, optimistic locking on approvals, scheduler health check</td></tr>
+</tbody></table>
+<p><em>Full review with options A/B/C per issue → <strong>Plan Review tab</strong></em></p>
+
+<!-- PHASES -->
+<h2 id="phases">Phase Pipeline</h2>
+<div class="diagram">
+<span class="c">Pre-Phase 0</span> → <span class="g">Phase 0</span> → <span class="b">Phase 1</span> → <span class="y">Phase 2</span> → <span class="p">Phase 3</span>
+Asset Discovery    Pitch Packet      Validate          Distribute        Go Live
+
+<span class="c">Pre-Phase 0: Asset Discovery</span> (optional, safe by default)
+├── URL scan: DNS → HTTP → meta → tech detect → "Looks Live?"
+├── Repo scan: clone (shallow) → language, LOC, structure
+├── Competitor quick-search
+└── Output: scan_results JSON saved to project
+
+<span class="g">Phase 0: Pitch Packet</span>
+├── Competitor analysis (Research Agent → WebSearch)
+├── Market sizing: TAM/SAM/SOM (CEO inline, or Finance Agent w/ xlsx)
+├── Target demo persona
+├── MVP scope (in/deferred)
+├── Confidence score (0-100)
+├── Elevator pitch + tagline
+├── Reasoning Synopsis JSON
+├── CEO recommendation: Greenlight / Revise / Kill
+└── Output: packet in Inbox + optional .pptx + .pdf
+
+<span class="b">Phase 1: Validate</span>
+├── Landing page (Design Agent + templates)
+├── Waitlist / email capture
+├── OG/meta tags, analytics wiring (PostHog)
+├── Logo + brand colors (Brand Agent)
+├── Social strategy doc
+├── Welcome email sequence
+└── Greenlight gate: user approves in Inbox
+
+<span class="y">Phase 2: Distribute</span>
+├── Social accounts + content calendar
+├── Meta Ads with budget guardrails
+├── Cold outreach (when available)
+├── Email drip sequences
+└── Greenlight gate: metrics review
+
+<span class="p">Phase 3: Go Live</span>
+├── Codex 5.3 builds product features (PRs)
+├── code-review plugin reviews PRs
+├── Human approves merges via Inbox
+├── Daily snapshots + kill-switch
+└── Weekly CEO summaries
+</div>
+
+<!-- AGENTS WITH POLSIA PRACTICES -->
+<h2 id="agents">Agents + Polsia Best Practices</h2>
+<p>Each agent now has Polsia lessons baked in — specific behaviors learned from the ConjureOS conversation history. These aren't theoretical; they're direct responses to Polsia's documented failures and successes.</p>
+
+<div class="agent-card">
+  <div class="agent-header">
+    <div class="agent-icon" style="background:#EAB30820">👔</div>
+    <div>
+      <div class="agent-name">CEO Agent</div>
+      <div class="agent-model">Claude Sonnet 4.6 · Orchestrator</div>
+    </div>
+  </div>
+  <div class="agent-section">
+    <div class="agent-label">Tools</div>
+    <span class="tool-tag">WebSearch</span><span class="tool-tag">WebFetch</span><span class="tool-tag">AskUserQuestion</span>
+    <span class="tool-tag">pptx skill</span><span class="tool-tag">pdf skill</span><span class="tool-tag">supabase-mcp</span>
+  </div>
+  <div class="agent-section">
+    <div class="agent-label">Role</div>
+    <div class="card-desc">Orchestrates all sub-agents. Synthesizes Phase 0 packets. Makes greenlight/kill recommendations. Runs Night Shift cycles. Creates reasoning synopses for every decision.</div>
+  </div>
+  <div class="polsia-box">
+    <div class="polsia-label">Polsia Practices Applied</div>
+    <div class="polsia-text">
+      <strong>1. Always check existing assets before building.</strong> Polsia's CEO agent queued a "build landing page" task without checking conjureanything.com existed. Our CEO checks scan_results before creating any Phase 1 task. If site exists, it adjusts the plan.<br><br>
+      <strong>2. Produce a formal roadmap, not just "next best move."</strong> Polsia's CEO admitted "there's no formal roadmap document." Our CEO produces a structured phase pipeline with explicit gates and deliverables per phase — the greenlight packet IS the roadmap.<br><br>
+      <strong>3. Prioritize core product over marketing scaffolding.</strong> Polsia built analytics dashboards, OG tags, and Stripe checkout before the actual product. Our CEO's priority hierarchy: (1) Is the product defined? → (2) Can users try it? → (3) Are we reaching users? Never skip to distribution before product-market fit signals exist.<br><br>
+      <strong>4. Daily summaries with honest metrics.</strong> Polsia's daily summaries were good — "51 page views, 1 signup, 4.3% conversion." We adopt this: every Night Shift cycle produces a summary with real numbers, not qualitative fluff.
+    </div>
+  </div>
+</div>
+
+<div class="agent-card">
+  <div class="agent-header">
+    <div class="agent-icon" style="background:#3B82F620">🔍</div>
+    <div>
+      <div class="agent-name">Research Agent</div>
+      <div class="agent-model">Claude Sonnet 4.6 · Subagent</div>
+    </div>
+  </div>
+  <div class="agent-section">
+    <div class="agent-label">Tools</div>
+    <span class="tool-tag">WebSearch</span><span class="tool-tag">WebFetch</span><span class="tool-tag">Read</span>
+    <span class="tool-tag">docx skill</span><span class="tool-tag">supabase-mcp</span>
+  </div>
+  <div class="agent-section">
+    <div class="agent-label">Role</div>
+    <div class="card-desc">Competitor analysis, market research, trend scanning. Produces structured research briefs that feed into CEO's packet synthesis.</div>
+  </div>
+  <div class="polsia-box">
+    <div class="polsia-label">Polsia Practices Applied</div>
+    <div class="polsia-text">
+      <strong>1. Competitor research must include pricing + feature gaps.</strong> Polsia's research agent produced a competitive analysis that was actionable — "Nobody bundles render + spec + cost. That's our lane." Our Research Agent is prompted to always identify the gap, not just list competitors.<br><br>
+      <strong>2. Save research as reusable documents.</strong> Polsia saved reports with IDs (e.g., "analytics_snapshot ID 26868") that could be referenced later. Our Research Agent saves all findings to Supabase with report_id + tags, so the CEO can reference them across cycles.
+    </div>
+  </div>
+</div>
+
+<div class="agent-card">
+  <div class="agent-header">
+    <div class="agent-icon" style="background:#06B6D420">🔎</div>
+    <div>
+      <div class="agent-name">Scanner Agent</div>
+      <div class="agent-model">Claude Haiku · Subagent (MVG: inline helper)</div>
+    </div>
+  </div>
+  <div class="agent-section">
+    <div class="agent-label">Tools (MVG)</div>
+    <span class="tool-tag">WebFetch (built-in)</span><span class="tool-tag">classify() helper</span>
+  </div>
+  <div class="agent-section">
+    <div class="agent-label">Tools (Post-MVG)</div>
+    <span class="tool-tag">url-scanner-mcp</span><span class="tool-tag">puppeteer-mcp</span><span class="tool-tag">supabase-mcp</span>
+  </div>
+  <div class="agent-section">
+    <div class="agent-label">Role</div>
+    <div class="card-desc">Pre-Phase 0 domain analysis. Checks DNS, HTTP status, meta tags, tech stack, "Looks Live?" heuristic. In MVG, this is a helper function inside the CEO Agent. Promoted to full subagent post-MVG.</div>
+  </div>
+  <div class="polsia-box">
+    <div class="polsia-label">Polsia Practices Applied</div>
+    <div class="polsia-text">
+      <strong>1. ALWAYS scan before building.</strong> This agent exists because of Polsia's biggest failure. Polsia's engineering agent pushed code to GitHub without ever visiting the live site. Our Scanner Agent runs BEFORE any agent work begins, during onboarding, not after.<br><br>
+      <strong>2. Use browser-like inspection, not just API calls.</strong> Polsia's browserbase agent could navigate, screenshot, and extract content. Our Scanner (post-MVG) uses puppeteer-mcp to actually render the page and take screenshots — catching JavaScript-rendered content that WebFetch misses.
+    </div>
+  </div>
+</div>
+
+<div class="agent-card">
+  <div class="agent-header">
+    <div class="agent-icon" style="background:#22C55E20">🎨</div>
+    <div>
+      <div class="agent-name">Design Agent</div>
+      <div class="agent-model">Claude Sonnet 4.6 · Subagent (Week 2-3)</div>
+    </div>
+  </div>
+  <div class="agent-section">
+    <div class="agent-label">Tools</div>
+    <span class="tool-tag">Read</span><span class="tool-tag">Write</span><span class="tool-tag">Bash</span>
+    <span class="tool-tag">frontend-design plugin</span><span class="tool-tag">feature-dev plugin</span><span class="tool-tag">supabase-mcp</span>
+  </div>
+  <div class="polsia-box">
+    <div class="polsia-label">Polsia Practices Applied</div>
+    <div class="polsia-text">
+      <strong>1. Landing pages must be competitive-aware.</strong> Polsia "fully repositioned landing page with competitive messaging" on Day 3. Our Design Agent receives competitor analysis from Research Agent and incorporates competitive positioning into every landing page. The template includes a comparison section slot.<br><br>
+      <strong>2. Mobile-first, with analytics from Day 1.</strong> Polsia discovered "6% bounce rate on mobile due to layout issues" on Day 3 and fixed in v3. Our Design Agent's templates are mobile-first, and PostHog/Plausible analytics are wired in the template, not added later.<br><br>
+      <strong>3. Serve on user's domain when possible.</strong> Use static HTML → Cloudflare R2 → custom domain. Don't create a separate URL like Polsia did (conjureos.polsia.app).
+    </div>
+  </div>
+</div>
+
+<div class="agent-card">
+  <div class="agent-header">
+    <div class="agent-icon" style="background:#A855F720">🎭</div>
+    <div>
+      <div class="agent-name">Brand Agent</div>
+      <div class="agent-model">Claude Sonnet + Gemini · Subagent (Week 2-3)</div>
+    </div>
+  </div>
+  <div class="agent-section">
+    <div class="agent-label">Tools</div>
+    <span class="tool-tag">Read</span><span class="tool-tag">Write</span>
+    <span class="tool-tag">Gemini API (inline call)</span><span class="tool-tag">supabase-mcp</span>
+  </div>
+  <div class="polsia-box">
+    <div class="polsia-label">Polsia Practices Applied</div>
+    <div class="polsia-text">
+      <strong>1. Brand must be consistent across all outputs.</strong> Polsia generated OG tags and social cards that matched the landing page. Our Brand Agent generates a brand kit (logo, colors, font pairing, tone of voice) that's stored in the project record and referenced by every other agent. No agent generates visual content without checking the brand kit first.
+    </div>
+  </div>
+</div>
+
+<div class="agent-card">
+  <div class="agent-header">
+    <div class="agent-icon" style="background:#EF444420">📊</div>
+    <div>
+      <div class="agent-name">Finance Agent</div>
+      <div class="agent-model">Claude Sonnet 4.6 · Subagent (Week 2-3)</div>
+    </div>
+  </div>
+  <div class="agent-section">
+    <div class="agent-label">Tools</div>
+    <span class="tool-tag">WebSearch</span><span class="tool-tag">WebFetch</span><span class="tool-tag">xlsx skill</span>
+    <span class="tool-tag">pdf skill</span><span class="tool-tag">stripe-mcp</span><span class="tool-tag">supabase-mcp</span>
+  </div>
+  <div class="polsia-box">
+    <div class="polsia-label">Polsia Practices Applied</div>
+    <div class="polsia-text">
+      <strong>1. Revenue math must be transparent.</strong> Polsia's CEO calculated "\$79.20/mo per subscriber after 20% platform fee" — simple, honest math. Our Finance Agent always shows its work: TAM source, SAM filter rationale, SOM capture rate assumption. No black-box market sizing.<br><br>
+      <strong>2. Track real metrics, not vanity metrics.</strong> Polsia tracked page views (vanity) but also conversion rate (4.3%) and identified that cold email attribution was broken. Our Finance Agent's analytics templates focus on conversion funnel metrics, not just traffic.
+    </div>
+  </div>
+</div>
+
+<div class="agent-card">
+  <div class="agent-header">
+    <div class="agent-icon" style="background:#3B82F620">📦</div>
+    <div>
+      <div class="agent-name">Repo Analyst</div>
+      <div class="agent-model">Claude Sonnet 4.6 · Subagent (Week 2-3)</div>
+    </div>
+  </div>
+  <div class="agent-section">
+    <div class="agent-label">Tools</div>
+    <span class="tool-tag">Read</span><span class="tool-tag">Glob</span><span class="tool-tag">Grep</span><span class="tool-tag">Bash</span>
+    <span class="tool-tag">server-github MCP</span><span class="tool-tag">code-review plugin</span><span class="tool-tag">supabase-mcp</span>
+  </div>
+  <div class="polsia-box">
+    <div class="polsia-label">Polsia Practices Applied</div>
+    <div class="polsia-text">
+      <strong>1. Read the codebase before writing any code.</strong> Polsia's engineering agent had full GitHub access but the CEO admitted it never browsed the user's live site. Our Repo Analyst reads the entire codebase structure, identifies framework/patterns/conventions, and creates a repo_summary that all other agents reference. No agent writes code that contradicts existing patterns.<br><br>
+      <strong>2. Garry Tan plan-exit-review before every code change.</strong> Before opening any PR (Phase 1+), Repo Analyst runs the scope challenge: "What existing code already solves this? What's the minimum change?" This prevents Polsia's pattern of building parallel infrastructure.
+    </div>
+  </div>
+</div>
+
+<div class="agent-card">
+  <div class="agent-header">
+    <div class="agent-icon" style="background:#22C55E20">⚙️</div>
+    <div>
+      <div class="agent-name">Engineering Agent</div>
+      <div class="agent-model">Claude Sonnet 4.6 · Subagent (Phase 1+)</div>
+    </div>
+  </div>
+  <div class="agent-section">
+    <div class="agent-label">Tools</div>
+    <span class="tool-tag">Read</span><span class="tool-tag">Write</span><span class="tool-tag">Edit</span><span class="tool-tag">Bash</span>
+    <span class="tool-tag">Glob</span><span class="tool-tag">Grep</span>
+    <span class="tool-tag">agent-sdk-dev plugin</span><span class="tool-tag">feature-dev plugin</span>
+    <span class="tool-tag">code-review plugin</span><span class="tool-tag">security-guidance plugin</span>
+    <span class="tool-tag">commit-commands plugin</span>
+  </div>
+  <div class="polsia-box">
+    <div class="polsia-label">Polsia Practices Applied</div>
+    <div class="polsia-text">
+      <strong>1. Never push to main.</strong> All work on branches. PRs reviewed by code-review plugin (4 parallel agents, confidence threshold 80). Human approves in Inbox. This is the opposite of Polsia's engineering agent which pushed directly to remote.<br><br>
+      <strong>2. Garry Tan plan-exit-review on every feature.</strong> Before implementing, run scope challenge + architecture review. Produces "NOT in scope" list and TODOS.md with real context. Prevents scope creep that plagued Polsia's task queue.<br><br>
+      <strong>3. QA after every deploy.</strong> Polsia had a QA Smoke Test task that kept getting deferred. Our Engineering Agent's workflow: code → review → merge → deploy → QA (Scanner Agent screenshots the live site). QA is not a separate task — it's the last step of every deploy.<br><br>
+      <strong>4. Fix attribution tracking immediately.</strong> Polsia's biggest analytics failure: "Email links lack UTM parameters. Can't track attribution." Our Engineering Agent adds UTM params to every link it generates. Analytics-aware from Day 1.
+    </div>
+  </div>
+</div>
+
+<!-- TOOLING MAP -->
+<h2 id="tools">Tooling Map</h2>
+<h3>Layer 1: Console Skills</h3>
+<table>
+<tbody><tr><th>Skill</th><th>Used By</th><th>Purpose</th></tr>
+<tr><td><span class="badge green">xlsx</span></td><td>Finance Agent</td><td>Market sizing spreadsheets, financial models</td></tr>
+<tr><td><span class="badge green">pptx</span></td><td>CEO Agent</td><td>Pitch decks (8-slide template)</td></tr>
+<tr><td><span class="badge green">pdf</span></td><td>CEO, Finance</td><td>One-pager exports, reports</td></tr>
+<tr><td><span class="badge green">docx</span></td><td>Research Agent</td><td>Research briefs, competitor reports</td></tr>
+</tbody></table>
+
+<h3>Layer 2: Claude Code Plugins</h3>
+<table>
+<tbody><tr><th>Plugin</th><th>Used By</th><th>Purpose</th></tr>
+<tr><td><span class="badge blue">frontend-design</span></td><td>Design Agent</td><td>Production-ready landing pages</td></tr>
+<tr><td><span class="badge blue">agent-sdk-dev</span></td><td>Engineering Agent</td><td>Scaffolding new agents with /new-sdk-app</td></tr>
+<tr><td><span class="badge blue">feature-dev</span></td><td>Design, Engineering</td><td>7-phase feature development workflow</td></tr>
+<tr><td><span class="badge blue">code-review</span></td><td>Repo Analyst, Engineering</td><td>4 parallel review agents, confidence-scored</td></tr>
+<tr><td><span class="badge blue">security-guidance</span></td><td>Engineering Agent</td><td>Security review on PRs</td></tr>
+<tr><td><span class="badge blue">commit-commands</span></td><td>Engineering Agent</td><td>Structured git workflow</td></tr>
+</tbody></table>
+
+<h3>Layer 3: SDK Built-in Tools</h3>
+<table>
+<tbody><tr><th>Tool</th><th>Used By</th><th>Purpose</th></tr>
+<tr><td>Read, Write, Edit</td><td>Engineering, Repo Analyst</td><td>File operations</td></tr>
+<tr><td>Bash, Glob, Grep</td><td>Engineering, Repo Analyst, Scanner</td><td>Shell ops, file search</td></tr>
+<tr><td>WebSearch, WebFetch</td><td>CEO, Research, Scanner</td><td>Web research + URL scanning</td></tr>
+<tr><td>AskUserQuestion</td><td>CEO Agent</td><td>Interactive clarification</td></tr>
+</tbody></table>
+
+<h3>Layer 4: Custom MCP Servers</h3>
+<table>
+<tbody><tr><th>MCP</th><th>Tools</th><th>Timeline</th></tr>
+<tr><td><span class="badge yellow">supabase-mcp</span></td><td>create_project, save_packet, update_phase, get_approval_queue, log_task</td><td><span class="badge green">Day 1 (MVG)</span></td></tr>
+<tr><td><span class="badge yellow">url-scanner-mcp</span></td><td>scan_domain, batch_scan, get_scan_cache</td><td><span class="badge yellow">Week 2-3</span></td></tr>
+<tr><td><span class="badge yellow">email-mcp</span></td><td>send_email, send_drip_sequence, preview_email</td><td><span class="badge yellow">Phase 1+</span></td></tr>
+<tr><td><span class="badge yellow">codex-mcp</span></td><td>create_task, get_task_status, get_task_output, approve_merge</td><td><span class="badge red">Phase 3</span></td></tr>
+</tbody></table>
+
+<h3>Layer 5: Community MCP Servers</h3>
+<table>
+<tbody><tr><th>MCP</th><th>Used By</th><th>Purpose</th></tr>
+<tr><td>@modelcontextprotocol/server-github</td><td>Repo Analyst</td><td>GitHub API — repos, PRs, issues</td></tr>
+<tr><td>@anthropic/mcp-puppeteer</td><td>Scanner Agent</td><td>Headless browser screenshots</td></tr>
+<tr><td>@stripe/mcp-server-stripe</td><td>Finance Agent</td><td>Stripe payments API</td></tr>
+</tbody></table>
+
+<!-- DATA MODEL -->
+<h2 id="data">Data Model</h2>
+<div class="diagram">
+<span class="c">SUPABASE TABLES (with RLS per project_id)</span>
+
+<span class="g">users</span>
+├── id (uuid, PK)
+├── clerk_id (text, unique)
+├── email (text)
+└── created_at (timestamptz)
+
+<span class="g">projects</span>
+├── id (uuid, PK)
+├── user_id (uuid, FK → users)
+├── name (text)
+├── domain (text, nullable)
+├── idea_description (text)
+├── repo_url (text, nullable)
+├── scan_results (jsonb, nullable)
+├── repo_summary (jsonb, nullable)
+├── wizard_state (jsonb)
+├── runtime_mode ('shared' | 'attached')
+├── permissions (jsonb)
+├── phase ('pre_0'|'phase_0'|'phase_1'|'phase_2'|'phase_3')
+├── night_shift (boolean, default true)
+├── focus_areas (text[])
+├── brand_kit (jsonb, nullable)
+└── created_at / updated_at
+
+<span class="g">phase_packets</span>
+├── id (uuid, PK)
+├── project_id (uuid, FK)
+├── phase (text)
+├── packet_data (jsonb) — full packet content
+├── confidence_score (integer, 0-100)
+├── ceo_recommendation ('greenlight'|'revise'|'kill')
+├── reasoning_synopsis (jsonb) — validated by Zod schema
+├── deliverables (jsonb) — {pptx_url, xlsx_url, pdf_url}
+└── created_at
+
+<span class="g">approval_queue</span>
+├── id (uuid, PK)
+├── project_id (uuid, FK)
+├── packet_id (uuid, FK, nullable)
+├── type ('phase_advance'|'deploy'|'ads'|'email'|'code_merge')
+├── risk_level ('low'|'medium'|'high')
+├── title (text)
+├── description (text)
+├── agent_source (text) — which agent created this
+├── status ('pending'|'approved'|'denied'|'revised')
+├── <span class="y">version (integer, default 1)</span> — optimistic locking
+├── resolved_at (timestamptz, nullable)
+├── resolved_by (uuid, nullable)
+└── created_at
+
+<span class="g">tasks</span>
+├── id (uuid, PK)
+├── project_id (uuid, FK)
+├── agent (text)
+├── description (text)
+├── status ('queued'|'running'|'completed'|'failed')
+├── reasoning_synopsis (jsonb)
+├── execution_log (text)
+├── error (text, nullable)
+├── started_at / completed_at
+└── created_at
+</div>
+
+<!-- ONBOARDING -->
+<h2 id="onboarding">Onboarding Wizard</h2>
+<p>5-step wizard: Import → Discover → Scan Results → Clarify → Confirm → Launch. Full state machine, transition table, data model, and screen specs available in the Onboarding Wizard mockup tab.</p>
+<div class="diagram">
+<span class="c">[START]</span> → <span class="c">S0:Import</span> → <span class="g">S1:Discover</span> → <span class="b">S1.5:Results</span> → <span class="y">S2:Clarify</span> → <span class="p">S3:Confirm</span> → <span class="g">[LAUNCHED]</span>
+                │                    │                                │
+                │ skip scan          │ scan failed                   │ edit
+                └────────────────────┤                               │
+                                     ▼                               ▼
+                              <span class="r">S1.5e:Error</span> ──── continue ────→ <span class="y">S2:Clarify</span>    (any step)
+</div>
+
+<!-- PERMISSIONS -->
+<h2 id="permissions">Permission Ladder</h2>
+<div class="diagram">
+<span class="c">Phase 0</span>: Read-only (default)
+  └─ Scan domain, read repo, web research, generate packets
+  └─ NO writes, NO deploys, NO email, NO ads
+
+<span class="g">Phase 1</span>: +Write with approval
+  └─ PRs to repo (never main), landing page deploy (staging)
+  └─ Greenlight Inbox approval required for each
+
+<span class="y">Phase 2</span>: +Outreach with caps
+  └─ Email send (template-only, rate-limited)
+  └─ Ad spend (hard budget cap, kill-switch at CPA threshold)
+
+<span class="p">Phase 3</span>: +Deploy with review
+  └─ Codex 5.3 PRs (branch only, code-review plugin, human merge)
+  └─ Production deploy (staging → prod, human approval)
+
+<span class="r">NEVER</span>: push to main, delete repos, spend above cap,
+       send without template, merge without review
+</div>
+
+<!-- NIGHT SHIFT -->
+<h2 id="nightshift">Night Shift</h2>
+<p>Autonomous nightly cycles, modeled after Polsia's daily operating cycles but with structured output and failure handling.</p>
+<div class="diagram">
+<span class="g">Nightly Cycle Flow</span>
+
+Trigger: pg_cron or Vercel Cron (configurable)
+  │
+  ├─ 1. <span class="c">Health Check</span>
+  │    └─ Verify Supabase, agent SDK, MCP servers responding
+  │    └─ If any DOWN → log error, skip cycle, alert user
+  │
+  ├─ 2. <span class="g">Context Load</span>
+  │    └─ Read project state, recent tasks, pending approvals
+  │    └─ Read scan_results, repo_summary, brand_kit
+  │    └─ Read user's focus areas + permissions
+  │
+  ├─ 3. <span class="b">CEO Prioritization</span>
+  │    └─ Assess: broken? → shippable? → distributing? → learning?
+  │    └─ Create 2-4 prioritized tasks
+  │    └─ Each task has reasoning synopsis
+  │
+  ├─ 4. <span class="y">Task Execution</span>
+  │    └─ Dispatch to appropriate subagent
+  │    └─ Max 4hr per task (timeout)
+  │    └─ Results → tasks table + reasoning_synopsis
+  │
+  ├─ 5. <span class="p">Summary Generation</span>
+  │    └─ "While You Were Away" card for Project Workspace
+  │    └─ Includes: tasks completed, metrics, recommendations
+  │    └─ Push to approval_queue if any actions need approval
+  │
+  └─ 6. <span class="r">Dead Letter</span>
+       └─ Any failed task → log error + add to "While You Were Away"
+       └─ User sees: "Research Agent failed — WebSearch timeout. Retrying tonight."
+       └─ <span class="y">Polsia lesson:</span> Polsia's scheduler failures were SILENT.
+            Ours are VISIBLE. User always knows what happened.
+</div>
+
+<!-- POLSIA GAP ANALYSIS -->
+<h2 id="polsia">Polsia Gap Analysis</h2>
+<table>
+<tbody><tr><th>Capability</th><th>Polsia</th><th>Greenlight</th><th>Status</th></tr>
+<tr><td>Agent orchestration</td><td>Custom task queue</td><td>Claude Agent SDK</td><td><span class="badge green">Same</span></td></tr>
+<tr><td>8 agent types</td><td>Eng, Data, Growth, Research, Browser, Support, Ads, Outreach</td><td>CEO, Research, Scanner, Design, Brand, Finance, Repo, Engineering</td><td><span class="badge green">Same</span></td></tr>
+<tr><td>Hosted infrastructure</td><td>polsia_infra (9 tools)</td><td>Not in v1 — user's infra or Codex 5.3</td><td><span class="badge red">Gap</span></td></tr>
+<tr><td>Browser automation</td><td>browserbase (9 tools)</td><td>Puppeteer screenshots only</td><td><span class="badge yellow">Partial</span></td></tr>
+<tr><td>Cold outreach</td><td>Hunter.io + company_email</td><td>Phase 2+ MCP</td><td><span class="badge yellow">Deferred</span></td></tr>
+<tr><td>UGC video</td><td>Sora 2 + Meta Ads</td><td>Not planned</td><td><span class="badge red">Gap</span></td></tr>
+<tr><td>Multi-model routing</td><td>GPT-4/Claude/Gemini dynamic</td><td>Fixed assignments</td><td><span class="badge yellow">v2</span></td></tr>
+<tr><td>Structured greenlight process</td><td>No formal roadmap</td><td>5-phase pipeline + gates</td><td><span class="badge green">Better</span></td></tr>
+<tr><td>Asset discovery</td><td>Didn't check existing site</td><td>Pre-Phase 0 scanner</td><td><span class="badge green">Better</span></td></tr>
+<tr><td>Reasoning transparency</td><td>Opaque summaries</td><td>Structured JSON synopsis</td><td><span class="badge green">Better</span></td></tr>
+<tr><td>Repo integration</td><td>Own infra only</td><td>Attached mode (PRs to user repo)</td><td><span class="badge green">Better</span></td></tr>
+<tr><td>File outputs</td><td>Deployed code + reports</td><td>.pptx, .xlsx, .pdf, .docx</td><td><span class="badge green">Better</span></td></tr>
+</tbody></table>
+
+<!-- GARRY TAN -->
+<h2 id="garry">Garry Tan Plan-Exit-Review</h2>
+<p>Full review applied and rendered as a separate mockup tab. Key outcomes integrated into this spec:</p>
+<div class="card">
+  <div class="card-title">Adopted Recommendations</div>
+  <div class="card-desc">
+    <strong>#1A:</strong> Drop BullMQ Day 1 — use Agent SDK built-in orchestration<br>
+    <strong>#2A:</strong> Start with 1 MCP (supabase-mcp), inline everything else<br>
+    <strong>#3A:</strong> Static HTML + R2 for landing pages, not shared runtime<br>
+    <strong>#4A:</strong> RLS + project_id scoping in supabase-mcp<br>
+    <strong>#5A:</strong> BaseAgent factory to prevent DRY violations<br>
+    <strong>#6A:</strong> Zod schema validation for reasoning synopses<br>
+    <strong>#7A:</strong> Centralized retry wrapper with user-visible errors<br>
+    <strong>#8A:</strong> Golden test fixtures for agent prompt eval<br>
+    <strong>#9A:</strong> Streaming progress for packet generation<br>
+    <strong>#10A:</strong> Scan result caching (24h per domain)
+  </div>
+</div>
+
+<!-- CODEX -->
+<h2 id="codex">Codex 5.3 Integration (Phase 3)</h2>
+<p>Once a project reaches Phase 3 "Go Live" and has a repo, Codex 5.3 handles actual product development. Not built until users reach Phase 3.</p>
+<div class="diagram">
+<span class="g">Flow: Engineering Agent → codex-mcp → Codex 5.3 API</span>
+
+Engineering Agent receives task: "Add waitlist form to landing page"
+  │
+  ├─ 1. Repo Analyst runs <span class="y">plan-exit-review</span>
+  │    └─ Scope challenge: what already exists?
+  │    └─ Minimum change identified
+  │
+  ├─ 2. codex-mcp.create_task(repo, prompt, branch)
+  │    └─ Codex clones repo in sandbox
+  │    └─ Plans changes (visible in reasoning)
+  │    └─ Writes code + tests
+  │    └─ Opens PR
+  │
+  ├─ 3. code-review plugin reviews PR
+  │    └─ 4 parallel agents, confidence threshold 80
+  │    └─ Flags: security, performance, DRY
+  │
+  ├─ 4. Human approves in Greenlight Inbox
+  │    └─ Sees: diff, review scores, reasoning synopsis
+  │    └─ Options: Approve Merge / Request Changes / Reject
+  │
+  └─ 5. Merge + Deploy (with approval)
+       └─ Branch → main (only path to main)
+       └─ Deploy to staging → verify → prod
+</div>
+
+<!-- SCREENS -->
+<h2 id="screens">Application Screens</h2>
+<p>All mockups rendered as live HTML in browser tabs:</p>
+
+<div class="screen-link">
+  <div><span class="badge green">1</span> <strong>Landing Page</strong> — hero, phases, agents, tools, CTA</div>
+  <div class="arrow">→ Tab 509130291</div>
+</div>
+<div class="screen-link">
+  <div><span class="badge blue">2</span> <strong>Greenlight Inbox</strong> — risk-scored approval queue</div>
+  <div class="arrow">→ Tab 509130289</div>
+</div>
+<div class="screen-link">
+  <div><span class="badge yellow">3</span> <strong>Phase 0 Packet Viewer</strong> — meeting-style one-pager</div>
+  <div class="arrow">→ Tab 509130290</div>
+</div>
+<div class="screen-link">
+  <div><span class="badge cyan">4</span> <strong>Onboarding Wizard</strong> — state machine + all screens + edge cases</div>
+  <div class="arrow">→ Tab 509130330</div>
+</div>
+<div class="screen-link">
+  <div><span class="badge purple">5</span> <strong>Plan Review (Garry Tan)</strong> — full plan-exit-review applied</div>
+  <div class="arrow">→ Tab 509130331</div>
+</div>
+<div class="screen-link" style="opacity:0.5">
+  <div><span class="badge yellow">6</span> <strong>Studio Board</strong> — portfolio view (planned)</div>
+  <div class="arrow" style="color:#475569">Planned</div>
+</div>
+<div class="screen-link" style="opacity:0.5">
+  <div><span class="badge yellow">7</span> <strong>Tasks &amp; Logs</strong> — agent activity log (planned)</div>
+  <div class="arrow" style="color:#475569">Planned</div>
+</div>
+
+<div style="text-align:center;padding:32px 0;color:#475569;font-size:12px;border-top:1px solid #1E293B;margin-top:32px">
+  Greenlight Studio — Spec v2.3 · Feb 2026<br>
+  Polsia practices integrated · Garry Tan review applied · MVG scoped
+</div>
+</div>
+</body></html>
