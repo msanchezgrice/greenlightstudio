@@ -41,7 +41,14 @@ function resolveClaudeCodeExecutablePath() {
     return cachedClaudeCodeExecutablePath;
   }
 
-  const candidatePaths: string[] = [path.join(process.cwd(), "node_modules/@anthropic-ai/claude-agent-sdk/cli.js")];
+  const lambdaTaskRoot = process.env.LAMBDA_TASK_ROOT?.trim();
+  const candidatePaths = [
+    path.join(process.cwd(), "node_modules/@anthropic-ai/claude-agent-sdk/cli.js"),
+    path.join(process.cwd(), ".next/server/node_modules/@anthropic-ai/claude-agent-sdk/cli.js"),
+    path.join(process.cwd(), ".vercel/output/functions", "api", "projects", "[projectId]", "launch.func", "node_modules/@anthropic-ai/claude-agent-sdk/cli.js"),
+    lambdaTaskRoot ? path.join(lambdaTaskRoot, "node_modules/@anthropic-ai/claude-agent-sdk/cli.js") : null,
+    "/var/task/node_modules/@anthropic-ai/claude-agent-sdk/cli.js",
+  ].filter((value): value is string => Boolean(value));
 
   const resolved = candidatePaths.find((candidate) => existsSync(candidate));
   if (!resolved) {

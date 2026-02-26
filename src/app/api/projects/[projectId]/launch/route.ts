@@ -6,6 +6,9 @@ import { onboardingSchema } from "@/types/domain";
 import { save_packet, log_task } from "@/lib/supabase-mcp";
 import { withRetry } from "@/lib/retry";
 
+export const runtime = "nodejs";
+export const maxDuration = 300;
+
 async function runPhase0(projectId: string, userId: string) {
   const db = createServiceSupabase();
 

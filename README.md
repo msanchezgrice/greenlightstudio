@@ -1,17 +1,38 @@
 # Greenlight Studio
 
-Production Next.js implementation of the Greenlight Studio MVG from `spec-v2.3.html`.
+Production Next.js implementation of Greenlight Studio from `spec-v2.3.html` and the attached mockups.
 
 ## What is implemented
 
 - Clerk-authenticated multi-tenant app
-- Supabase-backed projects, phase packets, approvals, tasks, scan cache
+- Supabase-backed projects, phase packets, approvals, tasks, scan cache, assets, deployments, execution logs, email jobs
 - Onboarding wizard: `S0 Import -> S1 Discover -> S1.5 Results/Error -> S2 Clarify -> S3 Confirm -> Launch`
 - Inline scanner helper (no scanner MCP)
-- Phase 0 packet generation using Anthropic Agent SDK (Research + CEO synthesis)
-- Approval inbox with optimistic locking (`version`)
-- Packet viewer with structured sections
-- Night Shift API run route + Vercel cron wiring
+- Phase packet generation with Anthropic Agent SDK
+  - Phase 0: research + CEO packet
+  - Phase 1: validate packet
+  - Phase 2: distribute packet
+  - Phase 3: go-live packet
+- Approval inbox with optimistic locking (`version`) and executable action approvals
+- Full studio views
+  - Board
+  - Projects list/detail
+  - Phase dashboard (`/projects/[id]/phases`)
+  - Phase workspaces (`/projects/[id]/phases/[0-3]`)
+  - Phase 0 packet viewer
+  - Tasks/logs
+  - Settings
+- Execution pipeline for approved actions
+  - Shared-runtime landing deploy
+  - Email queue/send via Resend
+  - Meta campaign create (paused)
+  - GitHub repository dispatch
+  - Vercel deploy hook trigger
+- Night Shift route with:
+  - due email processing
+  - packet-driven nightly action extraction
+  - automatic execution-approval queueing
+  - while-you-were-away task summaries
 
 ## Local development
 
@@ -46,6 +67,31 @@ npm run test:e2e
   ```bash
   supabase db push
   ```
+
+## Environment variables
+
+Required:
+
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
+- `CLERK_SECRET_KEY`
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `ANTHROPIC_API_KEY`
+
+Required for protected Night Shift:
+
+- `NIGHT_SHIFT_SECRET`
+- `CRON_SECRET`
+
+Optional execution integrations:
+
+- `VERCEL_DEPLOY_HOOK_URL`
+- `RESEND_API_KEY`
+- `RESEND_FROM_EMAIL`
+- `META_ACCESS_TOKEN`
+- `META_AD_ACCOUNT_ID`
+- `GITHUB_TOKEN`
 
 ## Deployment
 

@@ -63,6 +63,26 @@ export default async function SettingsPage() {
       configured: Boolean(process.env.CRON_SECRET),
       detail: "Vercel cron authorization",
     },
+    {
+      name: "Vercel Deploy Hook",
+      configured: Boolean(process.env.VERCEL_DEPLOY_HOOK_URL),
+      detail: "Shared-runtime + Phase 3 deploy trigger",
+    },
+    {
+      name: "Resend",
+      configured: Boolean(process.env.RESEND_API_KEY && process.env.RESEND_FROM_EMAIL),
+      detail: "Email sends for Phase 1/2 actions",
+    },
+    {
+      name: "Meta Ads",
+      configured: Boolean(process.env.META_ACCESS_TOKEN && process.env.META_AD_ACCOUNT_ID),
+      detail: "Phase 2 paid campaign provisioning",
+    },
+    {
+      name: "GitHub Dispatch",
+      configured: Boolean(process.env.GITHUB_TOKEN),
+      detail: "Phase 3 repository workflow trigger",
+    },
   ];
 
   return (

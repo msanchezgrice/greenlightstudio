@@ -2,6 +2,7 @@ import { createServiceSupabase } from "@/lib/supabase";
 import { log_task, save_packet } from "@/lib/supabase-mcp";
 import { withRetry } from "@/lib/retry";
 import { generatePhase1Packet, generatePhase2Packet, generatePhase3Packet } from "@/lib/agent";
+import type { Phase1Packet, Phase2Packet, Phase3Packet } from "@/types/phase-packets";
 
 type ProjectRow = {
   id: string;
@@ -29,6 +30,14 @@ type PhasePlan = {
     title: string;
     action_type: string;
   };
+};
+
+type ExecutionApproval = {
+  action_type: string;
+  title: string;
+  description: string;
+  risk: "high" | "medium" | "low";
+  payload: Record<string, unknown>;
 };
 
 function buildPhasePlan(project: ProjectRow, phase: 1 | 2 | 3): PhasePlan {
@@ -152,6 +161,84 @@ async function generatePacketForPhase(project: ProjectRow, phase: 1 | 2 | 3) {
   return generatePhase3Packet(input);
 }
 
+function buildExecutionApprovals(
+  project: ProjectRow,
+  phase: 1 | 2 | 3,
+  packet: Phase1Packet | Phase2Packet | Phase3Packet,
+): ExecutionApproval[] {
+  const permissions = project.permissions ?? {};
+  const approvals: ExecutionApproval[] = [];
+
+  if (phase === 1) {
+    const phase1 = packet as Phase1Packet;
+    approvals.push({
+      action_type: "deploy_landing_page",
+      title: "Deploy Shared Runtime Landing Page",
+      description: "Deploy the approved Phase 1 landing page to the shared runtime.",
+      risk: "medium",
+      payload: { phase_packet: phase1, runtime_mode: project.runtime_mode },
+    });
+
+    if (permissions.email_send) {
+      approvals.push({
+        action_type: "send_welcome_email_sequence",
+        title: "Send Welcome Email Sequence",
+        description: "Queue and send the approved welcome sequence to the project owner contact.",
+        risk: "low",
+        payload: { phase_packet: phase1 },
+      });
+    }
+  }
+
+  if (phase === 2) {
+    const phase2 = packet as Phase2Packet;
+    if (permissions.ads_enabled && Number(permissions.ads_budget_cap ?? 0) > 0) {
+      approvals.push({
+        action_type: "activate_meta_ads_campaign",
+        title: "Activate Meta Ads Campaign",
+        description: `Create a paused Meta campaign with daily cap $${phase2.paid_acquisition.budget_cap_per_day}.`,
+        risk: "high",
+        payload: { phase_packet: phase2 },
+      });
+    }
+
+    if (permissions.email_send) {
+      approvals.push({
+        action_type: "send_phase2_lifecycle_email",
+        title: "Send Phase 2 Lifecycle Email",
+        description: "Send lifecycle activation update from approved Phase 2 strategy.",
+        risk: "low",
+        payload: { phase_packet: phase2 },
+      });
+    }
+  }
+
+  if (phase === 3) {
+    const phase3 = packet as Phase3Packet;
+    if (project.repo_url && permissions.repo_write) {
+      approvals.push({
+        action_type: "trigger_phase3_repo_workflow",
+        title: "Trigger Phase 3 Repo Workflow",
+        description: "Fire repository_dispatch event for Phase 3 implementation workflow.",
+        risk: "high",
+        payload: { phase_packet: phase3 },
+      });
+    }
+
+    if (permissions.deploy) {
+      approvals.push({
+        action_type: "trigger_phase3_deploy",
+        title: "Trigger Phase 3 Deploy",
+        description: "Trigger production deploy hook for approved Phase 3 rollout.",
+        risk: "high",
+        payload: { phase_packet: phase3 },
+      });
+    }
+  }
+
+  return approvals;
+}
+
 export async function enqueueNextPhaseArtifacts(projectId: string, phase: number) {
   if (phase < 1 || phase > 3) return;
   const db = createServiceSupabase();
@@ -229,4 +316,38 @@ export async function enqueueNextPhaseArtifacts(projectId: string, phase: number
   );
 
   if (insertApprovalError) throw new Error(insertApprovalError.message);
+
+  const executionApprovals = buildExecutionApprovals(project as ProjectRow, plan.phase, packet);
+  for (const action of executionApprovals) {
+    const { data: existingActionApproval, error: existingActionError } = await withRetry(() =>
+      db
+        .from("approval_queue")
+        .select("id")
+        .eq("project_id", projectId)
+        .eq("phase", plan.phase)
+        .eq("action_type", action.action_type)
+        .eq("status", "pending")
+        .maybeSingle(),
+    );
+    if (existingActionError) throw new Error(existingActionError.message);
+    if (existingActionApproval) continue;
+
+    const { error: insertActionError } = await withRetry(() =>
+      db.from("approval_queue").insert({
+        project_id: projectId,
+        packet_id: packetId,
+        phase: plan.phase,
+        type: "execution",
+        title: action.title,
+        description: action.description,
+        risk: action.risk,
+        risk_level: action.risk,
+        action_type: action.action_type,
+        agent_source: "ceo_agent",
+        payload: action.payload,
+        status: "pending",
+      }),
+    );
+    if (insertActionError) throw new Error(insertActionError.message);
+  }
 }

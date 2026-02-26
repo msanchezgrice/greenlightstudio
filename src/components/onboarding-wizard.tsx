@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SignInButton, useAuth } from "@clerk/nextjs";
 import { onboardingSchema, scanResultSchema, type ScanResult } from "@/types/domain";
+import { createBrowserSupabase } from "@/lib/supabase-browser";
 
 type Step = "import" | "discover" | "results" | "error" | "clarify" | "confirm" | "launched";
 
@@ -96,6 +97,7 @@ export function OnboardingWizard() {
     Array<{ agent: string; description: string; status: string; detail: string | null; created_at: string }>
   >([]);
   const [form, setForm] = useState(defaultForm);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
 
   useEffect(() => {
     try {
@@ -255,6 +257,7 @@ export function OnboardingWizard() {
   function handleFileSelection(list: FileList | null) {
     const files = Array.from(list ?? []);
     if (!files.length) {
+      setSelectedFiles([]);
       setForm((prev) => ({ ...prev, uploaded_files: [] }));
       return;
     }
@@ -285,7 +288,55 @@ export function OnboardingWizard() {
     }));
 
     setError(null);
+    setSelectedFiles(files);
     setForm((prev) => ({ ...prev, uploaded_files: uploaded }));
+  }
+
+  async function uploadSelectedFiles(projectIdValue: string) {
+    if (!selectedFiles.length) return;
+
+    const supabase = createBrowserSupabase();
+    for (const file of selectedFiles) {
+      const urlRes = await fetch(`/api/projects/${projectIdValue}/assets/upload-url`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: file.name,
+          size: file.size,
+          type: file.type || "application/octet-stream",
+          last_modified: file.lastModified,
+        }),
+      });
+      const urlJson = await parseResponseJson(urlRes);
+      if (!urlRes.ok || !urlJson) {
+        const message = typeof urlJson?.error === "string" ? urlJson.error : `Upload URL failed (HTTP ${urlRes.status})`;
+        throw new Error(message);
+      }
+
+      const bucket = typeof urlJson.bucket === "string" ? urlJson.bucket : "project-assets";
+      const path = typeof urlJson.path === "string" ? urlJson.path : null;
+      const token = typeof urlJson.token === "string" ? urlJson.token : null;
+      const assetId = typeof urlJson.assetId === "string" ? urlJson.assetId : null;
+      if (!path || !token || !assetId) {
+        throw new Error("Upload URL response is missing required fields.");
+      }
+
+      const uploadResult = await supabase.storage.from(bucket).uploadToSignedUrl(path, token, file);
+      if (uploadResult.error) {
+        throw new Error(`File upload failed (${file.name}): ${uploadResult.error.message}`);
+      }
+
+      const completeRes = await fetch(`/api/projects/${projectIdValue}/assets/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assetId }),
+      });
+      const completeJson = await parseResponseJson(completeRes);
+      if (!completeRes.ok) {
+        const message = typeof completeJson?.error === "string" ? completeJson.error : `Upload completion failed (HTTP ${completeRes.status})`;
+        throw new Error(message);
+      }
+    }
   }
 
   async function runScan() {
@@ -395,10 +446,22 @@ export function OnboardingWizard() {
     try {
       const id = projectId ?? (await createProject());
       setProjectId(id);
+
+      if (form.uploaded_files.length > 0 && selectedFiles.length === 0 && !projectId) {
+        throw new Error("Please reselect files before launch. Browser security clears file handles after refresh.");
+      }
+      if (selectedFiles.length > 0) {
+        await uploadSelectedFiles(id);
+      }
+
       const launchStartedAt = Date.now();
-      const launchTimeoutMs = 120_000;
+      const launchTimeoutMs = 300_000;
       const launchController = new AbortController();
-      const launchTimeout = window.setTimeout(() => launchController.abort(), launchTimeoutMs);
+      let abortReason: "timeout" | "failed" | "completed" | null = null;
+      const launchTimeout = window.setTimeout(() => {
+        abortReason = "timeout";
+        launchController.abort();
+      }, launchTimeoutMs);
 
       const pollProgress = async () => {
         const progressRes = await fetch(`/api/projects/${id}/progress`, { cache: "no-store" });
@@ -431,6 +494,7 @@ export function OnboardingWizard() {
         })
         .catch((err: unknown) => {
           if (err instanceof Error && err.name === "AbortError") {
+            if (abortReason === "completed" || abortReason === "failed") return;
             launchError = new Error("Launch is taking too long. Please refresh to check latest status.");
             return;
           }
@@ -446,8 +510,15 @@ export function OnboardingWizard() {
         const tasks = await pollProgress();
         const recentTasks = tasks.filter((task) => Date.parse(task.created_at) >= launchStartedAt - 5_000);
         const failedTask = recentTasks.find((task) => task.status === "failed");
+        const completedTask = recentTasks.find((task) => task.description === "phase0_complete" && task.status === "completed");
+        if (completedTask) {
+          abortReason = "completed";
+          launchController.abort();
+          break;
+        }
         if (failedTask) {
           launchError = new Error(failedTask.detail ?? `${failedTask.description} failed`);
+          abortReason = "failed";
           launchController.abort();
           break;
         }
@@ -462,6 +533,7 @@ export function OnboardingWizard() {
       } catch {
         // Ignore storage errors.
       }
+      setSelectedFiles([]);
       setStep("launched");
       setTimeout(() => {
         window.location.href = `/projects/${id}/packet`;
@@ -564,6 +636,9 @@ export function OnboardingWizard() {
             </button>
           </div>
           <p className="field-note">Scanning checks your domain and repo in read-only mode. No changes are made.</p>
+          {form.uploaded_files.length > 0 && selectedFiles.length === 0 && (
+            <p className="field-note">If you refreshed the page, reselect files so they can be uploaded securely at launch.</p>
+          )}
         </section>
       )}
 

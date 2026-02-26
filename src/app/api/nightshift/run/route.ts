@@ -2,7 +2,96 @@ import { NextResponse } from "next/server";
 import { createServiceSupabase } from "@/lib/supabase";
 import { log_task } from "@/lib/supabase-mcp";
 import { withRetry } from "@/lib/retry";
-import { requireEnv } from "@/lib/env";
+import { processDueEmailJobs } from "@/lib/action-execution";
+import { parsePhasePacket } from "@/types/phase-packets";
+import { deriveNightShiftActions } from "@/lib/nightshift";
+
+export const runtime = "nodejs";
+export const maxDuration = 300;
+
+type ProjectRow = {
+  id: string;
+  name: string;
+  phase: number;
+  repo_url: string | null;
+  runtime_mode: "shared" | "attached";
+  permissions: {
+    repo_write?: boolean;
+    deploy?: boolean;
+    ads_enabled?: boolean;
+    ads_budget_cap?: number;
+    email_send?: boolean;
+  } | null;
+};
+
+type PacketRow = {
+  id: string;
+  phase: number;
+  packet: unknown;
+};
+
+async function hasExistingExecutionApproval(input: {
+  projectId: string;
+  phase: number;
+  actionType: string;
+}) {
+  const db = createServiceSupabase();
+  const { data, error } = await withRetry(() =>
+    db
+      .from("approval_queue")
+      .select("id")
+      .eq("project_id", input.projectId)
+      .eq("phase", input.phase)
+      .eq("action_type", input.actionType)
+      .in("status", ["pending", "approved"])
+      .limit(1)
+      .maybeSingle(),
+  );
+  if (error) throw new Error(error.message);
+  return Boolean(data);
+}
+
+async function queueExecutionApproval(input: {
+  projectId: string;
+  phase: number;
+  packetId: string;
+  actionType: string;
+  title: string;
+  description: string;
+  risk: "high" | "medium" | "low";
+  payload: Record<string, unknown>;
+}) {
+  if (
+    await hasExistingExecutionApproval({
+      projectId: input.projectId,
+      phase: input.phase,
+      actionType: input.actionType,
+    })
+  ) {
+    return false;
+  }
+
+  const db = createServiceSupabase();
+  const { error } = await withRetry(() =>
+    db.from("approval_queue").insert({
+      project_id: input.projectId,
+      packet_id: input.packetId,
+      phase: input.phase,
+      type: "execution",
+      title: input.title,
+      description: input.description,
+      risk: input.risk,
+      risk_level: input.risk,
+      action_type: input.actionType,
+      agent_source: "night_shift",
+      payload: input.payload,
+      status: "pending",
+    }),
+  );
+
+  if (error) throw new Error(error.message);
+  return true;
+}
 
 export async function POST(req: Request) {
   const cronSecret = process.env.CRON_SECRET;
@@ -17,10 +106,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  let emailJobSummary: { queued: number; sent: number; failed: number } | null = null;
+  let emailJobError: string | null = null;
+
   try {
-    requireEnv("ANTHROPIC_API_KEY");
-  } catch {
-    return NextResponse.json({ error: "Anthropic key missing" }, { status: 500 });
+    emailJobSummary = await processDueEmailJobs(100);
+  } catch (error) {
+    emailJobError = error instanceof Error ? error.message : "Failed processing email jobs";
   }
 
   const db = createServiceSupabase();
@@ -28,7 +120,7 @@ export async function POST(req: Request) {
   const { data: projects, error: projectsError } = await withRetry(() =>
     db
       .from("projects")
-      .select("id,name,night_shift")
+      .select("id,name,phase,repo_url,runtime_mode,permissions,night_shift")
       .eq("night_shift", true)
       .order("updated_at", { ascending: true })
       .limit(50),
@@ -42,6 +134,7 @@ export async function POST(req: Request) {
 
   for (const project of projects ?? []) {
     const projectId = project.id as string;
+    const projectRow = project as ProjectRow;
 
     try {
       await withRetry(() => log_task(projectId, "night_shift", "nightshift_health_check", "running", "Health check started"));
@@ -77,6 +170,77 @@ export async function POST(req: Request) {
         continue;
       }
 
+      const { data: packetRow, error: packetError } = await withRetry(() =>
+        db
+          .from("phase_packets")
+          .select("id,phase,packet")
+          .eq("project_id", projectId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      );
+
+      if (packetError) {
+        throw new Error(packetError.message);
+      }
+      if (!packetRow) {
+        await withRetry(() => log_task(projectId, "night_shift", "nightshift_skipped", "completed", "Skipped: no packet found"));
+        results.push({
+          project_id: projectId,
+          status: "skipped",
+          detail: "No packet available",
+        });
+        continue;
+      }
+
+      const packetPhase = Number((packetRow as PacketRow).phase);
+      const parsedPacket = parsePhasePacket(packetPhase, (packetRow as PacketRow).packet);
+      const actions = deriveNightShiftActions({
+        phase: packetPhase,
+        packet: parsedPacket,
+        repoUrl: projectRow.repo_url,
+        runtimeMode: projectRow.runtime_mode,
+        permissions: projectRow.permissions ?? {},
+      });
+
+      let queuedApprovals = 0;
+      let completedActions = 0;
+
+      for (let index = 0; index < actions.length; index += 1) {
+        const action = actions[index];
+        const description = `nightshift_phase${packetPhase}_action_${index + 1}`;
+        await withRetry(() => log_task(projectId, "night_shift", description, "running", action.description));
+
+        if (action.approval) {
+          const queued = await queueExecutionApproval({
+            projectId,
+            phase: packetPhase,
+            packetId: (packetRow as PacketRow).id,
+            actionType: action.approval.action_type,
+            title: action.approval.title,
+            description: action.description,
+            risk: action.approval.risk,
+            payload: {
+              source: "night_shift",
+              phase_packet: parsedPacket,
+              generated_from: action.description,
+            },
+          });
+          if (queued) queuedApprovals += 1;
+        }
+
+        await withRetry(() =>
+          log_task(
+            projectId,
+            "night_shift",
+            description,
+            "completed",
+            action.approval ? `${action.description} (approval queued)` : action.description,
+          ),
+        );
+        completedActions += 1;
+      }
+
       const { data: recentTasks, error: recentError } = await withRetry(() =>
         db
           .from("tasks")
@@ -99,7 +263,7 @@ export async function POST(req: Request) {
           "night_shift",
           "nightshift_summary",
           "completed",
-          `While You Were Away: ${completedCount} completed, ${failedCount} failed tasks in recent window`,
+          `While You Were Away: ${completedCount} completed, ${failedCount} failed, ${completedActions} night actions, ${queuedApprovals} approvals queued`,
         ),
       );
 
@@ -127,7 +291,7 @@ export async function POST(req: Request) {
       results.push({
         project_id: projectId,
         status: "completed",
-        detail: `Summary generated (completed=${completedCount}, failed=${failedCount})`,
+        detail: `Summary generated (completed=${completedCount}, failed=${failedCount}, actions=${completedActions}, approvals=${queuedApprovals})`,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Night Shift error";
@@ -136,5 +300,11 @@ export async function POST(req: Request) {
     }
   }
 
-  return NextResponse.json({ ran_at: new Date().toISOString(), project_count: projects?.length ?? 0, results });
+  return NextResponse.json({
+    ran_at: new Date().toISOString(),
+    project_count: projects?.length ?? 0,
+    email_jobs: emailJobSummary,
+    email_jobs_error: emailJobError,
+    results,
+  });
 }
