@@ -479,14 +479,43 @@ Rules:
   return runJsonQuery(prompt, researchSchema);
 }
 
-export async function generatePhase0Packet(input: OnboardingInput, revisionGuidance?: string | null): Promise<Packet> {
+function researchFromPriorPacket(packet: Packet): z.infer<typeof researchSchema> {
+  return {
+    competitors: packet.competitor_analysis.map((competitor) => ({
+      name: competitor.name,
+      positioning: competitor.positioning,
+      gap: competitor.gap,
+      pricing: competitor.pricing,
+    })),
+    market_sizing: {
+      tam: packet.market_sizing.tam,
+      sam: packet.market_sizing.sam,
+      som: packet.market_sizing.som,
+    },
+    notes: [
+      `Prior packet recommendation: ${packet.recommendation}`,
+      `Prior packet confidence: ${packet.reasoning_synopsis.confidence}/100`,
+      ...packet.reasoning_synopsis.rationale.slice(0, 3),
+    ],
+  };
+}
+
+export async function generatePhase0Packet(
+  input: OnboardingInput,
+  revisionGuidance?: string | null,
+  priorPacket?: Packet | null,
+): Promise<Packet> {
   const trimmedGuidance = revisionGuidance?.trim() || "";
   let research: z.infer<typeof researchSchema>;
-  try {
-    research = await runResearchAgent(input, trimmedGuidance);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown research failure";
-    throw new Error(`phase0_research_query: ${message}`);
+  if (trimmedGuidance && priorPacket) {
+    research = researchFromPriorPacket(priorPacket);
+  } else {
+    try {
+      research = await runResearchAgent(input, trimmedGuidance);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown research failure";
+      throw new Error(`phase0_research_query: ${message}`);
+    }
   }
   const guidanceBlock = trimmedGuidance
     ? `\nRevision guidance from user:\n${trimmedGuidance}\nYou MUST incorporate this guidance when shaping recommendation and next_actions.`

@@ -1,6 +1,6 @@
 import { createServiceSupabase } from "@/lib/supabase";
 import { generatePhase0Packet } from "@/lib/agent";
-import { onboardingSchema } from "@/types/domain";
+import { onboardingSchema, packetSchema, type Packet } from "@/types/domain";
 import { save_packet, log_task } from "@/lib/supabase-mcp";
 import { withRetry } from "@/lib/retry";
 
@@ -45,6 +45,7 @@ export async function runPhase0({ projectId, userId, revisionGuidance, forceNewA
   let synthesisRunning = false;
   const trimmedGuidance = revisionGuidance?.trim() || null;
   const shouldForceNewApproval = Boolean(forceNewApproval);
+  let priorPacket: Packet | null = null;
 
   try {
     if (trimmedGuidance) {
@@ -69,12 +70,31 @@ export async function runPhase0({ projectId, userId, revisionGuidance, forceNewA
     }
 
     const input = onboardingSchema.parse(project);
+
+    if (trimmedGuidance) {
+      const { data: priorPacketRow, error: priorPacketError } = await withRetry(() =>
+        db
+          .from("phase_packets")
+          .select("packet")
+          .eq("project_id", projectId)
+          .eq("phase", 0)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      );
+      if (priorPacketError) {
+        throw new Error(priorPacketError.message);
+      }
+      const parsedPriorPacket = packetSchema.safeParse(priorPacketRow?.packet ?? null);
+      priorPacket = parsedPriorPacket.success ? parsedPriorPacket.data : null;
+    }
+
     await logPhaseTask(projectId, "ceo_agent", "phase0_init", "completed", "Project input validated");
     initRunning = false;
 
     await logPhaseTask(projectId, "research_agent", "phase0_research", "running", "Researching competitors and market");
     researchRunning = true;
-    const packet = await generatePhase0Packet(input, trimmedGuidance);
+    const packet = await generatePhase0Packet(input, trimmedGuidance, priorPacket);
     const confidence = packet.reasoning_synopsis.confidence;
     await logPhaseTask(projectId, "research_agent", "phase0_research", "completed", `Research complete (${confidence}/100 confidence)`);
     researchRunning = false;
