@@ -4,6 +4,7 @@ import { createServiceSupabase } from "@/lib/supabase";
 import { packetSchema } from "@/types/domain";
 import { PacketActions } from "@/components/packet-actions";
 import { PacketDecisionBar } from "@/components/packet-decision-bar";
+import { ProjectChatPane } from "@/components/project-chat-pane";
 
 type LaunchTask = {
   description: string;
@@ -325,6 +326,8 @@ export default async function PacketPage({ params }: { params: Promise<{ project
             <div className="syn-item"><div className="syn-label">Evidence</div><div className="syn-value">{packet.reasoning_synopsis.evidence.map((entry) => `${entry.claim} (${entry.source})`).join("; ")}</div></div>
           </div>
         </section>
+
+        <ProjectChatPane projectId={projectId} title="CEO Chat Pane" />
       </main>
 
       <PacketDecisionBar

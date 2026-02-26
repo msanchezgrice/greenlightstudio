@@ -26,6 +26,7 @@ type LaunchTask = {
 type StoredWizardState = {
   step?: Step;
   projectId?: string | null;
+  projectIds?: string[];
   cacheHit?: boolean | null;
   form?: Partial<typeof defaultForm>;
 };
@@ -196,6 +197,7 @@ export function OnboardingWizard() {
   const [step, setStep] = useState<Step>("import");
   const [busy, setBusy] = useState(false);
   const [projectId, setProjectId] = useState<string | null>(null);
+  const [projectIds, setProjectIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [cacheHit, setCacheHit] = useState<boolean | null>(null);
   const [launchProgress, setLaunchProgress] = useState<LaunchTask[]>([]);
@@ -210,6 +212,7 @@ export function OnboardingWizard() {
         removeStorage(wizardSessionStorageKey, window.sessionStorage);
         setStep("import");
         setProjectId(null);
+        setProjectIds([]);
         setCacheHit(null);
         setLaunchProgress([]);
         setSelectedFiles([]);
@@ -258,6 +261,10 @@ export function OnboardingWizard() {
         setProjectId(stored.projectId ?? null);
       }
 
+      if (Array.isArray(stored.projectIds)) {
+        setProjectIds(stored.projectIds.filter((entry): entry is string => typeof entry === "string"));
+      }
+
       if (typeof stored.cacheHit === "boolean" || stored.cacheHit === null) {
         setCacheHit(stored.cacheHit ?? null);
       }
@@ -274,6 +281,7 @@ export function OnboardingWizard() {
     const payload = {
       step,
       projectId,
+      projectIds,
       cacheHit,
       form,
     };
@@ -281,7 +289,7 @@ export function OnboardingWizard() {
     const serialized = JSON.stringify(payload);
     writeStorage(wizardStorageKey, window.localStorage, serialized);
     writeStorage(wizardSessionStorageKey, window.sessionStorage, serialized);
-  }, [step, projectId, cacheHit, form]);
+  }, [step, projectId, projectIds, cacheHit, form]);
 
   const parsedDomains = useMemo(() => parseDomains(form.domain), [form.domain]);
   const primaryDomain = parsedDomains[0] ?? "";
@@ -299,13 +307,23 @@ export function OnboardingWizard() {
         : scan?.dns === "parked"
           ? `${domainDisplay} (PARKED)`
           : domainDisplay || "Not scanned";
+    const ideaText = form.idea_description.trim();
+    const repoDisplay = repo?.repo ?? (normalizeRepo(form.repo_url) || "None");
+    const projectSeed = ideaText
+      ? ideaText
+      : primaryDomain
+        ? `Seeded from domain ${primaryDomain}.`
+        : repoDisplay !== "None"
+          ? `Seeded from repository ${repoDisplay}.`
+          : "No seed provided.";
     return {
       tech,
       competitors,
       domainStatus,
-      repoDisplay: repo?.repo ?? (normalizeRepo(form.repo_url) || "None"),
+      repoDisplay,
+      projectSeed,
     };
-  }, [additionalDomains.length, form.repo_url, form.scan_results, primaryDomain]);
+  }, [additionalDomains.length, form.idea_description, form.repo_url, form.scan_results, primaryDomain]);
 
   function ensureDomainRepoShapeIsValid() {
     if (parsedDomains.length > 10) {
@@ -327,9 +345,12 @@ export function OnboardingWizard() {
     return true;
   }
 
-  function ensureIdeaIsValid() {
-    if (form.idea_description.trim().length < 20) {
-      setError("Idea description must be at least 20 characters.");
+  function ensureProjectSeedIsValid() {
+    const hasDomain = parsedDomains.length > 0;
+    const hasRepo = Boolean(form.repo_url.trim());
+    const hasIdea = form.idea_description.trim().length >= 20;
+    if (!hasDomain && !hasRepo && !hasIdea) {
+      setError("Provide at least one domain, repository URL, or an idea description with 20+ characters.");
       return false;
     }
     return true;
@@ -353,7 +374,7 @@ export function OnboardingWizard() {
     if (!ensureDomainRepoShapeIsValid()) {
       return false;
     }
-    if (!ensureIdeaIsValid()) {
+    if (!ensureProjectSeedIsValid()) {
       return false;
     }
     setError(null);
@@ -365,7 +386,7 @@ export function OnboardingWizard() {
       return false;
     }
 
-    if (!ensureIdeaIsValid()) {
+    if (!ensureProjectSeedIsValid()) {
       return false;
     }
 
@@ -536,7 +557,7 @@ export function OnboardingWizard() {
     }
   }
 
-  async function createProject(): Promise<string> {
+  async function createProjects(): Promise<string[]> {
     const payload = onboardingSchema.parse({
       ...form,
       domain: primaryDomain || null,
@@ -560,11 +581,17 @@ export function OnboardingWizard() {
       throw new Error(errorMessage);
     }
 
-    if (!json || typeof json.projectId !== "string") {
+    const returnedProjectIds = Array.isArray(json?.projectIds)
+      ? json.projectIds.filter((entry): entry is string => typeof entry === "string")
+      : [];
+    const fallbackProjectId = typeof json?.projectId === "string" ? [json.projectId] : [];
+    const projectIdsFromApi = returnedProjectIds.length ? returnedProjectIds : fallbackProjectId;
+
+    if (!projectIdsFromApi.length) {
       throw new Error("Project creation returned an invalid response.");
     }
 
-    return json.projectId as string;
+    return projectIdsFromApi;
   }
 
   async function launchProject() {
@@ -579,14 +606,18 @@ export function OnboardingWizard() {
     setLaunchProgress([]);
 
     try {
-      const id = projectId ?? (await createProject());
+      const createdIds = projectId ? (projectIds.length ? projectIds : [projectId]) : await createProjects();
+      const id = createdIds[0];
       setProjectId(id);
+      setProjectIds(createdIds);
 
       if (form.uploaded_files.length > 0 && selectedFiles.length === 0 && !projectId) {
         throw new Error("Please reselect files before launch. Browser security clears file handles after refresh.");
       }
       if (selectedFiles.length > 0) {
-        await uploadSelectedFiles(id);
+        for (const uploadProjectId of createdIds) {
+          await uploadSelectedFiles(uploadProjectId);
+        }
       }
 
       const currentLaunchNonce = ++launchNonce.current;
@@ -725,14 +756,16 @@ export function OnboardingWizard() {
             Drop in a domain, paste a repo URL, or just describe your idea. We will take it from there.
           </p>
 
-          <label className="field-label">Domain Names (optional)</label>
+          <label className="field-label">Domain Names (optional, multiple supported)</label>
           <textarea
             className="mock-textarea"
             placeholder="offlinedad.com, offlinedad.app"
             value={form.domain}
             onChange={(event) => setForm((prev) => ({ ...prev, domain: event.target.value }))}
           />
-          <p className="field-note">Add one or more domains separated by commas or new lines. We scan the first domain as primary.</p>
+          <p className="field-note">
+            Add one or more domains separated by commas or new lines. Launch creates one project per domain.
+          </p>
           {primaryDomain && (
             <p className="field-note">
               Primary domain: {primaryDomain}
@@ -740,7 +773,7 @@ export function OnboardingWizard() {
             </p>
           )}
 
-          <label className="field-label">Describe Your Idea (required)</label>
+          <label className="field-label">Describe Your Idea (optional if domain or repo is provided)</label>
           <textarea
             className="mock-textarea"
             value={form.idea_description}
@@ -1186,7 +1219,7 @@ export function OnboardingWizard() {
 
           <button type="button" className="confirm-row interactive" onClick={() => setStep("import")}>
             <span className="confirm-label">Project Seed</span>
-            <span className="confirm-value">{form.idea_description.slice(0, 55)}{form.idea_description.length > 55 ? "…" : ""}</span>
+            <span className="confirm-value">{summary.projectSeed.slice(0, 75)}{summary.projectSeed.length > 75 ? "…" : ""}</span>
           </button>
           <button type="button" className="confirm-row interactive" onClick={() => setStep("import")}>
             <span className="confirm-label">Domain</span>
@@ -1245,6 +1278,7 @@ export function OnboardingWizard() {
             <div className="next-box-title">What happens next</div>
             <div className="next-box-text">
               Your CEO agent begins Phase 0 immediately: competitor research, market sizing, and packet synthesis.
+              {parsedDomains.length > 1 ? ` We will create ${parsedDomains.length} projects (one per domain).` : ""}
               {form.night_shift ? " Night shift will run automatically tonight." : " Night shift is disabled for now."}
             </div>
           </div>

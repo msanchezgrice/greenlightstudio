@@ -31,6 +31,48 @@ const researchSchema = z.object({
   notes: z.array(z.string()),
 });
 
+const projectChatReplySchema = z.object({
+  reply: z.string().min(1).max(4000),
+});
+
+type ProjectChatMessage = {
+  role: "user" | "assistant" | "system";
+  content: string;
+};
+
+type ProjectChatInput = {
+  project: {
+    id: string;
+    name: string;
+    domain: string | null;
+    phase: number;
+    idea_description: string;
+    repo_url: string | null;
+    runtime_mode: "shared" | "attached";
+    focus_areas: string[];
+  };
+  latestPacket: {
+    phase: number;
+    confidence: number;
+    recommendation: string | null;
+    summary: string | null;
+  } | null;
+  recentTasks: Array<{
+    agent: string;
+    description: string;
+    status: string;
+    detail: string | null;
+    created_at: string;
+  }>;
+  recentApprovals: Array<{
+    title: string;
+    status: string;
+    risk: string;
+    created_at: string;
+  }>;
+  messages: ProjectChatMessage[];
+};
+
 function sdkEnv() {
   const base = { ...process.env, ANTHROPIC_API_KEY: requireEnv("ANTHROPIC_API_KEY") };
   if (!IS_SERVERLESS_RUNTIME) return base;
@@ -428,6 +470,56 @@ Rules:
 - confidence_breakdown values must be 0-100 integers`;
 
   return runJsonQuery(prompt, packetSchema, normalizePhase0PacketCandidate);
+}
+
+function truncateText(value: string, limit = 500) {
+  if (value.length <= limit) return value;
+  return `${value.slice(0, limit)}…`;
+}
+
+export async function generateProjectChatReply(input: ProjectChatInput): Promise<string> {
+  const context = {
+    project: {
+      ...input.project,
+      idea_description: truncateText(input.project.idea_description, 800),
+    },
+    latestPacket: input.latestPacket,
+    recentTasks: input.recentTasks.slice(0, 12).map((task) => ({
+      ...task,
+      detail: task.detail ? truncateText(task.detail, 220) : null,
+    })),
+    recentApprovals: input.recentApprovals.slice(0, 8),
+    messages: input.messages.slice(-12).map((message) => ({
+      role: message.role,
+      content: truncateText(message.content, 1200),
+    })),
+  };
+
+  const prompt = `You are the Greenlight Studio CEO chat assistant.
+
+Return STRICT JSON only:
+{
+  "reply": "string"
+}
+
+User project context:
+${JSON.stringify(context, null, 2)}
+
+Behavior rules:
+- Be specific to this project context, packet state, and recent task statuses.
+- If the user asks for next steps, provide concrete, actionable steps in order.
+- If information is missing, say exactly what is missing and how to get it.
+- Keep tone concise and operational.
+- No markdown code fences.
+- No placeholder text.
+- Reply in <= 180 words unless user explicitly asks for more detail.`;
+
+  const parsed = await runJsonQuery(prompt, projectChatReplySchema);
+  const reply = parsed.reply.trim();
+  if (!reply) {
+    throw new Error("Chat reply was empty");
+  }
+  return reply;
 }
 
 type PhaseGenerationInput = {

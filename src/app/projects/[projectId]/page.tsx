@@ -2,6 +2,7 @@ import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { createServiceSupabase } from "@/lib/supabase";
 import { StudioNav } from "@/components/studio-nav";
+import { ProjectChatPane } from "@/components/project-chat-pane";
 import { getOwnedProjects, getPendingApprovalsByProject } from "@/lib/studio";
 import { withRetry } from "@/lib/retry";
 
@@ -324,6 +325,8 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
             </div>
           )}
         </section>
+
+        <ProjectChatPane projectId={projectId} title="CEO Chat Pane" />
       </main>
     </>
   );

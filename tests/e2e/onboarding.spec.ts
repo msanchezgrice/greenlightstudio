@@ -18,6 +18,21 @@ test("onboarding progresses from import to confirm", async ({ page }) => {
   await expect(page.getByText("Sign in is required before launching this project.")).toBeVisible();
 });
 
+test("onboarding allows domain-only multi-project setup without idea description", async ({ page }) => {
+  await page.goto("/onboarding?new=1");
+
+  await expect(page.getByRole("heading", { name: "What are you building?" })).toBeVisible();
+  await page.getByPlaceholder("offlinedad.com, offlinedad.app").fill("alpha.example.com, beta.example.com");
+
+  await page.getByRole("button", { name: "Skip scan, go to settings →" }).click();
+  await expect(page.getByRole("heading", { name: "How should we operate?" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Review & Launch →" }).click();
+  await expect(page.getByRole("heading", { name: "Ready to launch?" })).toBeVisible();
+  await expect(page.getByText("We will create 2 projects (one per domain).")).toBeVisible();
+  await expect(page.getByText("Sign in is required before launching this project.")).toBeVisible();
+});
+
 test("onboarding new session clears persisted wizard state", async ({ page }) => {
   await page.goto("/onboarding");
 

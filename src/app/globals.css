@@ -2017,6 +2017,85 @@ a {
   background: var(--card2);
 }
 
+.chat-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chat-pane-header h2 {
+  margin: 0;
+}
+
+.chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 220px;
+  max-height: 420px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  padding: 10px;
+}
+
+.chat-message {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 10px;
+  background: var(--card2);
+}
+
+.chat-message.user {
+  border-color: #3b82f655;
+}
+
+.chat-message.assistant {
+  border-color: #22c55e55;
+}
+
+.chat-message.system {
+  border-color: #eab30855;
+}
+
+.chat-message-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 10px;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.chat-message-body {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.chat-input-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-textarea {
+  min-height: 100px;
+  margin-bottom: 0;
+}
+
 .waitlist-form {
   display: flex;
   gap: 8px;

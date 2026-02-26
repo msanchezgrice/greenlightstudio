@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { createServiceSupabase } from "@/lib/supabase";
 import { withRetry } from "@/lib/retry";
 import { StudioNav } from "@/components/studio-nav";
+import { ProjectChatPane } from "@/components/project-chat-pane";
 import { getOwnedProjects, getPendingApprovalsByProject } from "@/lib/studio";
 import { PHASES, phaseStatus, type PhaseId } from "@/lib/phases";
 import { parsePhasePacket, type PhasePacket } from "@/types/phase-packets";
@@ -475,6 +476,8 @@ export default async function ProjectPhaseWorkspacePage({
             </div>
           )}
         </section>
+
+        <ProjectChatPane projectId={projectId} title="CEO Chat Pane" />
 
         <section className="studio-card">
           <h2>Gate History</h2>
