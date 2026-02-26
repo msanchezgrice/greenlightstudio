@@ -3,6 +3,7 @@ import { withRetry } from "@/lib/retry";
 import { log_task } from "@/lib/supabase-mcp";
 import { phase1PacketSchema, phase2PacketSchema, phase3PacketSchema } from "@/types/phase-packets";
 import { createMetaCampaign, sendResendEmail, triggerGitHubRepositoryDispatch, triggerVercelDeployHook } from "@/lib/integrations";
+import { generatePhase1LandingHtml } from "@/lib/agent";
 
 type ApprovalRow = {
   id: string;
@@ -212,7 +213,26 @@ export async function executeApprovedAction(input: {
 
     if (input.approval.action_type === "deploy_landing_page") {
       const phasePacket = phase1PacketSchema.parse(payload.phase_packet ?? payload);
-      const html = renderPhase1LandingHtml(input.project, phasePacket);
+      let html: string;
+      try {
+        html = await generatePhase1LandingHtml({
+          project_name: input.project.name,
+          domain: input.project.domain,
+          idea_description: (payload.idea_description as string) ?? input.project.name,
+          brand_kit: phasePacket.brand_kit,
+          landing_page: phasePacket.landing_page,
+          waitlist_fields: phasePacket.waitlist.form_fields,
+        });
+        await withRetry(() =>
+          log_task(input.project.id, "design_agent", "phase1_design_agent_html", "completed", "Design Agent generated custom landing page"),
+        );
+      } catch (designError) {
+        const detail = designError instanceof Error ? designError.message : "Unknown design agent error";
+        await withRetry(() =>
+          log_task(input.project.id, "design_agent", "phase1_design_agent_fallback", "completed", `Design Agent failed, using template: ${detail.slice(0, 200)}`),
+        );
+        html = renderPhase1LandingHtml(input.project, phasePacket);
+      }
       const deploymentPath = `${input.project.id}/deployments/landing-${Date.now()}.html`;
       const upload = await withRetry(() =>
         db.storage.from("project-assets").upload(deploymentPath, new TextEncoder().encode(html), {
@@ -274,6 +294,24 @@ export async function executeApprovedAction(input: {
       }
 
       await withRetry(() => log_task(input.project.id, "design_agent", "phase1_deploy_live", "completed", liveUrl));
+      await withRetry(() =>
+        db
+          .from("phase_packets")
+          .update({
+            deliverables: [
+              {
+                kind: "landing_html",
+                label: "Landing Page",
+                url: liveUrl,
+                storage_path: deploymentPath,
+                status: "stored",
+                generated_at: new Date().toISOString(),
+              },
+            ],
+          })
+          .eq("project_id", input.project.id)
+          .eq("phase", 1),
+      );
       await createExecution(input.approval, "completed", `Landing deployed: ${liveUrl}`, { live_url: liveUrl });
       return { detail: `Landing deployed: ${liveUrl}` };
     }

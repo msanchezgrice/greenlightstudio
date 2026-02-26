@@ -193,6 +193,52 @@ type QueryProfile = {
   useOutputFormat: boolean;
 };
 
+type AgentProfile = {
+  name: string;
+  tools: string[];
+  allowedTools: string[];
+  maxTurns: number;
+  permissionMode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'dontAsk';
+};
+
+const AGENT_PROFILES: Record<string, AgentProfile> = {
+  ceo: {
+    name: 'ceo_agent',
+    tools: ['WebSearch', 'WebFetch'],
+    allowedTools: ['WebSearch', 'WebFetch'],
+    maxTurns: 12,
+    permissionMode: 'dontAsk',
+  },
+  research: {
+    name: 'research_agent',
+    tools: ['WebSearch', 'WebFetch'],
+    allowedTools: ['WebSearch', 'WebFetch'],
+    maxTurns: 8,
+    permissionMode: 'dontAsk',
+  },
+  design: {
+    name: 'design_agent',
+    tools: ['WebSearch', 'WebFetch'],
+    allowedTools: ['WebSearch', 'WebFetch'],
+    maxTurns: 10,
+    permissionMode: 'dontAsk',
+  },
+  chat: {
+    name: 'ceo_chat',
+    tools: ['WebSearch', 'WebFetch'],
+    allowedTools: ['WebSearch', 'WebFetch'],
+    maxTurns: 6,
+    permissionMode: 'dontAsk',
+  },
+  none: {
+    name: 'default',
+    tools: [],
+    allowedTools: [],
+    maxTurns: 12,
+    permissionMode: 'default',
+  },
+};
+
 type QueryAttemptOptions<T> = {
   repair?: (value: unknown) => unknown;
   schema: z.ZodType<T>;
@@ -250,7 +296,22 @@ function parseSchemaWithRepair<T>(input: unknown, options: QueryAttemptOptions<T
   throw repairedResult.error;
 }
 
-async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptions<T>, profile: QueryProfile) {
+function createToolGuard(profile: AgentProfile) {
+  if (profile.tools.length === 0) return undefined;
+
+  const allowed = new Set(profile.tools);
+  return async (toolName: string, _input: Record<string, unknown>) => {
+    if (allowed.has(toolName)) {
+      return { behavior: 'allow' as const };
+    }
+    return {
+      behavior: 'deny' as const,
+      message: `Tool "${toolName}" is not permitted for ${profile.name}`,
+    };
+  };
+}
+
+async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptions<T>, profile: QueryProfile, agentProfile: AgentProfile = AGENT_PROFILES.none) {
   const executablePath = resolveClaudeCodeExecutablePath();
   const stderrChunks: string[] = [];
   const cwd = IS_SERVERLESS_RUNTIME ? AGENT_RUNTIME_TMP_DIR : process.cwd();
@@ -260,12 +321,15 @@ async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptio
       model: "sonnet",
       env: sdkEnv(),
       pathToClaudeCodeExecutable: executablePath,
-      maxTurns: AGENT_QUERY_MAX_TURNS,
+      maxTurns: agentProfile.maxTurns,
       includePartialMessages: true,
       persistSession: false,
       cwd,
       settingSources: [],
-      tools: [],
+      tools: agentProfile.tools.length > 0 ? agentProfile.tools : [],
+      ...(agentProfile.allowedTools.length > 0 ? { allowedTools: agentProfile.allowedTools } : {}),
+      ...(agentProfile.permissionMode !== 'default' ? { permissionMode: agentProfile.permissionMode } : {}),
+      ...(agentProfile.tools.length > 0 ? { canUseTool: createToolGuard(agentProfile) } : {}),
       stderr: (data) => {
         stderrChunks.push(data);
       },
@@ -385,7 +449,7 @@ async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptio
   return parseFinalText();
 }
 
-async function runJsonQuery<T>(prompt: string, schema: z.ZodType<T>, repair?: (value: unknown) => unknown) {
+async function runJsonQuery<T>(prompt: string, schema: z.ZodType<T>, repair?: (value: unknown) => unknown, agentProfile: AgentProfile = AGENT_PROFILES.none) {
   const profiles: QueryProfile[] = [
     { name: "structured_default", useOutputFormat: true },
     { name: "text_default", useOutputFormat: false },
@@ -394,7 +458,7 @@ async function runJsonQuery<T>(prompt: string, schema: z.ZodType<T>, repair?: (v
   const errors: string[] = [];
   for (const profile of profiles) {
     try {
-      return await executeQueryAttempt(prompt, { schema, repair }, profile);
+      return await executeQueryAttempt(prompt, { schema, repair }, profile, agentProfile);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown query error";
       errors.push(`${profile.name}: ${message}`);
@@ -507,7 +571,7 @@ Rules:
 - no markdown
 - no trailing text`;
 
-  return runJsonQuery(prompt, researchSchema);
+  return runJsonQuery(prompt, researchSchema, undefined, AGENT_PROFILES.research);
 }
 
 export async function generatePhase0Packet(
@@ -563,7 +627,7 @@ Rules:
 - No markdown, no placeholders, no extra keys.`;
 
     try {
-      const patch = await runJsonQuery(revisionPrompt, phase0RevisionPatchSchema);
+      const patch = await runJsonQuery(revisionPrompt, phase0RevisionPatchSchema, undefined, AGENT_PROFILES.ceo);
       const mergedCandidate = {
         ...priorPacket,
         ...patch,
@@ -618,7 +682,7 @@ Rules:
 - confidence_breakdown values must be 0-100 integers`;
 
   try {
-    return await runJsonQuery(prompt, packetSchema, normalizePhase0PacketCandidate);
+    return await runJsonQuery(prompt, packetSchema, normalizePhase0PacketCandidate, AGENT_PROFILES.ceo);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown packet synthesis failure";
     throw new Error(`phase0_ceo_query: ${message}`);
@@ -667,7 +731,7 @@ Behavior rules:
 - No placeholder text.
 - Reply in <= 180 words unless user explicitly asks for more detail.`;
 
-  const parsed = await runJsonQuery(prompt, projectChatReplySchema);
+  const parsed = await runJsonQuery(prompt, projectChatReplySchema, undefined, AGENT_PROFILES.chat);
   const reply = parsed.reply.trim();
   if (!reply) {
     throw new Error("Chat reply was empty");
@@ -775,7 +839,7 @@ Rules:
 - keep output specific to the provided project context
 - if revision_guidance is present, prioritize it explicitly in deliverables and rationale`;
 
-  return runJsonQuery(prompt, phase1PacketSchema);
+  return runJsonQuery(prompt, phase1PacketSchema, undefined, AGENT_PROFILES.ceo);
 }
 
 export async function generatePhase2Packet(input: PhaseGenerationInput): Promise<Phase2Packet> {
@@ -829,7 +893,7 @@ Rules:
 - no placeholder text
 - if revision_guidance is present, explicitly reflect it in weekly_experiments and guardrails`;
 
-  const parsed = await runJsonQuery(prompt, phase2PacketSchema);
+  const parsed = await runJsonQuery(prompt, phase2PacketSchema, undefined, AGENT_PROFILES.ceo);
 
   const adsEnabled = Boolean(input.permissions.ads_enabled);
   const cap = Math.max(0, Number(input.permissions.ads_budget_cap ?? 0));
@@ -896,7 +960,7 @@ Rules:
 - no placeholder text
 - if revision_guidance is present, reflect it in milestones and launch_checklist`;
 
-  const parsed = await runJsonQuery(prompt, phase3PacketSchema);
+  const parsed = await runJsonQuery(prompt, phase3PacketSchema, undefined, AGENT_PROFILES.ceo);
   return {
     ...parsed,
     architecture_review: {
@@ -908,4 +972,53 @@ Rules:
       protected_branch: "main",
     },
   };
+}
+
+const landingHtmlSchema = z.object({
+  html: z.string().min(200),
+});
+
+export async function generatePhase1LandingHtml(input: {
+  project_name: string;
+  domain: string | null;
+  idea_description: string;
+  brand_kit: { voice: string; color_palette: string[]; font_pairing: string; logo_prompt: string };
+  landing_page: { headline: string; subheadline: string; primary_cta: string; sections: string[]; launch_notes: string[] };
+  waitlist_fields: string[];
+}): Promise<string> {
+  const prompt = `You are the Greenlight Studio Design Agent. Generate a complete, production-ready HTML landing page.
+
+Return STRICT JSON only:
+{
+  "html": "<full HTML document string>"
+}
+
+Requirements:
+- Complete self-contained HTML document (all CSS in <style> tags, no external dependencies)
+- Mobile-first responsive design with modern aesthetics
+- Brand color palette: ${JSON.stringify(input.brand_kit.color_palette)}
+- Font pairing: ${input.brand_kit.font_pairing}
+- Brand voice: ${input.brand_kit.voice}
+- Include a waitlist signup form with fields: ${input.waitlist_fields.join(', ')} (form action POST to /api/waitlist)
+- Include Open Graph meta tags for social sharing
+- Include semantic HTML and accessibility attributes (aria labels, alt text)
+- Use smooth scroll, subtle animations, and professional typography
+- Design should feel competitive with modern SaaS landing pages — not generic or template-like
+
+Content to incorporate:
+- Project: ${input.project_name}${input.domain ? ` (${input.domain})` : ''}
+- Headline: ${input.landing_page.headline}
+- Subheadline: ${input.landing_page.subheadline}
+- Primary CTA: ${input.landing_page.primary_cta}
+- Feature sections: ${JSON.stringify(input.landing_page.sections)}
+- Launch notes: ${JSON.stringify(input.landing_page.launch_notes)}
+- Idea: ${input.idea_description.slice(0, 400)}
+
+Rules:
+- No markdown code fences
+- No commentary outside JSON
+- The html field must contain the COMPLETE HTML document from <!doctype html> to </html>`;
+
+  const result = await runJsonQuery(prompt, landingHtmlSchema, undefined, AGENT_PROFILES.design);
+  return result.html;
 }

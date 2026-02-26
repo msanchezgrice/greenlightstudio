@@ -43,6 +43,14 @@ export async function POST(req: NextRequest) {
   if (batchError) return NextResponse.json({ error: batchError.message }, { status: 500 });
 
   // Create projects for each enabled domain
+  const defaultPermissions = {
+    repo_write: false,
+    deploy: false,
+    ads_enabled: false,
+    ads_budget_cap: 0,
+    email_send: false,
+  };
+
   const projectInserts = enabledDomains.map((d) => ({
     owner_clerk_id: userId,
     name: d.domain,
@@ -58,6 +66,9 @@ export async function POST(req: NextRequest) {
     phase: 0,
     batch_id: batch.id,
     runtime_mode: "shared",
+    permissions: defaultPermissions,
+    night_shift: scan_options?.night_shift ?? false,
+    focus_areas: ["Market Research", "Competitor Analysis", "Landing Page"],
   }));
 
   if (projectInserts.length) {

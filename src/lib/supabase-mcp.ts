@@ -81,6 +81,9 @@ export async function save_packet(projectId: string, phase: number, packet: Pack
   const confidence = synopsis.confidence;
   const recommendationRaw = (packet as { recommendation?: unknown }).recommendation;
   const recommendation = typeof recommendationRaw === "string" ? recommendationRaw : null;
+  const deliverables = Array.isArray((packet as Record<string, unknown>).deliverables)
+    ? (packet as Record<string, unknown>).deliverables
+    : null;
   const { data, error } = await withRetry(() =>
     db
       .from("phase_packets")
@@ -95,6 +98,7 @@ export async function save_packet(projectId: string, phase: number, packet: Pack
           confidence_score: confidence,
           ceo_recommendation: recommendation,
           reasoning_synopsis: synopsis,
+          ...(deliverables ? { deliverables } : {}),
         },
         { onConflict: "project_id,phase" },
       )
