@@ -148,7 +148,7 @@ export async function POST(req: Request, context: { params: Promise<{ approvalId
       after(async () => {
         try {
           if (row.phase === 0) {
-            await runPhase0({ projectId: row.project_id, userId, revisionGuidance });
+            await runPhase0({ projectId: row.project_id, userId, revisionGuidance, forceNewApproval: true });
             return;
           }
 

@@ -8,6 +8,7 @@ type RunPhase0Options = {
   projectId: string;
   userId: string;
   revisionGuidance?: string | null;
+  forceNewApproval?: boolean;
 };
 
 type PhaseTaskStatus = "running" | "completed" | "failed";
@@ -37,12 +38,13 @@ export async function logPhase0Failure(projectId: string, error: unknown) {
   }
 }
 
-export async function runPhase0({ projectId, userId, revisionGuidance }: RunPhase0Options) {
+export async function runPhase0({ projectId, userId, revisionGuidance, forceNewApproval }: RunPhase0Options) {
   const db = createServiceSupabase();
   let initRunning = false;
   let researchRunning = false;
   let synthesisRunning = false;
   const trimmedGuidance = revisionGuidance?.trim() || null;
+  const shouldForceNewApproval = Boolean(forceNewApproval);
 
   try {
     if (trimmedGuidance) {
@@ -83,22 +85,45 @@ export async function runPhase0({ projectId, userId, revisionGuidance }: RunPhas
     const packetId = await withRetry(() => save_packet(projectId, 0, packet));
     const risk = confidence < 40 ? "high" : confidence < 70 ? "medium" : "low";
 
-    const { data: existingApproval, error: existingApprovalError } = await withRetry(() =>
-      db
-        .from("approval_queue")
-        .select("id")
-        .eq("project_id", projectId)
-        .eq("phase", 0)
-        .eq("action_type", "phase0_packet_review")
-        .eq("status", "pending")
-        .maybeSingle(),
-    );
-
-    if (existingApprovalError) {
-      throw new Error(existingApprovalError.message);
+    if (shouldForceNewApproval) {
+      const now = new Date().toISOString();
+      const { error: supersedeError } = await withRetry(() =>
+        db
+          .from("approval_queue")
+          .update({
+            status: "revised",
+            decided_at: now,
+            resolved_at: now,
+          })
+          .eq("project_id", projectId)
+          .eq("phase", 0)
+          .eq("action_type", "phase0_packet_review")
+          .eq("status", "pending"),
+      );
+      if (supersedeError) throw new Error(supersedeError.message);
     }
 
-    if (!existingApproval) {
+    let existingApprovalId: string | null = null;
+    if (!shouldForceNewApproval) {
+      const { data: existingApproval, error: existingApprovalError } = await withRetry(() =>
+        db
+          .from("approval_queue")
+          .select("id")
+          .eq("project_id", projectId)
+          .eq("phase", 0)
+          .eq("action_type", "phase0_packet_review")
+          .eq("status", "pending")
+          .maybeSingle(),
+      );
+
+      if (existingApprovalError) {
+        throw new Error(existingApprovalError.message);
+      }
+
+      existingApprovalId = (existingApproval?.id as string | undefined) ?? null;
+    }
+
+    if (!existingApprovalId || shouldForceNewApproval) {
       const { error: approvalError } = await withRetry(() =>
         db.from("approval_queue").insert({
           project_id: projectId,
