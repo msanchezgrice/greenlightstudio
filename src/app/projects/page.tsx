@@ -32,7 +32,7 @@ export default async function ProjectsPage() {
       <main className="page studio-page">
         <div className="page-header">
           <h1 className="page-title">Projects</h1>
-          <Link href="/onboarding" className="btn btn-approve">
+          <Link href="/onboarding?new=1" className="btn btn-approve">
             New Project
           </Link>
         </div>

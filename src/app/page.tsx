@@ -28,7 +28,7 @@ export default function Home() {
           the market, drafts a pitch deck, and delivers a greenlight-or-kill recommendation by morning.
         </p>
         <div className={styles.heroCtas}>
-          <Link href="/onboarding" className={styles.btnPrimary}>
+          <Link href="/onboarding?new=1" className={styles.btnPrimary}>
             Start Free →
           </Link>
           <a href="#phases" className={styles.btnSecondary}>

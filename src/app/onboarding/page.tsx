@@ -1,41 +1,65 @@
+import Link from "next/link";
+import { auth } from "@clerk/nextjs/server";
 import { OnboardingWizard } from "@/components/onboarding-wizard";
 
-const stateMachine = `┌───────────────────────────────────────────────────────────────────────────┐
-│                    GREENLIGHT STUDIO — ONBOARDING FLOW                  │
-└───────────────────────────────────────────────────────────────────────────┘
-START → S0 Import → S1 Discover → S1.5 Results → S2 Clarify → S3 Confirm → LAUNCHED
-             │              │                │                │
-             └── Skip Scan ─┴── Scan Error ─┴── Continue ─────┘`;
+export default async function OnboardingPage() {
+  const { userId } = await auth();
 
-const transitions = `S0 + SUBMIT_DOMAIN(domain)    => S1
-S0 + SKIP_SCAN(idea_desc)      => S2
-S1 + SCAN_COMPLETE             => S1.5
-S1 + SCAN_FAILED               => S1.5e
-S1.5 + USER_CONFIRMS           => S2
-S1.5e + CONTINUE_ANYWAY        => S2
-S2 + USER_CONFIRMS             => S3
-S3 + LAUNCH                    => LAUNCHED`;
-
-export default function OnboardingPage() {
   return (
-    <main className="onboarding-page">
-      <header className="onboard-header">
-        <div className="logo">▲ Greenlight Studio</div>
-        <span className="badge">ONBOARDING WIZARD</span>
-        <span className="header-note">State Machine + Interactive Flow</span>
-      </header>
+    <>
+      <nav className="nav">
+        <div className="nav-left">
+          <Link href={userId ? "/board" : "/"} className="logo">
+            ▲ <span>Greenlight</span>
+          </Link>
+          <div className="nav-tabs">
+            {userId ? (
+              <>
+                <Link href="/board" className="nav-tab">
+                  Board
+                </Link>
+                <Link href="/projects" className="nav-tab">
+                  Projects
+                </Link>
+                <Link href="/inbox" className="nav-tab">
+                  Inbox
+                </Link>
+                <Link href="/tasks" className="nav-tab">
+                  Tasks
+                </Link>
+                <Link href="/settings" className="nav-tab">
+                  Settings
+                </Link>
+              </>
+            ) : (
+              <>
+                <Link href="/" className="nav-tab">
+                  Home
+                </Link>
+                <Link href="/sign-in" className="nav-tab">
+                  Sign in
+                </Link>
+              </>
+            )}
+            <Link href="/onboarding" className="nav-tab active">
+              Onboarding
+            </Link>
+          </div>
+        </div>
+        <div className="nav-right">
+          <Link href={userId ? "/projects" : "/sign-in"} className="btn btn-details">
+            {userId ? "Projects" : "Sign in"}
+          </Link>
+        </div>
+      </nav>
 
-      <section className="state-box">
-        <h2>State Machine</h2>
-        <pre>{stateMachine}</pre>
-      </section>
-
-      <section className="state-box">
-        <h2>Transition Rules</h2>
-        <pre>{transitions}</pre>
-      </section>
-
-      <OnboardingWizard />
-    </main>
+      <main className="onboarding-page">
+        <header className="onboard-header">
+          <div className="logo">▲ Greenlight Studio</div>
+          <span className="badge">ONBOARDING WIZARD</span>
+        </header>
+        <OnboardingWizard />
+      </main>
+    </>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SignInButton, useAuth } from "@clerk/nextjs";
+import { useSearchParams } from "next/navigation";
 import { onboardingSchema, scanResultSchema, type ScanResult } from "@/types/domain";
 import { createBrowserSupabase } from "@/lib/supabase-browser";
 
@@ -44,6 +45,7 @@ const allowedFileExts = [".pdf", ".ppt", ".pptx", ".doc", ".docx", ".png", ".jpg
 const maxFileSizeBytes = 10 * 1024 * 1024;
 const wizardStorageKey = "greenlight_onboarding_wizard_v1";
 const wizardSessionStorageKey = `${wizardStorageKey}_session`;
+const domainSeparatorPattern = /[\n,;]+/;
 
 const defaultForm = {
   domain: "",
@@ -63,6 +65,18 @@ const defaultForm = {
   scan_results: null as ScanResult | null,
 };
 
+type FormState = typeof defaultForm;
+
+function createInitialForm(): FormState {
+  return {
+    ...defaultForm,
+    uploaded_files: [] as UploadMeta[],
+    permissions: { ...defaultForm.permissions },
+    focus_areas: [...defaultForm.focus_areas],
+    scan_results: null as ScanResult | null,
+  };
+}
+
 function statusClass(step: Step, target: Step) {
   const current = step === "error" ? "results" : step;
   const currentIndex = stepOrder.indexOf(current);
@@ -79,6 +93,21 @@ function normalizeDomain(raw: string) {
 function isValidDomain(raw: string) {
   const domain = normalizeDomain(raw);
   return /^([a-z0-9-]+\.)+[a-z]{2,}$/i.test(domain);
+}
+
+function parseDomains(raw: string) {
+  return Array.from(
+    new Set(
+      raw
+        .split(domainSeparatorPattern)
+        .map((entry) => normalizeDomain(entry))
+        .filter(Boolean),
+    ),
+  );
+}
+
+function listInvalidDomains(raw: string) {
+  return parseDomains(raw).filter((domain) => !isValidDomain(domain));
 }
 
 function normalizeRepo(raw: string) {
@@ -135,27 +164,68 @@ function parseStoredWizardState(raw: string | null): StoredWizardState | null {
 
 function normalizeLaunchTasks(tasks: LaunchTask[], launchStartedAt: number) {
   const threshold = launchStartedAt - 5_000;
-  return tasks.filter((task) => {
+  const ordered = tasks
+    .filter((task) => {
+      const createdAt = Date.parse(task.created_at);
+      return Number.isFinite(createdAt) && createdAt >= threshold;
+    })
+    .sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at));
+
+  const attemptStarts = ordered
+    .filter((task) => task.description === "phase0_init")
+    .map((task) => Date.parse(task.created_at))
+    .filter((value) => Number.isFinite(value));
+  const attemptStart = attemptStarts.length ? Math.max(...attemptStarts) : threshold;
+
+  const latestByDescription = new Map<string, LaunchTask>();
+  for (const task of ordered) {
     const createdAt = Date.parse(task.created_at);
-    return Number.isFinite(createdAt) && createdAt >= threshold;
-  });
+    if (createdAt < attemptStart) continue;
+    latestByDescription.set(task.description, task);
+  }
+
+  return Array.from(latestByDescription.values()).sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at));
 }
 
 export function OnboardingWizard() {
   const { isSignedIn } = useAuth();
+  const searchParams = useSearchParams();
   const restoredRef = useRef(false);
   const scanNonce = useRef(0);
+  const launchNonce = useRef(0);
   const [step, setStep] = useState<Step>("import");
   const [busy, setBusy] = useState(false);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cacheHit, setCacheHit] = useState<boolean | null>(null);
   const [launchProgress, setLaunchProgress] = useState<LaunchTask[]>([]);
-  const [form, setForm] = useState(defaultForm);
+  const [form, setForm] = useState<FormState>(createInitialForm);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const resetRequested = searchParams.get("new") === "1";
 
   useEffect(() => {
     try {
+      if (resetRequested) {
+        removeStorage(wizardStorageKey, window.localStorage);
+        removeStorage(wizardSessionStorageKey, window.sessionStorage);
+        setStep("import");
+        setProjectId(null);
+        setCacheHit(null);
+        setLaunchProgress([]);
+        setSelectedFiles([]);
+        setForm(createInitialForm());
+        setError(null);
+
+        const url = new URL(window.location.href);
+        if (url.searchParams.has("new")) {
+          url.searchParams.delete("new");
+          window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+        }
+
+        restoredRef.current = true;
+        return;
+      }
+
       const stored =
         parseStoredWizardState(readStorage(wizardStorageKey, window.localStorage)) ??
         parseStoredWizardState(readStorage(wizardSessionStorageKey, window.sessionStorage));
@@ -165,17 +235,18 @@ export function OnboardingWizard() {
       }
 
       if (stored.form) {
+        const baseForm = createInitialForm();
         setForm({
-          ...defaultForm,
+          ...baseForm,
           ...stored.form,
           permissions: {
-            ...defaultForm.permissions,
+            ...baseForm.permissions,
             ...(stored.form.permissions ?? {}),
           },
           focus_areas:
             stored.form.focus_areas && stored.form.focus_areas.length
               ? stored.form.focus_areas
-              : defaultForm.focus_areas,
+              : baseForm.focus_areas,
         });
       }
 
@@ -195,7 +266,7 @@ export function OnboardingWizard() {
     } finally {
       restoredRef.current = true;
     }
-  }, []);
+  }, [resetRequested]);
 
   useEffect(() => {
     if (!restoredRef.current) return;
@@ -212,24 +283,39 @@ export function OnboardingWizard() {
     writeStorage(wizardSessionStorageKey, window.sessionStorage, serialized);
   }, [step, projectId, cacheHit, form]);
 
+  const parsedDomains = useMemo(() => parseDomains(form.domain), [form.domain]);
+  const primaryDomain = parsedDomains[0] ?? "";
+  const additionalDomains = parsedDomains.slice(1);
+
   const summary = useMemo(() => {
     const scan = form.scan_results;
     const repo = scan?.repo_summary;
     const tech = scan?.tech_stack?.length ? scan.tech_stack.join(" · ") : "Unknown";
     const competitors = scan?.competitors_found?.map((item) => item.name).slice(0, 3) ?? [];
+    const domainDisplay = primaryDomain ? (additionalDomains.length ? `${primaryDomain} (+${additionalDomains.length} more)` : primaryDomain) : "";
     const domainStatus =
-      scan?.dns === "live" ? `${normalizeDomain(form.domain)} (LIVE)` : scan?.dns === "parked" ? `${normalizeDomain(form.domain)} (PARKED)` : "Not scanned";
+      scan?.dns === "live"
+        ? `${domainDisplay} (LIVE)`
+        : scan?.dns === "parked"
+          ? `${domainDisplay} (PARKED)`
+          : domainDisplay || "Not scanned";
     return {
       tech,
       competitors,
       domainStatus,
       repoDisplay: repo?.repo ?? (normalizeRepo(form.repo_url) || "None"),
     };
-  }, [form.domain, form.repo_url, form.scan_results]);
+  }, [additionalDomains.length, form.repo_url, form.scan_results, primaryDomain]);
 
   function ensureDomainRepoShapeIsValid() {
-    if (form.domain.trim() && !isValidDomain(form.domain)) {
-      setError("Domain must be valid (for example: myproject.com).");
+    if (parsedDomains.length > 10) {
+      setError("You can add up to 10 domains.");
+      return false;
+    }
+
+    const invalidDomains = listInvalidDomains(form.domain);
+    if (invalidDomains.length) {
+      setError(`Invalid domain${invalidDomains.length > 1 ? "s" : ""}: ${invalidDomains.join(", ")}`);
       return false;
     }
 
@@ -254,7 +340,7 @@ export function OnboardingWizard() {
       return false;
     }
 
-    if (!form.domain.trim() && !form.repo_url.trim()) {
+    if (!parsedDomains.length && !form.repo_url.trim()) {
       setError("Add a domain or repository URL to run discovery scan.");
       return false;
     }
@@ -390,7 +476,7 @@ export function OnboardingWizard() {
   async function runScan() {
     if (!ensureScanIsValid()) return;
 
-    const domain = normalizeDomain(form.domain);
+    const domain = primaryDomain;
     const repoUrl = normalizeRepo(form.repo_url);
 
     if (!domain && !repoUrl) {
@@ -453,7 +539,8 @@ export function OnboardingWizard() {
   async function createProject(): Promise<string> {
     const payload = onboardingSchema.parse({
       ...form,
-      domain: form.domain.trim() ? normalizeDomain(form.domain) : null,
+      domain: primaryDomain || null,
+      domains: parsedDomains,
       repo_url: form.repo_url.trim() ? normalizeRepo(form.repo_url) : null,
       focus_areas: form.focus_areas.filter(Boolean),
     });
@@ -502,16 +589,21 @@ export function OnboardingWizard() {
         await uploadSelectedFiles(id);
       }
 
+      const currentLaunchNonce = ++launchNonce.current;
       const launchStartedAt = Date.now();
-      const launchTimeoutMs = 300_000;
+      const launchTimeoutMs = 180_000;
+      const progressStallMs = 90_000;
       const launchController = new AbortController();
-      let abortReason: "timeout" | "failed" | "completed" | null = null;
+      let abortReason: "timeout" | "stalled" | "failed" | "completed" | null = null;
+      let lastProgressAt = Date.now();
+      let progressSignature = "";
       const launchTimeout = window.setTimeout(() => {
         abortReason = "timeout";
         launchController.abort();
       }, launchTimeoutMs);
 
       const pollProgress = async () => {
+        if (currentLaunchNonce !== launchNonce.current) return [] as LaunchTask[];
         const progressRes = await fetch(`/api/projects/${id}/progress`, { cache: "no-store" });
         if (!progressRes.ok) return [] as LaunchTask[];
         const progressJson = await parseResponseJson(progressRes);
@@ -519,6 +611,13 @@ export function OnboardingWizard() {
           ? (progressJson.tasks as LaunchTask[])
           : [];
         const currentAttemptTasks = normalizeLaunchTasks(tasks, launchStartedAt);
+        const nextSignature = currentAttemptTasks
+          .map((task) => `${task.description}|${task.status}|${task.detail ?? ""}|${task.created_at}`)
+          .join("||");
+        if (nextSignature !== progressSignature) {
+          progressSignature = nextSignature;
+          lastProgressAt = Date.now();
+        }
         setLaunchProgress(currentAttemptTasks);
         return currentAttemptTasks;
       };
@@ -538,7 +637,11 @@ export function OnboardingWizard() {
         .catch((err: unknown) => {
           if (err instanceof Error && err.name === "AbortError") {
             if (abortReason === "completed" || abortReason === "failed") return;
-            launchError = new Error("Launch is taking too long. Please refresh to check latest status.");
+            if (abortReason === "stalled") {
+              launchError = new Error("Launch stalled with no task updates for 90 seconds. Please retry.");
+              return;
+            }
+            launchError = new Error("Launch timed out after 3 minutes. Please refresh to check latest status.");
             return;
           }
           launchError = err instanceof Error ? err : new Error("Launch failed");
@@ -561,6 +664,12 @@ export function OnboardingWizard() {
         if (failedTask) {
           launchError = new Error(failedTask.detail ?? `${failedTask.description} failed`);
           abortReason = "failed";
+          launchController.abort();
+          break;
+        }
+        if (Date.now() - lastProgressAt > progressStallMs) {
+          launchError = new Error("Launch stalled with no task updates for 90 seconds. Please retry.");
+          abortReason = "stalled";
           launchController.abort();
           break;
         }
@@ -616,13 +725,20 @@ export function OnboardingWizard() {
             Drop in a domain, paste a repo URL, or just describe your idea. We will take it from there.
           </p>
 
-          <label className="field-label">Domain Name (optional)</label>
-          <input
-            className="mock-input"
-            placeholder="offlinedad.com"
+          <label className="field-label">Domain Names (optional)</label>
+          <textarea
+            className="mock-textarea"
+            placeholder="offlinedad.com, offlinedad.app"
             value={form.domain}
             onChange={(event) => setForm((prev) => ({ ...prev, domain: event.target.value }))}
           />
+          <p className="field-note">Add one or more domains separated by commas or new lines. We scan the first domain as primary.</p>
+          {primaryDomain && (
+            <p className="field-note">
+              Primary domain: {primaryDomain}
+              {additionalDomains.length ? ` (+${additionalDomains.length} additional)` : ""}
+            </p>
+          )}
 
           <label className="field-label">Describe Your Idea (required)</label>
           <textarea
@@ -702,17 +818,17 @@ export function OnboardingWizard() {
               <div className="scan-icon live">✓</div>
               <div className="scan-main">
                 <div className="scan-label">DNS Lookup</div>
-                <div className="scan-sub">{form.domain ? normalizeDomain(form.domain) : "No domain supplied"}</div>
+                <div className="scan-sub">{primaryDomain || "No domain supplied"}</div>
               </div>
-              <div className="scan-badge live">{form.domain ? "RUNNING" : "SKIPPED"}</div>
+              <div className="scan-badge live">{primaryDomain ? "RUNNING" : "SKIPPED"}</div>
             </div>
             <div className="scan-result">
               <div className="scan-icon live">✓</div>
               <div className="scan-main">
                 <div className="scan-label">HTTP Probe</div>
-                <div className="scan-sub">{form.domain ? "Checking status, TLS, and redirects" : "No domain supplied"}</div>
+                <div className="scan-sub">{primaryDomain ? "Checking status, TLS, and redirects" : "No domain supplied"}</div>
               </div>
-              <div className="scan-badge live">{form.domain ? "RUNNING" : "SKIPPED"}</div>
+              <div className="scan-badge live">{primaryDomain ? "RUNNING" : "SKIPPED"}</div>
             </div>
             <div className="scan-result">
               <div className="scan-icon repo">⟳</div>
@@ -760,31 +876,34 @@ export function OnboardingWizard() {
           {domainStatus === "live" && (
             <div className="success-state">
               <p className="success-text">
-                {normalizeDomain(form.domain)} is LIVE. Existing site context will be included in packet generation.
+                {primaryDomain} is LIVE. Existing site context will be included in packet generation.
               </p>
             </div>
           )}
           {domainStatus === "parked" && (
             <div className="warning-state">
               <p className="warning-text">
-                {normalizeDomain(form.domain)} appears parked. We found no real product content, but the domain exists.
+                {primaryDomain} appears parked. We found no real product content, but the domain exists.
               </p>
             </div>
           )}
-          {domainStatus === "none" && form.domain.trim() && (
+          {domainStatus === "none" && primaryDomain && (
             <div className="warning-state">
               <p className="warning-text">Domain did not resolve as a live site. You can still continue with idea-only context.</p>
             </div>
           )}
 
           <div className="scan-list">
-            {form.domain.trim() && (
+            {primaryDomain && (
               <div className="scan-result">
                 <div className={`scan-icon ${domainStatus === "live" ? "live" : domainStatus === "parked" ? "parked" : "none"}`}>
                   {domainStatus === "live" ? "🌐" : domainStatus === "parked" ? "P" : "○"}
                 </div>
                 <div className="scan-main">
-                  <div className="scan-label">{normalizeDomain(form.domain)}</div>
+                  <div className="scan-label">
+                    {primaryDomain}
+                    {additionalDomains.length ? ` (+${additionalDomains.length} more)` : ""}
+                  </div>
                   <div className="scan-sub">
                     {scan?.meta?.title || "No title found"}
                     {scan?.http_status ? ` · HTTP ${scan.http_status}` : ""}

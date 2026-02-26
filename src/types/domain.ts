@@ -78,6 +78,7 @@ export const scanResultSchema = z.object({
 
 export const onboardingSchema = z.object({
   domain: z.string().optional().nullable(),
+  domains: z.array(z.string()).max(10).optional().default([]),
   idea_description: z.string().min(20),
   repo_url: z.string().url().optional().nullable(),
   uploaded_files: z

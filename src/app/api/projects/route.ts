@@ -15,11 +15,12 @@ export async function POST(req: Request) {
 
   try {
     const userRowId = await withRetry(() => upsertUser(userId, primaryEmail));
+    const domains = Array.isArray(body.domains) ? body.domains.filter((entry) => typeof entry === "string" && entry.trim()) : [];
     const projectId = await withRetry(() =>
       create_project({
         ownerClerkId: userId,
         userId: userRowId,
-        name: body.domain || body.idea_description.slice(0, 50),
+        name: body.domain || domains[0] || body.idea_description.slice(0, 50),
         domain: body.domain ?? null,
         ideaDescription: body.idea_description,
         repoUrl: body.repo_url ?? null,
@@ -28,7 +29,7 @@ export async function POST(req: Request) {
         nightShift: body.night_shift,
         focusAreas: body.focus_areas,
         scanResults: body.scan_results,
-        wizardState: { step: "confirm", uploaded_files: body.uploaded_files ?? [] },
+        wizardState: { step: "confirm", uploaded_files: body.uploaded_files ?? [], domains },
       }),
     );
 
