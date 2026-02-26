@@ -77,31 +77,81 @@ export function BulkImportWizard() {
   const [batchId, setBatchId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const screenshotInputRef = useRef<HTMLInputElement>(null);
 
   /* Parse domains from raw text */
   const detectedDomains = useMemo(() => parseDomains(rawText), [rawText]);
 
-  /* Step 1 -> Step 2 transition: build domain entries */
-  const handleContinueToRefine = useCallback(() => {
+  /* Step 1 -> Step 2 transition: scan domains then build entries */
+  const handleContinueToRefine = useCallback(async () => {
     if (detectedDomains.length === 0) {
       setError("Paste at least one domain to continue.");
       return;
     }
     setError(null);
+    setScanning(true);
+    setScanProgress(`Scanning ${detectedDomains.length} domain${detectedDomains.length !== 1 ? "s" : ""}...`);
 
-    const entries: DomainEntry[] = detectedDomains.map((d) => ({
-      domain: d,
-      enabled: true,
-      target_demo: "",
-      value_prop: "",
-      how_it_works: "",
-      notes: "",
-      scan_status: "pending" as const,
-    }));
-    setDomains(entries);
-    setStep(2);
+    try {
+      const res = await fetch("/api/bulk-scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domains: detectedDomains }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: "Scan request failed" }));
+        throw new Error(body.error || `Scan failed (HTTP ${res.status})`);
+      }
+
+      const { results } = (await res.json()) as {
+        results: Array<{
+          domain: string;
+          scan: { dns: string | null; meta?: { title?: string | null } } | null;
+          suggestions: {
+            target_demo: string;
+            value_prop: string;
+            how_it_works: string;
+            notes: string;
+          } | null;
+          error?: string;
+        }>;
+      };
+
+      const entries: DomainEntry[] = results.map((r) => {
+        let scanStatus: DomainEntry["scan_status"] = "pending";
+        if (r.error && !r.scan) {
+          scanStatus = "error";
+        } else if (r.scan?.dns === "live") {
+          scanStatus = "live";
+        } else if (r.scan?.dns === "parked") {
+          scanStatus = "parked";
+        } else if (r.scan?.dns === "none" || r.scan?.dns === null) {
+          scanStatus = "new";
+        }
+
+        return {
+          domain: r.domain,
+          enabled: scanStatus !== "error",
+          target_demo: r.suggestions?.target_demo ?? "",
+          value_prop: r.suggestions?.value_prop ?? "",
+          how_it_works: r.suggestions?.how_it_works ?? "",
+          notes: r.suggestions?.notes ?? "",
+          scan_status: scanStatus,
+        };
+      });
+
+      setDomains(entries);
+      setStep(2);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Domain scanning failed");
+    } finally {
+      setScanning(false);
+      setScanProgress("");
+    }
   }, [detectedDomains]);
 
   /* CSV file handler */
@@ -289,8 +339,69 @@ export function BulkImportWizard() {
 
       {error && <div className="wizard-error">{error}</div>}
 
+      {/* ======================== SCANNING OVERLAY ======================== */}
+      {scanning && (
+        <div
+          style={{
+            background: "var(--card)",
+            border: "1px solid var(--border)",
+            borderRadius: 12,
+            padding: "40px 32px",
+            textAlign: "center",
+            marginBottom: 24,
+          }}
+        >
+          <div
+            style={{
+              width: 40,
+              height: 40,
+              border: "3px solid var(--border)",
+              borderTopColor: "var(--green)",
+              borderRadius: "50%",
+              animation: "spin 1s linear infinite",
+              margin: "0 auto 16px",
+            }}
+          />
+          <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 6 }}>
+            Scanning {detectedDomains.length} domain{detectedDomains.length !== 1 ? "s" : ""}...
+          </h2>
+          <p style={{ color: "var(--text3)", fontSize: 13, marginBottom: 20 }}>
+            {scanProgress || "Checking DNS, fetching pages, and generating suggestions with AI"}
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, maxWidth: 360, margin: "0 auto" }}>
+            {detectedDomains.map((d) => (
+              <div
+                key={d}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  fontSize: 12,
+                  color: "var(--text2)",
+                  padding: "4px 8px",
+                  background: "var(--bg)",
+                  borderRadius: 6,
+                }}
+              >
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background: "var(--green)",
+                    animation: "pulse 1.5s ease-in-out infinite",
+                    flexShrink: 0,
+                  }}
+                />
+                {d}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ======================== STEP 1: IMPORT ======================== */}
-      {step === 1 && (
+      {step === 1 && !scanning && (
         <>
           <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>Bulk Import Projects</h1>
           <p style={{ color: "var(--text2)", fontSize: 15, marginBottom: 36 }}>
@@ -477,10 +588,10 @@ export function BulkImportWizard() {
               <button
                 type="button"
                 className="mock-btn primary"
-                disabled={detectedDomains.length === 0}
+                disabled={detectedDomains.length === 0 || scanning}
                 onClick={handleContinueToRefine}
               >
-                Scan &amp; Continue to Refine &rarr;
+                {scanning ? "Scanning..." : "Scan & Continue to Refine \u2192"}
               </button>
             </div>
           </div>
