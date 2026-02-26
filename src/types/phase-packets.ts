@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { packetSchema, reasoningSynopsisSchema } from "@/types/domain";
+import { packetSchema, reasoningSynopsisSchema, deliverableSchema } from "@/types/domain";
 
 export const phase0PacketSchema = packetSchema;
 
@@ -46,6 +46,7 @@ export const phase1PacketSchema = z.object({
       )
       .min(3),
   }),
+  deliverables: z.array(deliverableSchema).optional().default([]),
   reasoning_synopsis: reasoningSynopsisSchema,
 });
 
@@ -82,6 +83,7 @@ export const phase2PacketSchema = z.object({
   }),
   weekly_experiments: z.array(z.string()).min(3),
   guardrails: z.array(z.string()).min(3),
+  deliverables: z.array(deliverableSchema).optional().default([]),
   reasoning_synopsis: reasoningSynopsisSchema,
 });
 
@@ -119,6 +121,7 @@ export const phase3PacketSchema = z.object({
     protected_branch: z.string().min(2),
   }),
   operational_readiness: z.array(z.string()).min(3),
+  deliverables: z.array(deliverableSchema).optional().default([]),
   reasoning_synopsis: reasoningSynopsisSchema,
 });
 

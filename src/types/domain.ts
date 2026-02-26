@@ -116,6 +116,18 @@ export const projectAssetSchema = z.object({
 });
 
 export type ProjectAsset = z.infer<typeof projectAssetSchema>;
+
+export const deliverableSchema = z.object({
+  kind: z.string(),
+  label: z.string(),
+  url: z.string().nullable(),
+  storage_path: z.string().nullable(),
+  status: z.enum(['pending', 'generated', 'stored', 'failed']),
+  generated_at: z.string().nullable(),
+});
+
+export type Deliverable = z.infer<typeof deliverableSchema>;
+
 export type Packet = z.infer<typeof packetSchema>;
 export type OnboardingInput = z.infer<typeof onboardingSchema>;
 export type ScanResult = z.infer<typeof scanResultSchema>;
