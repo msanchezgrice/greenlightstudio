@@ -479,43 +479,46 @@ Rules:
   return runJsonQuery(prompt, researchSchema);
 }
 
-function researchFromPriorPacket(packet: Packet): z.infer<typeof researchSchema> {
-  return {
-    competitors: packet.competitor_analysis.map((competitor) => ({
-      name: competitor.name,
-      positioning: competitor.positioning,
-      gap: competitor.gap,
-      pricing: competitor.pricing,
-    })),
-    market_sizing: {
-      tam: packet.market_sizing.tam,
-      sam: packet.market_sizing.sam,
-      som: packet.market_sizing.som,
-    },
-    notes: [
-      `Prior packet recommendation: ${packet.recommendation}`,
-      `Prior packet confidence: ${packet.reasoning_synopsis.confidence}/100`,
-      ...packet.reasoning_synopsis.rationale.slice(0, 3),
-    ],
-  };
-}
-
 export async function generatePhase0Packet(
   input: OnboardingInput,
   revisionGuidance?: string | null,
   priorPacket?: Packet | null,
 ): Promise<Packet> {
   const trimmedGuidance = revisionGuidance?.trim() || "";
-  let research: z.infer<typeof researchSchema>;
   if (trimmedGuidance && priorPacket) {
-    research = researchFromPriorPacket(priorPacket);
-  } else {
+    const revisionPrompt = `You are CEO Agent. Revise an existing Phase 0 packet using user guidance.
+Return STRICT JSON only. Output must match the Phase 0 packet schema exactly.
+
+Project context:
+${JSON.stringify({ domain: input.domain, idea_description: input.idea_description, repo_url: input.repo_url }, null, 2)}
+
+User revision guidance:
+${trimmedGuidance}
+
+Existing Phase 0 packet JSON:
+${JSON.stringify(priorPacket)}
+
+Rules:
+- Apply the guidance concretely across recommendation rationale, confidence, and next_actions.
+- Preserve factual consistency with the existing packet unless guidance requires a change.
+- Keep no placeholder text.
+- reasoning_synopsis.evidence must remain an array of { claim, source } objects.
+- Return valid JSON only.`;
+
     try {
-      research = await runResearchAgent(input, trimmedGuidance);
+      return await runJsonQuery(revisionPrompt, packetSchema, normalizePhase0PacketCandidate);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown research failure";
-      throw new Error(`phase0_research_query: ${message}`);
+      const message = error instanceof Error ? error.message : "Unknown packet revision failure";
+      throw new Error(`phase0_ceo_query: ${message}`);
     }
+  }
+
+  let research: z.infer<typeof researchSchema>;
+  try {
+    research = await runResearchAgent(input, trimmedGuidance);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown research failure";
+    throw new Error(`phase0_research_query: ${message}`);
   }
   const guidanceBlock = trimmedGuidance
     ? `\nRevision guidance from user:\n${trimmedGuidance}\nYou MUST incorporate this guidance when shaping recommendation and next_actions.`
