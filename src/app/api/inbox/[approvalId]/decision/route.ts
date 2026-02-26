@@ -6,7 +6,6 @@ import { update_phase, log_task, upsertUser } from "@/lib/supabase-mcp";
 import { enqueueNextPhaseArtifacts } from "@/lib/phase-orchestrator";
 import { withRetry } from "@/lib/retry";
 import { executeApprovedAction } from "@/lib/action-execution";
-import { logPhase0Failure, runPhase0 } from "@/lib/phase0";
 
 const decisionSchema = z.object({
   decision: z.enum(["approved", "denied", "revised"]),
@@ -145,10 +144,30 @@ export async function POST(req: Request, context: { params: Promise<{ approvalId
     }
 
     if (isPhaseRevisionRequest && revisionGuidance) {
+      const appBaseUrl = new URL(req.url).origin;
+      const internalLaunchSecret = process.env.CRON_SECRET?.trim() || null;
       after(async () => {
         try {
           if (row.phase === 0) {
-            await runPhase0({ projectId: row.project_id, userId, revisionGuidance, forceNewApproval: true });
+            if (!internalLaunchSecret) {
+              throw new Error("CRON_SECRET is required for internal phase0 revision launch.");
+            }
+            const launchResponse = await fetch(`${appBaseUrl}/api/projects/${row.project_id}/launch`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "x-greenlight-internal-key": internalLaunchSecret,
+              },
+              body: JSON.stringify({
+                revisionGuidance,
+                forceNewApproval: true,
+              }),
+            });
+
+            if (!launchResponse.ok) {
+              const raw = await launchResponse.text();
+              throw new Error(`Internal phase0 revision launch failed (HTTP ${launchResponse.status}): ${raw.slice(0, 500)}`);
+            }
             return;
           }
 
@@ -158,7 +177,15 @@ export async function POST(req: Request, context: { params: Promise<{ approvalId
           });
         } catch (phaseError) {
           if (row.phase === 0) {
-            await logPhase0Failure(row.project_id, phaseError);
+            await withRetry(() =>
+              log_task(
+                row.project_id,
+                "ceo_agent",
+                "phase0_revision_failed",
+                "failed",
+                phaseError instanceof Error ? phaseError.message : "Failed to re-run phase 0 with guidance",
+              ),
+            );
           } else {
             await withRetry(() =>
               log_task(

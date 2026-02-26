@@ -1,5 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { withRetry } from "@/lib/retry";
 import { createServiceSupabase } from "@/lib/supabase";
 import { logPhase0Failure, runPhase0 } from "@/lib/phase0";
@@ -23,19 +24,53 @@ async function hasRecentActiveLaunch(projectId: string) {
   return Boolean(data?.length);
 }
 
-export async function POST(_: Request, context: { params: Promise<{ projectId: string }> }) {
-  const { userId } = await auth();
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+const launchRequestSchema = z.object({
+  revisionGuidance: z.string().trim().max(2000).optional(),
+  forceNewApproval: z.boolean().optional(),
+});
+
+async function parseLaunchBody(req: Request) {
+  const raw = await req.text();
+  if (!raw.trim()) return { revisionGuidance: undefined, forceNewApproval: undefined };
+  const parsed = launchRequestSchema.safeParse(JSON.parse(raw));
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Invalid launch payload");
+  }
+  return parsed.data;
+}
+
+export async function POST(req: Request, context: { params: Promise<{ projectId: string }> }) {
+  const authState = await auth();
+  const externalUserId = authState.userId;
 
   const { projectId } = await context.params;
   const db = createServiceSupabase();
 
   try {
+    const internalKey = req.headers.get("x-greenlight-internal-key");
+    const internalSecret = process.env.CRON_SECRET?.trim() || null;
+    const isInternalLaunch = Boolean(internalKey && internalSecret && internalKey === internalSecret);
+    if (!isInternalLaunch && !externalUserId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const launchBody = await parseLaunchBody(req);
+    const revisionGuidance = launchBody.revisionGuidance?.trim() || null;
+    const forceNewApproval = Boolean(launchBody.forceNewApproval);
+
     const { data: project, error: projectError } = await withRetry(() =>
       db.from("projects").select("id, owner_clerk_id").eq("id", projectId).single(),
     );
-    if (projectError || !project || project.owner_clerk_id !== userId) {
+    if (projectError || !project) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    }
+    if (!isInternalLaunch && project.owner_clerk_id !== externalUserId) {
+      return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    }
+
+    const runAsUserId = (project.owner_clerk_id as string | null) ?? externalUserId;
+    if (!runAsUserId) {
+      return NextResponse.json({ error: "Project owner not found" }, { status: 400 });
     }
 
     const launchAlreadyRunning = await hasRecentActiveLaunch(projectId);
@@ -43,17 +78,24 @@ export async function POST(_: Request, context: { params: Promise<{ projectId: s
       return NextResponse.json({ ok: true, started: false, alreadyRunning: true });
     }
 
-    const { data: existingPacket, error: packetError } = await withRetry(() =>
-      db.from("phase_packets").select("id").eq("project_id", projectId).eq("phase", 0).maybeSingle(),
-    );
-    if (packetError) {
-      return NextResponse.json({ error: packetError.message }, { status: 400 });
-    }
-    if (existingPacket) {
-      return NextResponse.json({ ok: true, started: false, alreadyCompleted: true });
+    if (!forceNewApproval && !revisionGuidance) {
+      const { data: existingPacket, error: packetError } = await withRetry(() =>
+        db.from("phase_packets").select("id").eq("project_id", projectId).eq("phase", 0).maybeSingle(),
+      );
+      if (packetError) {
+        return NextResponse.json({ error: packetError.message }, { status: 400 });
+      }
+      if (existingPacket) {
+        return NextResponse.json({ ok: true, started: false, alreadyCompleted: true });
+      }
     }
 
-    await runPhase0({ projectId, userId });
+    await runPhase0({
+      projectId,
+      userId: runAsUserId,
+      revisionGuidance,
+      forceNewApproval,
+    });
     return NextResponse.json({ ok: true, started: true });
   } catch (error) {
     await logPhase0Failure(projectId, error);
