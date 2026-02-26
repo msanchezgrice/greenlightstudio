@@ -50,7 +50,7 @@ export default async function PacketPage({ params }: { params: Promise<{ project
         <div className="nav-left">
           <div className="logo">▲ <span>Greenlight</span></div>
           <div className="breadcrumb">
-            <Link href="/">Board</Link> / <Link href="/inbox">Inbox</Link> / <strong>Phase 0 Packet</strong>
+            <Link href="/board">Board</Link> / <Link href="/inbox">Inbox</Link> / <strong>Phase 0 Packet</strong>
           </div>
         </div>
         <div className="nav-right">

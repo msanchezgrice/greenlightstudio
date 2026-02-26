@@ -74,7 +74,7 @@ export default function Home() {
             <div className={styles.stepNum}>2</div>
             <div className={styles.stepTitle}>Discover</div>
             <div className={styles.stepDesc}>
-              Our Scanner Agent checks your domain and reads your repo. Competitors are identified automatically.
+              Our inline scanner helper checks your domain and reads your repo. Competitors are identified automatically.
             </div>
           </div>
           <div className={styles.stepArrow}>→</div>
@@ -223,12 +223,12 @@ export default function Home() {
           </div>
           <div className={styles.agentCard}>
             <div className={styles.agentEmoji}>🔎</div>
-            <div className={styles.agentName}>Scanner</div>
-            <div className={styles.agentRole}>Asset discovery · Haiku</div>
+            <div className={styles.agentName}>Scanner Helper</div>
+            <div className={styles.agentRole}>Asset discovery · inline helper</div>
             <div className={styles.agentTools}>
               <span className={styles.toolBadge}>WebFetch</span>
-              <span className={`${styles.toolBadge} ${styles.toolBadgeBlue}`}>url-scanner</span>
-              <span className={`${styles.toolBadge} ${styles.toolBadgeBlue}`}>puppeteer</span>
+              <span className={`${styles.toolBadge} ${styles.toolBadgeBlue}`}>classify()</span>
+              <span className={styles.toolBadge}>repo API</span>
             </div>
           </div>
           <div className={styles.agentCard}>
@@ -296,7 +296,7 @@ export default function Home() {
             <span className={styles.poweredItem}>feature-dev</span>
             <span className={styles.poweredItem}>security-guidance</span>
             <span className={styles.poweredItem}>server-github MCP</span>
-            <span className={styles.poweredItem}>puppeteer MCP</span>
+            <span className={styles.poweredItem}>inline scanner helper</span>
             <span className={styles.poweredItem}>stripe MCP</span>
             <span className={styles.poweredItem}>Gemini (images)</span>
             <span className={styles.poweredItem}>Codex 5.3 (Phase 3)</span>

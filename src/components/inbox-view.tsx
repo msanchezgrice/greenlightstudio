@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { StudioNav } from "@/components/studio-nav";
 import { packetSchema } from "@/types/domain";
 
 type Decision = "approved" | "denied" | "revised";
@@ -87,6 +88,16 @@ export function InboxView({ initialItems }: { initialItems: Item[] }) {
     return Date.now() - ref.getTime() <= 7 * 86400000;
   }).length;
 
+  async function parseResponseJson(response: Response) {
+    const raw = await response.text();
+    if (!raw.trim()) return null;
+    try {
+      return JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+
   async function decide(item: Item, decision: Decision) {
     setLoadingId(item.id);
     setError(null);
@@ -96,13 +107,21 @@ export function InboxView({ initialItems }: { initialItems: Item[] }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ decision, version: item.version }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Decision failed");
+      const json = await parseResponseJson(res);
+      if (!res.ok) {
+        const message = typeof json?.error === "string" ? json.error : "Decision failed";
+        throw new Error(message);
+      }
 
       setItems((prev) =>
         prev.map((row) =>
           row.id === item.id
-            ? { ...row, status: decision, version: json.version ?? row.version + 1, decided_at: new Date().toISOString() }
+            ? {
+                ...row,
+                status: decision,
+                version: typeof json?.version === "number" ? json.version : row.version + 1,
+                decided_at: new Date().toISOString(),
+              }
             : row,
         ),
       );
@@ -116,21 +135,7 @@ export function InboxView({ initialItems }: { initialItems: Item[] }) {
 
   return (
     <>
-      <nav className="nav">
-        <div className="nav-left">
-          <div className="logo">▲ <span>Greenlight</span></div>
-          <div className="nav-tabs">
-            <div className="nav-tab">Board</div>
-            <div className="nav-tab">Projects</div>
-            <div className="nav-tab active">Inbox</div>
-            <div className="nav-tab">Tasks</div>
-            <div className="nav-tab">Settings</div>
-          </div>
-        </div>
-        <div className="nav-right">
-          <div className="meta-line">{pending.length} pending</div>
-        </div>
-      </nav>
+      <StudioNav active="inbox" pendingCount={pending.length} />
 
       <div className="page">
         {error && <div className="alert error">{error}</div>}

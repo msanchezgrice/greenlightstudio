@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 import { update_phase, log_task, upsertUser } from "@/lib/supabase-mcp";
+import { enqueueNextPhaseArtifacts } from "@/lib/phase-orchestrator";
 import { withRetry } from "@/lib/retry";
 
 const decisionSchema = z.object({ decision: z.enum(["approved", "denied", "revised"]), version: z.number().int().positive() });
@@ -18,7 +19,11 @@ export async function POST(req: Request, context: { params: Promise<{ approvalId
   const { data: userRow } = await withRetry(() => db.from("users").select("id").eq("clerk_id", userId).maybeSingle());
   const resolvedBy = userRow?.id ?? (await withRetry(() => upsertUser(userId, null)));
 
-  const { data: row, error: rowError } = await db.from("approval_queue").select("id, project_id, version").eq("id", approvalId).single();
+  const { data: row, error: rowError } = await db
+    .from("approval_queue")
+    .select("id, project_id, phase, action_type, version")
+    .eq("id", approvalId)
+    .single();
   if (rowError || !row) return NextResponse.json({ error: "Approval not found" }, { status: 404 });
 
   const { data: project } = await db.from("projects").select("owner_clerk_id, phase").eq("id", row.project_id).single();
@@ -40,7 +45,31 @@ export async function POST(req: Request, context: { params: Promise<{ approvalId
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
   if (body.decision === "approved") {
-    await withRetry(() => update_phase(row.project_id, project.phase + 1));
+    const phaseAdvanceActions = new Set([
+      "phase0_packet_review",
+      "phase1_validate_review",
+      "phase2_distribute_review",
+      "phase3_golive_review",
+    ]);
+
+    if (phaseAdvanceActions.has(row.action_type)) {
+      const nextPhase = Math.max(project.phase, row.phase) + 1;
+      await withRetry(() => update_phase(row.project_id, nextPhase));
+
+      try {
+        await withRetry(() => enqueueNextPhaseArtifacts(row.project_id, nextPhase));
+      } catch (phaseError) {
+        await withRetry(() =>
+          log_task(
+            row.project_id,
+            "ceo_agent",
+            "phase_artifacts_failed",
+            "failed",
+            phaseError instanceof Error ? phaseError.message : "Failed to enqueue phase artifacts",
+          ),
+        );
+      }
+    }
   }
 
   await withRetry(() => log_task(row.project_id, "ceo_agent", "approval_decision", "completed", `Decision: ${body.decision}`));
