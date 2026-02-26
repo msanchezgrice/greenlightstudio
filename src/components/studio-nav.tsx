@@ -16,7 +16,7 @@ export function StudioNav({ active, pendingCount }: { active: StudioTab; pending
     <nav className="nav">
       <div className="nav-left">
         <Link href="/board" className="logo">
-          ▲ <span>Greenlight</span>
+          ▲ <span>Startup Machine</span>
         </Link>
         <div className="nav-tabs">
           {tabs.map((tab) => (

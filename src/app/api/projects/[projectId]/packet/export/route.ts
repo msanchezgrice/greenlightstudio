@@ -86,7 +86,7 @@ export async function GET(_: Request, context: { params: Promise<{ projectId: st
     y -= 6;
   };
 
-  draw(`Greenlight Studio — Phase 0 Packet`, { bold: true, size: 18, color: rgb(0.13, 0.67, 0.33) });
+  draw(`Startup Machine — Phase 0 Packet`, { bold: true, size: 18, color: rgb(0.13, 0.67, 0.33) });
   draw(`Project: ${project.name as string}`, { bold: true, size: 13 });
   draw(`Generated: ${new Date().toLocaleString()}`);
   y -= 10;

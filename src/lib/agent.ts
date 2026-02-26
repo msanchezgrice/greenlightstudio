@@ -648,7 +648,7 @@ export async function generateProjectChatReply(input: ProjectChatInput): Promise
     })),
   };
 
-  const prompt = `You are the Greenlight Studio CEO chat assistant.
+  const prompt = `You are the Startup Machine CEO chat assistant.
 
 Return STRICT JSON only:
 {
@@ -714,7 +714,7 @@ function phaseContext(input: PhaseGenerationInput) {
 }
 
 export async function generatePhase1Packet(input: PhaseGenerationInput): Promise<Phase1Packet> {
-  const prompt = `You are CEO Agent. Generate STRICT JSON for Greenlight Studio PHASE 1 (Validate).
+  const prompt = `You are CEO Agent. Generate STRICT JSON for Startup Machine PHASE 1 (Validate).
 Return ONLY valid JSON with this exact shape:
 {
   "phase": 1,
@@ -779,7 +779,7 @@ Rules:
 }
 
 export async function generatePhase2Packet(input: PhaseGenerationInput): Promise<Phase2Packet> {
-  const prompt = `You are CEO Agent. Generate STRICT JSON for Greenlight Studio PHASE 2 (Distribute).
+  const prompt = `You are CEO Agent. Generate STRICT JSON for Startup Machine PHASE 2 (Distribute).
 Return ONLY valid JSON with this exact shape:
 {
   "phase": 2,
@@ -844,7 +844,7 @@ Rules:
 }
 
 export async function generatePhase3Packet(input: PhaseGenerationInput): Promise<Phase3Packet> {
-  const prompt = `You are CEO Agent. Generate STRICT JSON for Greenlight Studio PHASE 3 (Go Live).
+  const prompt = `You are CEO Agent. Generate STRICT JSON for Startup Machine PHASE 3 (Go Live).
 Return ONLY valid JSON with this exact shape:
 {
   "phase": 3,

@@ -7,7 +7,7 @@ export default function Home() {
     <main className={styles.page}>
       <nav className={styles.nav}>
         <div className={styles.navInner}>
-          <div className={styles.navLogo}>▲ Greenlight Studio</div>
+          <div className={styles.navLogo}>▲ Startup Machine</div>
         <div className={styles.navLinks}>
           <a href="#how">How It Works</a>
           <a href="#phases">Phases</a>
@@ -25,7 +25,7 @@ export default function Home() {
         <h1>Your next idea deserves more than a domain pile.</h1>
         <p>
           Upload a domain, paste an idea, or connect your repo. Our AI CEO agent researches competitors, sizes
-          the market, drafts a pitch deck, and delivers a greenlight-or-kill recommendation by morning.
+          the market, drafts a pitch deck, and delivers a go/no-go recommendation by morning.
         </p>
         <div className={styles.heroCtas}>
           <Link href="/onboarding?new=1" className={styles.btnPrimary}>
@@ -57,7 +57,7 @@ export default function Home() {
 
       <section className={styles.section} id="how">
         <div className={styles.sectionLabel}>How It Works</div>
-        <div className={styles.sectionTitle}>Idea to greenlight in 4 steps</div>
+        <div className={styles.sectionTitle}>Idea to decision in 4 steps</div>
         <div className={styles.sectionSub}>
           No spreadsheets. No weeks of research. Just drop in your idea and let the agents work.
         </div>
@@ -89,7 +89,7 @@ export default function Home() {
           <div className={styles.stepArrow}>→</div>
           <div className={styles.stepCard}>
             <div className={styles.stepNum}>4</div>
-            <div className={styles.stepTitle}>Greenlight</div>
+            <div className={styles.stepTitle}>Decide</div>
             <div className={styles.stepDesc}>
               Your CEO Agent produces a meeting-style packet with market sizing, competitors, MVP scope, and a
               confidence-scored recommendation.
@@ -172,7 +172,7 @@ export default function Home() {
           </div>
           <div className={styles.featCard}>
             <div className={styles.featIcon}>📥</div>
-            <div className={styles.featTitle}>Greenlight Inbox</div>
+            <div className={styles.featTitle}>Decision Inbox</div>
             <div className={styles.featDesc}>
               Risk-scored approval queue for deploys, ad spend, and code merges. Nothing happens without your OK.
             </div>
@@ -306,13 +306,13 @@ export default function Home() {
       </section>
 
       <section className={styles.ctaSection} id="cta">
-        <div className={styles.ctaTitle}>Ready to greenlight your next idea?</div>
+        <div className={styles.ctaTitle}>Ready to decide on your next idea?</div>
         <div className={styles.ctaSub}>Join the waitlist. First 100 projects get Phase 0 free.</div>
         <WaitlistForm />
       </section>
 
       <footer className={styles.footer}>
-        Greenlight Studio · Built with Claude Agent SDK · Feb 2026
+        Startup Machine · Built with Claude Agent SDK · Feb 2026
         <br />
         <span className={styles.footerMark}>▲</span> By builders, for builders.
       </footer>

@@ -58,7 +58,7 @@ function renderPhase1LandingHtml(project: ProjectRow, packet: ReturnType<typeof 
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${escapeHtml(project.name)} — Greenlight Launch</title>
+    <title>${escapeHtml(project.name)} — Startup Machine Launch</title>
     <style>
       * { box-sizing: border-box; }
       body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: ${background}; color: #E2E8F0; }
@@ -78,7 +78,7 @@ function renderPhase1LandingHtml(project: ProjectRow, packet: ReturnType<typeof 
   </head>
   <body>
     <main class="wrap">
-      <div class="badge">▲ Greenlight Shared Runtime</div>
+      <div class="badge">▲ Startup Machine Shared Runtime</div>
       <h1>${title}</h1>
       <p class="lead">${subtitle}</p>
       <a class="cta" href="#">${cta}</a>
@@ -92,7 +92,7 @@ function renderPhase1LandingHtml(project: ProjectRow, packet: ReturnType<typeof 
           <ul>${notes}</ul>
         </article>
       </section>
-      <p class="footer">Deployed by Greenlight Studio for <span class="accent">${escapeHtml(project.name)}</span>.</p>
+      <p class="footer">Deployed by Startup Machine for <span class="accent">${escapeHtml(project.name)}</span>.</p>
     </main>
   </body>
 </html>`;

@@ -172,7 +172,7 @@ export async function runPhase0({ projectId, userId, revisionGuidance, forceNewA
           packet_id: packetId,
           phase: 0,
           type: "phase_advance",
-          title: "Greenlight Phase 0 Packet for Review",
+          title: "Startup Machine Phase 0 Packet for Review",
           description: `CEO recommendation: ${packet.recommendation.toUpperCase()} (${confidence}/100 confidence).`,
           risk,
           risk_level: risk,

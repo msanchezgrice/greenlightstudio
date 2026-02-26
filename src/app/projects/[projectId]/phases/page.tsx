@@ -141,7 +141,7 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
       <main className="page studio-page">
         <div className="page-header">
           <div>
-            <h1 className="page-title">{project.name} · Greenlight Phases</h1>
+            <h1 className="page-title">{project.name} · Startup Machine Phases</h1>
             <p className="meta-line">
               {project.domain ?? "No domain"} · runtime {project.runtime_mode} · updated {new Date(project.updated_at).toLocaleString()}
             </p>

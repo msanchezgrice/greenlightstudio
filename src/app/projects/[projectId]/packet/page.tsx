@@ -88,7 +88,7 @@ export default async function PacketPage({ params }: { params: Promise<{ project
       <>
         <nav className="nav">
           <div className="nav-left">
-            <div className="logo">▲ <span>Greenlight</span></div>
+            <div className="logo">▲ <span>Startup Machine</span></div>
             <div className="breadcrumb">
               <Link href="/board">Board</Link> / <Link href={`/projects/${projectId}`}>{project.name}</Link> / <strong>Phase 0 Packet</strong>
             </div>
@@ -155,7 +155,7 @@ export default async function PacketPage({ params }: { params: Promise<{ project
     <>
       <nav className="nav">
         <div className="nav-left">
-          <div className="logo">▲ <span>Greenlight</span></div>
+          <div className="logo">▲ <span>Startup Machine</span></div>
           <div className="breadcrumb">
             <Link href="/board">Board</Link> / <Link href="/inbox">Inbox</Link> / <strong>Phase 0 Packet</strong>
           </div>

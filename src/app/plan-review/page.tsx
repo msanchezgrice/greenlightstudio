@@ -3,7 +3,7 @@ export default function PlanReviewPage() {
     <main className="page studio-page">
       <section className="studio-card">
         <h1 className="page-title">Plan Review (Garry Tan)</h1>
-        <p className="meta-line">Plan-exit-review decisions integrated into Greenlight Studio implementation.</p>
+        <p className="meta-line">Plan-exit-review decisions integrated into Startup Machine implementation.</p>
       </section>
 
       <section className="studio-card">
