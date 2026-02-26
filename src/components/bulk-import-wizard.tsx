@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BatchProgress } from "@/components/batch-progress";
 
 /* ---------- Types ---------- */
@@ -79,7 +79,27 @@ export function BulkImportWizard() {
   const [error, setError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState("");
+  const [scanPhrase, setScanPhrase] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Rotating scan status phrases
+  const scanPhrases = useMemo(() => [
+    "Checking DNS records and availability...",
+    "Analyzing landing pages and content...",
+    "Defining core demographics and audiences...",
+    "Identifying competitors in the space...",
+    "Detecting tech stack and frameworks...",
+    "Generating value propositions with AI...",
+    "Summarizing findings and recommendations...",
+  ], []);
+
+  useEffect(() => {
+    if (!scanning) return;
+    const interval = setInterval(() => {
+      setScanPhrase((prev) => (prev + 1) % scanPhrases.length);
+    }, 2800);
+    return () => clearInterval(interval);
+  }, [scanning, scanPhrases]);
   const screenshotInputRef = useRef<HTMLInputElement>(null);
 
   /* Parse domains from raw text */
@@ -380,7 +400,7 @@ export function BulkImportWizard() {
             Scanning {detectedDomains.length} domain{detectedDomains.length !== 1 ? "s" : ""}...
           </h2>
           <p style={{ color: "var(--text3)", fontSize: 13, marginBottom: 20 }}>
-            {scanProgress || "Checking DNS, fetching pages, and generating suggestions with AI"}
+            {scanPhrases[scanPhrase]}
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 6, maxWidth: 360, margin: "0 auto" }}>
             {detectedDomains.map((d) => (

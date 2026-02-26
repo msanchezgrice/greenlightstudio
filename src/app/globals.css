@@ -2956,7 +2956,7 @@ a {
 /* ---------- 3. Bulk Import Wizard ---------- */
 
 .bulk-wizard {
-  max-width: 900px;
+  max-width: 1350px;
   margin: 0 auto;
   padding: 48px 32px;
 }
