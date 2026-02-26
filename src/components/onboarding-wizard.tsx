@@ -171,6 +171,12 @@ function parseStoredWizardState(raw: string | null): StoredWizardState | null {
   }
 }
 
+function formatElapsed(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return m > 0 ? `${m}:${s.toString().padStart(2, "0")}` : `${s}s`;
+}
+
 function normalizeLaunchTasks(tasks: LaunchTask[], launchStartedAt: number) {
   const threshold = launchStartedAt - 5_000;
   const ordered = tasks
@@ -209,6 +215,7 @@ export function OnboardingWizard() {
   const [error, setError] = useState<string | null>(null);
   const [cacheHit, setCacheHit] = useState<boolean | null>(null);
   const [launchProgress, setLaunchProgress] = useState<LaunchTask[]>([]);
+  const [launchElapsed, setLaunchElapsed] = useState(0);
   const [form, setForm] = useState<FormState>(createInitialForm);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [scanItemStatuses, setScanItemStatuses] = useState<ScanItemStatus[]>(["queued", "queued", "queued", "queued", "queued"]);
@@ -700,6 +707,7 @@ export function OnboardingWizard() {
     setBusy(true);
     setError(null);
     setLaunchProgress([]);
+    setLaunchElapsed(0);
 
     try {
       const createdIds = projectId ? (projectIds.length ? projectIds : [projectId]) : await createProjects();
@@ -717,103 +725,23 @@ export function OnboardingWizard() {
       }
 
       const secondaryProjectIds = createdIds.slice(1);
-      const currentLaunchNonce = ++launchNonce.current;
-      const launchStartedAt = Date.now();
-      const launchTimeoutMs = 300_000;
-      const progressStallMs = 210_000;
-      const launchController = new AbortController();
-      let abortReason: "timeout" | "stalled" | "failed" | "completed" | null = null;
-      let lastProgressAt = Date.now();
-      let progressSignature = "";
-      const launchTimeout = window.setTimeout(() => {
-        abortReason = "timeout";
-        launchController.abort();
-      }, launchTimeoutMs);
 
-      const pollProgress = async () => {
-        if (currentLaunchNonce !== launchNonce.current) return [] as LaunchTask[];
-        const progressRes = await fetch(`/api/projects/${primaryProjectId}/progress`, { cache: "no-store" });
-        if (!progressRes.ok) return [] as LaunchTask[];
-        const progressJson = await parseResponseJson(progressRes);
-        const tasks = Array.isArray(progressJson?.tasks)
-          ? (progressJson.tasks as LaunchTask[])
-          : [];
-        const currentAttemptTasks = normalizeLaunchTasks(tasks, launchStartedAt);
-        const nextSignature = currentAttemptTasks
-          .map((task) => `${task.description}|${task.status}|${task.detail ?? ""}|${task.created_at}`)
-          .join("||");
-        if (nextSignature !== progressSignature) {
-          progressSignature = nextSignature;
-          lastProgressAt = Date.now();
-        }
-        setLaunchProgress(currentAttemptTasks);
-        return currentAttemptTasks;
-      };
-
-      await pollProgress();
-
-      let finished = false;
-      let launchError: Error | null = null;
-      const launchRequest = fetch(`/api/projects/${primaryProjectId}/launch`, {
+      // Fire launch request and confirm it was accepted
+      const launchRes = await fetch(`/api/projects/${primaryProjectId}/launch`, {
         method: "POST",
-        signal: launchController.signal,
-      })
-        .then(async (res) => {
-          const json = await parseResponseJson(res);
-          if (!res.ok) {
-            const errorMessage = typeof json?.error === "string" ? json.error : `Launch failed (HTTP ${res.status})`;
-            throw new Error(errorMessage);
-          }
-        })
-        .catch((err: unknown) => {
-          if (err instanceof Error && err.name === "AbortError") {
-            if (abortReason === "completed" || abortReason === "failed") return;
-            if (abortReason === "stalled") {
-              launchError = new Error("Launch stalled with no task updates for 210 seconds. Please retry.");
-              return;
-            }
-            launchError = new Error("Launch timed out after 5 minutes. Please refresh to check latest status.");
-            return;
-          }
-          launchError = err instanceof Error ? err : new Error("Launch failed");
-        })
-        .finally(() => {
-          window.clearTimeout(launchTimeout);
-          finished = true;
-        });
-
-      while (!finished) {
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        const tasks = await pollProgress();
-        const failedTask = tasks.find((task) => task.status === "failed");
-        const completedTask = tasks.find((task) => task.description === "phase0_complete" && task.status === "completed");
-        if (completedTask) {
-          abortReason = "completed";
-          launchController.abort();
-          break;
-        }
-        if (failedTask) {
-          launchError = new Error(failedTask.detail ?? `${failedTask.description} failed`);
-          abortReason = "failed";
-          launchController.abort();
-          break;
-        }
-        if (Date.now() - lastProgressAt > progressStallMs) {
-          launchError = new Error("Launch stalled with no task updates for 210 seconds. Please retry.");
-          abortReason = "stalled";
-          launchController.abort();
-          break;
-        }
+      });
+      const launchJson = await parseResponseJson(launchRes);
+      if (!launchRes.ok) {
+        const errorMessage = typeof launchJson?.error === "string" ? launchJson.error : `Launch failed (HTTP ${launchRes.status})`;
+        throw new Error(errorMessage);
+      }
+      if (launchJson?.alreadyRunning) {
+        throw new Error("A launch is already in progress. Please wait for it to complete, then refresh.");
       }
 
-      await launchRequest;
-      await pollProgress();
-      if (launchError) throw launchError;
-
+      // Fire secondary launches (best effort)
       for (const secondaryProjectId of secondaryProjectIds) {
-        fetch(`/api/projects/${secondaryProjectId}/launch`, { method: "POST", keepalive: true }).catch(() => {
-          // Best effort launch for additional domains; primary project already completed.
-        });
+        fetch(`/api/projects/${secondaryProjectId}/launch`, { method: "POST", keepalive: true }).catch(() => {});
       }
 
       try {
@@ -823,10 +751,9 @@ export function OnboardingWizard() {
         // Ignore storage errors in restrictive browser modes.
       }
       setSelectedFiles([]);
-      setStep("launched");
-      setTimeout(() => {
-        window.location.href = `/projects/${primaryProjectId}/packet`;
-      }, 900);
+
+      // Redirect immediately to project overview — phase0 runs in the background
+      window.location.href = `/projects/${primaryProjectId}`;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Launch failed");
     } finally {
@@ -1441,19 +1368,24 @@ export function OnboardingWizard() {
 
           {launchProgress.length > 0 && (
             <div className="task-progress">
-              <div className="field-label">Packet Generation Progress</div>
+              <div className="field-label">Packet Generation Progress{busy && launchElapsed > 3 ? ` — ${formatElapsed(launchElapsed)}` : ""}</div>
               {launchProgress.map((task, index) => (
                 <div key={`${task.created_at}-${index}`} className="task-item">
                   <span>{task.description}{task.detail ? ` — ${task.detail}` : ""}</span>
                   <span className={`task-status ${task.status}`}>{task.status}</span>
                 </div>
               ))}
+              {busy && launchElapsed > 15 && (
+                <p className="progress-hint" style={{ margin: "8px 0 0", opacity: 0.6, fontSize: "0.85em" }}>
+                  This usually takes 2–3 minutes. Your CEO agent is analyzing the market.
+                </p>
+              )}
             </div>
           )}
 
           <div className="button-row">
             <button className="mock-btn primary launch" onClick={launchProject} disabled={busy || !isSignedIn}>
-              {busy ? "Launching…" : "Launch Project"}
+              {busy ? `Launching…${launchElapsed > 5 ? ` (${formatElapsed(launchElapsed)})` : ""}` : "Launch Project"}
             </button>
             <button className="mock-btn secondary" onClick={() => setStep("clarify")} disabled={busy}>
               ← Edit
