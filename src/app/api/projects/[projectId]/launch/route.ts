@@ -1,8 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
-import { NextResponse, after } from "next/server";
+import { NextResponse } from "next/server";
 import { withRetry } from "@/lib/retry";
 import { createServiceSupabase } from "@/lib/supabase";
-import { log_task } from "@/lib/supabase-mcp";
 import { logPhase0Failure, runPhase0 } from "@/lib/phase0";
 
 export const runtime = "nodejs";
@@ -54,22 +53,12 @@ export async function POST(_: Request, context: { params: Promise<{ projectId: s
       return NextResponse.json({ ok: true, started: false, alreadyCompleted: true });
     }
 
-    after(async () => {
-      try {
-        await runPhase0({ projectId, userId });
-      } catch (error) {
-        await logPhase0Failure(projectId, error);
-      }
-    });
-
-    await withRetry(() =>
-      log_task(projectId, "ceo_agent", "phase0_launch_enqueued", "completed", "Phase 0 launch queued"),
-    );
-
+    await runPhase0({ projectId, userId });
     return NextResponse.json({ ok: true, started: true });
   } catch (error) {
+    await logPhase0Failure(projectId, error);
     const errorMessage = error instanceof Error ? error.message : "Failed generating Phase 0 packet";
-    const statusCode = errorMessage === "Project not found" ? 404 : 400;
+    const statusCode = errorMessage === "Project not found" ? 404 : 500;
     return NextResponse.json(
       { error: errorMessage },
       { status: statusCode },
