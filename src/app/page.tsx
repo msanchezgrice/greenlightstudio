@@ -7,15 +7,15 @@ export default function Home() {
       <nav className={styles.nav}>
         <div className={styles.navInner}>
           <div className={styles.navLogo}>▲ Greenlight Studio</div>
-          <div className={styles.navLinks}>
-            <a href="#how">How It Works</a>
-            <a href="#phases">Phases</a>
-            <a href="#features">Features</a>
-            <a href="#agents">Agents</a>
-            <a className={styles.navCta} href="#cta">
-              Join Waitlist
-            </a>
-          </div>
+        <div className={styles.navLinks}>
+          <a href="#how">How It Works</a>
+          <a href="#phases">Phases</a>
+          <a href="#features">Features</a>
+          <a href="#agents">Agents</a>
+          <a className={styles.navCta} href="#cta">
+            Join Waitlist
+          </a>
+        </div>
         </div>
       </nav>
 

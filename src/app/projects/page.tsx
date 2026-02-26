@@ -74,6 +74,9 @@ export default async function ProjectsPage() {
                             <Link href={`/projects/${project.id}`} className="btn btn-details">
                               Open
                             </Link>
+                            <Link href={`/projects/${project.id}/phases`} className="btn btn-details">
+                              Phases
+                            </Link>
                             <Link href={`/projects/${project.id}/packet`} className="btn btn-preview">
                               Packet
                             </Link>

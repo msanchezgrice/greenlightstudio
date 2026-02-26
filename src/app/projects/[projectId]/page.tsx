@@ -126,6 +126,9 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
             <p className="meta-line">{project.domain ?? "No domain"}</p>
           </div>
           <div className="table-actions">
+            <Link href={`/projects/${projectId}/phases`} className="btn btn-details">
+              Phase Dashboard
+            </Link>
             <Link href={`/projects/${projectId}/packet`} className="btn btn-preview">
               Open Packet
             </Link>
