@@ -622,8 +622,8 @@ export function OnboardingWizard() {
 
       const currentLaunchNonce = ++launchNonce.current;
       const launchStartedAt = Date.now();
-      const launchTimeoutMs = 180_000;
-      const progressStallMs = 90_000;
+      const launchTimeoutMs = 300_000;
+      const progressStallMs = 210_000;
       const launchController = new AbortController();
       let abortReason: "timeout" | "stalled" | "failed" | "completed" | null = null;
       let lastProgressAt = Date.now();
@@ -669,10 +669,10 @@ export function OnboardingWizard() {
           if (err instanceof Error && err.name === "AbortError") {
             if (abortReason === "completed" || abortReason === "failed") return;
             if (abortReason === "stalled") {
-              launchError = new Error("Launch stalled with no task updates for 90 seconds. Please retry.");
+              launchError = new Error("Launch stalled with no task updates for 210 seconds. Please retry.");
               return;
             }
-            launchError = new Error("Launch timed out after 3 minutes. Please refresh to check latest status.");
+            launchError = new Error("Launch timed out after 5 minutes. Please refresh to check latest status.");
             return;
           }
           launchError = err instanceof Error ? err : new Error("Launch failed");
@@ -699,7 +699,7 @@ export function OnboardingWizard() {
           break;
         }
         if (Date.now() - lastProgressAt > progressStallMs) {
-          launchError = new Error("Launch stalled with no task updates for 90 seconds. Please retry.");
+          launchError = new Error("Launch stalled with no task updates for 210 seconds. Please retry.");
           abortReason = "stalled";
           launchController.abort();
           break;

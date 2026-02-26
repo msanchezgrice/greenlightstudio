@@ -307,7 +307,18 @@ async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptio
     clearTimeout(timeout);
   }
 
+  const finalText = raw.trim() || streamedRaw.trim() || resultText.trim();
+
+  const parseFinalText = () => parseSchemaWithRepair(parseAgentJson<T>(finalText), options);
+
   if (timedOut) {
+    if (finalText) {
+      try {
+        return parseFinalText();
+      } catch {
+        // Continue to timeout error when partial text is not parseable.
+      }
+    }
     const stderrTail = summarizeStderr(stderrChunks);
     throw new Error(
       `Agent query timed out after ${Math.round(AGENT_QUERY_TIMEOUT_MS / 1000)}s | ${describeQueryState(state)}${
@@ -317,6 +328,13 @@ async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptio
   }
 
   if (!state.sawResult) {
+    if (finalText) {
+      try {
+        return parseFinalText();
+      } catch {
+        // Continue to explicit missing-result error for visibility.
+      }
+    }
     const stderrTail = summarizeStderr(stderrChunks);
     throw new Error(
       `Agent stream ended without result message | ${describeQueryState(state)}${stderrTail ? ` | stderr=${stderrTail}` : ""}`,
@@ -327,13 +345,12 @@ async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptio
     return parseSchemaWithRepair(structuredOutput, options);
   }
 
-  const finalText = raw.trim() || streamedRaw.trim() || resultText.trim();
   if (resultError && !finalText) throw new Error(resultError);
   if (!finalText) {
     const stderrTail = summarizeStderr(stderrChunks);
     throw new Error(`Agent returned empty response | ${describeQueryState(state)}${stderrTail ? ` | stderr=${stderrTail}` : ""}`);
   }
-  return parseSchemaWithRepair(parseAgentJson<T>(finalText), options);
+  return parseFinalText();
 }
 
 async function runJsonQuery<T>(prompt: string, schema: z.ZodType<T>, repair?: (value: unknown) => unknown) {
