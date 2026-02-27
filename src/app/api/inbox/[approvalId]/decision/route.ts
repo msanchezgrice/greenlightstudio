@@ -8,7 +8,7 @@ import { withRetry } from "@/lib/retry";
 import { executeApprovedAction } from "@/lib/action-execution";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 800;
 
 const decisionSchema = z.object({
   decision: z.enum(["approved", "denied", "revised"]),

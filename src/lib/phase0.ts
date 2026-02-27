@@ -39,7 +39,18 @@ export async function logPhase0Failure(projectId: string, error: unknown) {
   }
 }
 
-export async function runPhase0({ projectId, userId, revisionGuidance, forceNewApproval }: RunPhase0Options) {
+const PHASE0_TIMEOUT_MS = 800_000; // 800s — matches Vercel maxDuration
+
+export async function runPhase0(opts: RunPhase0Options) {
+  return Promise.race([
+    runPhase0Inner(opts),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Phase 0 generation timed out (exceeded 800s)")), PHASE0_TIMEOUT_MS),
+    ),
+  ]);
+}
+
+async function runPhase0Inner({ projectId, userId, revisionGuidance, forceNewApproval }: RunPhase0Options) {
   const db = createServiceSupabase();
   let initRunning = false;
   let researchRunning = false;

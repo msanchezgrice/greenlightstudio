@@ -754,8 +754,7 @@ export function OnboardingWizard() {
       }
       setSelectedFiles([]);
 
-      // Redirect immediately to project overview — phase0 runs in the background
-      window.location.href = `/projects/${primaryProjectId}`;
+      window.location.href = "/board";
     } catch (err) {
       setError(err instanceof Error ? err.message : "Launch failed");
     } finally {

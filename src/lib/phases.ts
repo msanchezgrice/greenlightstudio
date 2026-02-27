@@ -51,11 +51,15 @@ const TASK_LABELS: Record<string, string> = {
   phase0_research_query: "Running research queries",
   phase0_packet: "Building pitch packet",
   phase0_failed: "Research failed",
+  phase1_init: "Initializing Phase 1",
   phase1_validate: "Generating validation assets",
   phase1_validate_review: "Reviewing validation assets",
   phase1_landing: "Building landing page",
   phase1_brand: "Creating brand kit",
   phase1_waitlist: "Setting up waitlist capture",
+  phase1_landing_deploy: "Deploying landing page",
+  phase1_brand_assets: "Generating brand assets",
+  phase1_complete: "Phase 1 complete",
   phase2_distribute: "Planning distribution strategy",
   phase2_distribute_review: "Reviewing distribution plan",
   phase2_ads: "Preparing ad creatives",
@@ -77,8 +81,11 @@ export function humanizeTaskDescription(description: string): string {
 }
 
 export function taskOutputLink(description: string, projectId: string): { href: string; label: string } | null {
-  if (description === "phase1_deploy_live" || description === "phase1_design_agent_html") {
+  if (description === "phase1_deploy_live" || description === "phase1_design_agent_html" || description === "phase1_landing_deploy") {
     return { href: `/launch/${projectId}`, label: "View Landing Page" };
+  }
+  if (description === "phase1_brand_assets") {
+    return { href: `/projects/${projectId}/phases/1`, label: "View Brand Kit" };
   }
   if (description === "phase0_complete" || description === "phase0_packet") {
     return { href: `/projects/${projectId}/packet`, label: "View Packet" };

@@ -2,7 +2,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { requireEnv } from "@/lib/env";
-import { packetSchema, type OnboardingInput, type Packet, type ProjectAsset } from "@/types/domain";
+import { packetSchema, reasoningSynopsisSchema, type OnboardingInput, type Packet, type ProjectAsset } from "@/types/domain";
 import {
   phase1PacketSchema,
   phase2PacketSchema,
@@ -18,15 +18,13 @@ const AGENT_QUERY_MAX_TURNS = 12;
 const AGENT_RUNTIME_TMP_DIR = process.env.CLAUDE_SDK_TMPDIR?.trim() || "/tmp";
 const IS_SERVERLESS_RUNTIME = Boolean(process.env.VERCEL || process.env.LAMBDA_TASK_ROOT);
 
-const researchSchema = z.object({
+const competitorSchema = z.object({
   competitors: z.array(
-    z.object({
-      name: z.string(),
-      positioning: z.string(),
-      gap: z.string(),
-      pricing: z.string(),
-    }),
-  ),
+    z.object({ name: z.string(), positioning: z.string(), gap: z.string(), pricing: z.string() }),
+  ).min(4),
+});
+
+const marketSchema = z.object({
   market_sizing: z.object({ tam: z.string(), sam: z.string(), som: z.string() }),
   notes: z.array(z.string()),
 });
@@ -236,7 +234,7 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     name: 'ceo_agent',
     tools: ['WebSearch', 'WebFetch'],
     allowedTools: ['WebSearch', 'WebFetch'],
-    maxTurns: 25,
+    maxTurns: 10,
     timeoutMs: 270_000,
     permissionMode: 'dontAsk',
   },
@@ -244,7 +242,7 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     name: 'research_agent',
     tools: ['WebSearch', 'WebFetch'],
     allowedTools: ['WebSearch', 'WebFetch'],
-    maxTurns: 20,
+    maxTurns: 10,
     timeoutMs: 270_000,
     permissionMode: 'dontAsk',
   },
@@ -252,7 +250,7 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     name: 'design_agent',
     tools: ['WebSearch', 'WebFetch'],
     allowedTools: ['WebSearch', 'WebFetch'],
-    maxTurns: 25,
+    maxTurns: 10,
     timeoutMs: 270_000,
     permissionMode: 'dontAsk',
   },
@@ -260,7 +258,7 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     name: 'ceo_chat',
     tools: ['WebSearch', 'WebFetch'],
     allowedTools: ['WebSearch', 'WebFetch'],
-    maxTurns: 15,
+    maxTurns: 10,
     timeoutMs: 270_000,
     permissionMode: 'dontAsk',
   },
@@ -268,9 +266,49 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     name: 'default',
     tools: [],
     allowedTools: [],
-    maxTurns: 25,
+    maxTurns: 10,
     timeoutMs: 270_000,
     permissionMode: 'default',
+  },
+  strategist: {
+    name: 'strategist',
+    tools: [],
+    allowedTools: [],
+    maxTurns: 8,
+    timeoutMs: 150_000,
+    permissionMode: 'dontAsk',
+  },
+  researcher_quick: {
+    name: 'researcher_quick',
+    tools: ['WebSearch'],
+    allowedTools: ['WebSearch'],
+    maxTurns: 4,
+    timeoutMs: 240_000,
+    permissionMode: 'dontAsk',
+  },
+  designer_full: {
+    name: 'designer_full',
+    tools: ['WebSearch', 'WebFetch'],
+    allowedTools: ['WebSearch', 'WebFetch'],
+    maxTurns: 10,
+    timeoutMs: 240_000,
+    permissionMode: 'dontAsk',
+  },
+  synthesizer: {
+    name: 'synthesizer',
+    tools: [],
+    allowedTools: [],
+    maxTurns: 6,
+    timeoutMs: 120_000,
+    permissionMode: 'dontAsk',
+  },
+  ceo_phase0: {
+    name: 'ceo_agent',
+    tools: ['WebSearch'],
+    allowedTools: ['WebSearch'],
+    maxTurns: 8,
+    timeoutMs: 270_000,
+    permissionMode: 'dontAsk',
   },
 };
 
@@ -387,6 +425,7 @@ async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptio
   let structuredOutput: unknown = undefined;
   let resultError: string | null = null;
   let timedOut = false;
+  const traces: ToolTrace[] = [];
   const state: QueryState = {
     messageCounts: new Map(),
     resultSubtypes: [],
@@ -406,6 +445,13 @@ async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptio
       if (message.type === "assistant") {
         for (const block of message.message.content) {
           if (block.type === "text") raw += block.text;
+          if (block.type === "tool_use") {
+            traces.push({
+              tool: block.name,
+              input_preview: JSON.stringify(block.input).slice(0, 200),
+              timestamp: Date.now(),
+            });
+          }
         }
         continue;
       }
@@ -440,7 +486,7 @@ async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptio
     clearTimeout(timeout);
   }
 
-  const finalText = streamedJsonRaw.trim() || raw.trim() || streamedRaw.trim() || resultText.trim();
+  const finalText = resultText.trim() || raw.trim() || streamedRaw.trim() || streamedJsonRaw.trim();
 
   const parseFinalText = () => parseSchemaWithRepair(parseAgentJson<T>(finalText), options);
 
@@ -486,6 +532,78 @@ async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptio
   return parseFinalText();
 }
 
+export type ToolTrace = {
+  tool: string;
+  input_preview: string;
+  timestamp: number;
+};
+
+async function runRawQuery(prompt: string, agentProfile: AgentProfile = AGENT_PROFILES.none): Promise<{ text: string; traces: ToolTrace[] }> {
+  const executablePath = resolveClaudeCodeExecutablePath();
+  const stderrChunks: string[] = [];
+  const traces: ToolTrace[] = [];
+  const cwd = IS_SERVERLESS_RUNTIME ? AGENT_RUNTIME_TMP_DIR : process.cwd();
+  const stream = query({
+    prompt,
+    options: {
+      model: "sonnet",
+      env: sdkEnv(),
+      pathToClaudeCodeExecutable: executablePath,
+      maxTurns: agentProfile.maxTurns,
+      includePartialMessages: true,
+      persistSession: false,
+      cwd,
+      settingSources: [],
+      tools: agentProfile.tools.length > 0 ? agentProfile.tools : [],
+      ...(agentProfile.allowedTools.length > 0 ? { allowedTools: agentProfile.allowedTools } : {}),
+      ...(agentProfile.permissionMode !== 'default' ? { permissionMode: agentProfile.permissionMode } : {}),
+      ...(agentProfile.tools.length > 0 ? { canUseTool: createToolGuard(agentProfile) } : {}),
+      stderr: (data) => { stderrChunks.push(data); },
+    },
+  });
+
+  let raw = "";
+  let streamedRaw = "";
+  let resultText = "";
+  let timedOut = false;
+  const effectiveTimeoutMs = agentProfile.timeoutMs || AGENT_QUERY_TIMEOUT_MS;
+  const timeout = setTimeout(() => { timedOut = true; stream.close(); }, effectiveTimeoutMs);
+
+  try {
+    for await (const message of stream) {
+      if (message.type === "assistant") {
+        for (const block of message.message.content) {
+          if (block.type === "text") raw += block.text;
+          if (block.type === "tool_use") {
+            traces.push({
+              tool: block.name,
+              input_preview: JSON.stringify(block.input).slice(0, 200),
+              timestamp: Date.now(),
+            });
+          }
+        }
+      }
+      if (message.type === "stream_event") {
+        streamedRaw += extractDeltaText(message.event);
+      }
+      if (message.type === "result" && !message.is_error && typeof message.result === "string") {
+        resultText += message.result;
+      }
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const finalText = raw.trim() || streamedRaw.trim() || resultText.trim();
+  if (timedOut && !finalText) {
+    throw new Error(`Agent query timed out after ${Math.round(effectiveTimeoutMs / 1000)}s`);
+  }
+  if (!finalText) {
+    throw new Error("Agent returned empty response");
+  }
+  return { text: finalText, traces };
+}
+
 async function runJsonQuery<T>(prompt: string, schema: z.ZodType<T>, repair?: (value: unknown) => unknown, agentProfile: AgentProfile = AGENT_PROFILES.none) {
   const profiles: QueryProfile[] = [
     { name: "structured_default", useOutputFormat: true },
@@ -499,6 +617,7 @@ async function runJsonQuery<T>(prompt: string, schema: z.ZodType<T>, repair?: (v
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown query error";
       errors.push(`${profile.name}: ${message}`);
+      if (message.toLowerCase().includes("timed out")) break;
       if (!isRetryableAgentFailure(message)) break;
     }
   }
@@ -534,6 +653,16 @@ function parseAgentJson<T>(raw: string) {
 function normalizePhase0PacketCandidate(value: unknown) {
   if (!isRecord(value)) return value;
   const next: Record<string, unknown> = { ...value };
+
+  if (next.competitor_analysis && !Array.isArray(next.competitor_analysis)) {
+    const ca = next.competitor_analysis as Record<string, unknown>;
+    if (Array.isArray(ca.competitors)) {
+      next.competitor_analysis = ca.competitors;
+    } else {
+      const arrVal = Object.values(ca).find((v) => Array.isArray(v));
+      next.competitor_analysis = arrVal ?? [ca];
+    }
+  }
 
   if (Array.isArray(next.existing_presence)) {
     next.existing_presence = next.existing_presence.map((entry) => {
@@ -587,30 +716,6 @@ ${fileList}
 These files were provided as supporting materials for this project. Factor their existence and types into your analysis. Reference them by filename when relevant.`;
 }
 
-async function runResearchAgent(input: OnboardingInput, revisionGuidance?: string | null, assets?: ProjectAsset[]) {
-  const guidanceBlock = revisionGuidance?.trim()
-    ? `\nRevision guidance from user:\n${revisionGuidance.trim()}\nPrioritize this guidance in your research framing.`
-    : "";
-  const attachedFilesBlock = formatAttachedFilesBlock(assets ?? []);
-  const prompt = `You are Research Agent. Return STRICT JSON only.
-Input:\n${JSON.stringify({ domain: input.domain, idea_description: input.idea_description })}
-${guidanceBlock}${attachedFilesBlock}
-
-Required JSON shape:
-{
-  "competitors": [{"name":"","positioning":"","gap":"","pricing":""}],
-  "market_sizing": {"tam":"", "sam":"", "som":""},
-  "notes": ["", ""]
-}
-
-Rules:
-- minimum 3 competitors
-- no markdown
-- no trailing text`;
-
-  return runJsonQuery(prompt, researchSchema, undefined, AGENT_PROFILES.research);
-}
-
 export async function generatePhase0Packet(
   input: OnboardingInput,
   revisionGuidance?: string | null,
@@ -619,6 +724,10 @@ export async function generatePhase0Packet(
 ): Promise<Packet> {
   const trimmedGuidance = revisionGuidance?.trim() || "";
   const attachedFilesBlock = formatAttachedFilesBlock(assets ?? []);
+  const ctx = JSON.stringify({ domain: input.domain, idea_description: input.idea_description });
+  const guidanceBlock = trimmedGuidance
+    ? `\nRevision guidance from user:\n${trimmedGuidance}\nPrioritize this guidance.`
+    : "";
 
   if (trimmedGuidance && priorPacket) {
     const revisionPrompt = `You are CEO Agent. Create a minimal JSON patch for a Phase 0 packet revision.
@@ -664,7 +773,7 @@ Rules:
 - No markdown, no placeholders, no extra keys.`;
 
     try {
-      const patch = await runJsonQuery(revisionPrompt, phase0RevisionPatchSchema, undefined, AGENT_PROFILES.ceo);
+      const patch = await runJsonQuery(revisionPrompt, phase0RevisionPatchSchema, undefined, AGENT_PROFILES.synthesizer);
       const mergedCandidate = {
         ...priorPacket,
         ...patch,
@@ -683,47 +792,110 @@ Rules:
     }
   }
 
-  let research: z.infer<typeof researchSchema>;
-  try {
-    research = await runResearchAgent(input, trimmedGuidance, assets);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown research failure";
-    throw new Error(`phase0_research_query: ${message}`);
-  }
-  const guidanceBlock = trimmedGuidance
-    ? `\nRevision guidance from user:\n${trimmedGuidance}\nYou MUST incorporate this guidance when shaping recommendation and next_actions.`
-    : "";
+  const ceoPrompt = `You are CEO Agent for a startup validation platform. Use web search to research "${input.domain}" and generate a STRICT JSON Phase 0 packet.
 
-  const prompt = `You are CEO Agent. Generate STRICT JSON for a Phase 0 packet.
+Project:\n${JSON.stringify(input)}
+${guidanceBlock}${attachedFilesBlock}
+
+Search for: the company/domain, its market, competitors, and feasibility. Then synthesize into the JSON below.
+
+Return ONLY valid JSON with these keys:
+- tagline (string)
+- elevator_pitch (string)
+- confidence_breakdown { market: 0-100, competition: 0-100, feasibility: 0-100, timing: 0-100 }
+- competitor_analysis [{ name, positioning, gap, pricing }] (6 competitors)
+- market_sizing { tam, sam, som }
+- target_persona { name, description, pain_points[] }
+- mvp_scope { in_scope[], deferred[] }
+- existing_presence [{ domain, status, detail, scanned_at }]
+- recommendation ("greenlight" | "revise" | "kill")
+- reasoning_synopsis { decision, confidence (0-100 int), rationale[], risks[], next_actions[], evidence[{ claim, source }] }
+
+Rules:
+- Return raw JSON only, no markdown fences, no commentary
+- confidence values are 0-100 integers
+- competitor_analysis must have 6 entries
+- evidence items must have claim and source fields`;
+
+  const settledResults = await Promise.allSettled([
+    runJsonQuery(
+      `You are Competitor Research Agent. Return STRICT JSON only.\nInput:\n${ctx}\n${guidanceBlock}${attachedFilesBlock}\n\nRequired JSON shape:\n{"competitors":[{"name":"","positioning":"","gap":"","pricing":""}]}\n\nRules:\n- find exactly 6 competitors with real names and pricing\n- use web search to find real competitors and their actual pricing\n- no markdown fences, no commentary, raw JSON only`,
+      competitorSchema,
+      undefined,
+      AGENT_PROFILES.researcher_quick,
+    ),
+    runJsonQuery(
+      `You are Market Research Agent. Return STRICT JSON only.\nInput:\n${ctx}\n${guidanceBlock}${attachedFilesBlock}\n\nRequired JSON shape:\n{"market_sizing":{"tam":"","sam":"","som":""},"notes":["",""]}\n\nRules:\n- use web search to find real market data and TAM/SAM/SOM estimates\n- notes should capture key market insights\n- no markdown fences, no commentary, raw JSON only`,
+      marketSchema,
+      undefined,
+      AGENT_PROFILES.researcher_quick,
+    ),
+    runJsonQuery(
+      ceoPrompt,
+      packetSchema,
+      normalizePhase0PacketCandidate,
+      AGENT_PROFILES.ceo_phase0,
+    ),
+  ]);
+
+  const [compSettled, mktSettled, ceoSettled] = settledResults;
+
+  if (ceoSettled.status === "fulfilled") {
+    const packet = ceoSettled.value;
+    if (compSettled.status === "fulfilled") {
+      packet.competitor_analysis = compSettled.value.competitors;
+    }
+    if (mktSettled.status === "fulfilled") {
+      packet.market_sizing = mktSettled.value.market_sizing;
+    }
+    return packetSchema.parse(normalizePhase0PacketCandidate(packet));
+  }
+
+  const hasResearch = compSettled.status === "fulfilled" || mktSettled.status === "fulfilled";
+  if (!hasResearch) {
+    const errors: string[] = [];
+    if (compSettled.status === "rejected") errors.push(`competitor: ${compSettled.reason?.message ?? "failed"}`);
+    if (mktSettled.status === "rejected") errors.push(`market: ${mktSettled.reason?.message ?? "failed"}`);
+    errors.push(`ceo: ${ceoSettled.reason?.message ?? "failed"}`);
+    throw new Error(`phase0_parallel: ${errors.join(" || ")}`);
+  }
+
+  const research = {
+    competitors: compSettled.status === "fulfilled" ? compSettled.value.competitors : [],
+    market_sizing: mktSettled.status === "fulfilled" ? mktSettled.value.market_sizing : { tam: "Unknown", sam: "Unknown", som: "Unknown" },
+    notes: mktSettled.status === "fulfilled" ? mktSettled.value.notes : [],
+  };
+
+  const fallbackPrompt = `You are CEO Agent. Generate STRICT JSON for a Phase 0 packet.
 Use this onboarding input:\n${JSON.stringify(input)}
 Use this research brief:\n${JSON.stringify(research)}
 ${guidanceBlock}${attachedFilesBlock}
 
-Return only JSON with these keys:
-- tagline
-- elevator_pitch
-- confidence_breakdown { market, competition, feasibility, timing }
-- competitor_analysis
-- market_sizing
+Return ONLY valid JSON with these keys:
+- tagline (string)
+- elevator_pitch (string)
+- confidence_breakdown { market: 0-100, competition: 0-100, feasibility: 0-100, timing: 0-100 }
+- competitor_analysis [{ name, positioning, gap, pricing }]
+- market_sizing { tam, sam, som }
 - target_persona { name, description, pain_points[] }
 - mvp_scope { in_scope[], deferred[] }
 - existing_presence [{ domain, status, detail, scanned_at }]
-- recommendation (greenlight|revise|kill)
-- reasoning_synopsis { decision, confidence, rationale[], risks[], next_actions[], evidence[] }
+- recommendation ("greenlight" | "revise" | "kill")
+- reasoning_synopsis { decision, confidence (0-100 int), rationale[], risks[], next_actions[], evidence[{ claim, source }] }
 
 Rules:
-- no placeholders
-- no markdown
-- no extra keys
-- reasoning_synopsis.confidence must be 0-100 integer
-- confidence_breakdown values must be 0-100 integers`;
+- Return raw JSON only, no markdown fences, no commentary
+- Use the research brief data for competitor_analysis and market_sizing
+- confidence values are 0-100 integers`;
 
-  try {
-    return await runJsonQuery(prompt, packetSchema, normalizePhase0PacketCandidate, AGENT_PROFILES.ceo);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown packet synthesis failure";
-    throw new Error(`phase0_ceo_query: ${message}`);
+  const fallbackPacket = await runJsonQuery(fallbackPrompt, packetSchema, normalizePhase0PacketCandidate, AGENT_PROFILES.synthesizer);
+  if (compSettled.status === "fulfilled") {
+    fallbackPacket.competitor_analysis = compSettled.value.competitors;
   }
+  if (mktSettled.status === "fulfilled") {
+    fallbackPacket.market_sizing = mktSettled.value.market_sizing;
+  }
+  return packetSchema.parse(normalizePhase0PacketCandidate(fallbackPacket));
 }
 
 function truncateText(value: string, limit = 500) {
@@ -826,68 +998,123 @@ function phaseContext(input: PhaseGenerationInput) {
 }
 
 export async function generatePhase1Packet(input: PhaseGenerationInput): Promise<Phase1Packet> {
-  const prompt = `You are CEO Agent. Generate STRICT JSON for Startup Machine PHASE 1 (Validate).
-Return ONLY valid JSON with this exact shape:
-{
-  "phase": 1,
-  "summary": "string",
-  "landing_page": {
-    "headline": "string",
-    "subheadline": "string",
-    "primary_cta": "string",
-    "sections": ["string", "string", "string"],
-    "launch_notes": ["string", "string"]
-  },
-  "waitlist": {
-    "capture_stack": "string",
-    "double_opt_in": true,
-    "form_fields": ["string", "string"],
-    "target_conversion_rate": "string"
-  },
-  "analytics": {
-    "provider": "string",
-    "events": ["string", "string", "string"],
-    "dashboard_views": ["string", "string"]
-  },
-  "brand_kit": {
-    "voice": "string",
-    "color_palette": ["string", "string", "string"],
-    "font_pairing": "string",
-    "logo_prompt": "string"
-  },
-  "social_strategy": {
-    "channels": ["string", "string"],
-    "content_pillars": ["string", "string", "string"],
-    "posting_cadence": "string"
-  },
-  "email_sequence": {
-    "emails": [
-      {"day": "Day 0", "subject": "string", "goal": "string"},
-      {"day": "Day 2", "subject": "string", "goal": "string"},
-      {"day": "Day 5", "subject": "string", "goal": "string"}
-    ]
-  },
-  "reasoning_synopsis": {
-    "decision": "greenlight|revise|kill",
-    "confidence": 0,
-    "rationale": ["string","string","string"],
-    "risks": ["string"],
-    "next_actions": ["string"],
-    "evidence": [{"claim":"string","source":"string"}]
-  }
-}
+  const ctx = phaseContext(input);
+  const guidance = input.revision_guidance?.trim()
+    ? `\nRevision guidance from user:\n${input.revision_guidance.trim()}\nPrioritize this guidance in your output.`
+    : "";
 
-Input context:
-${phaseContext(input)}
+  const [landing, brand, waitlistAnalytics, email, social] = await Promise.all([
+    runJsonQuery(
+      `You are Design Agent for "${input.project_name}". Generate a landing page content strategy.
+Use web search to research high-converting landing pages in the ${input.focus_areas[0] ?? "SaaS"} space.
 
-Rules:
-- no markdown
-- no commentary
-- no placeholder text
-- keep output specific to the provided project context
-- if revision_guidance is present, prioritize it explicitly in deliverables and rationale`;
+Input:\n${ctx}${guidance}
 
-  return runJsonQuery(prompt, phase1PacketSchema, undefined, AGENT_PROFILES.ceo);
+Return STRICT JSON only:
+{"headline":"compelling headline","subheadline":"supporting subheadline","primary_cta":"action text","sections":["feature 1","feature 2","feature 3"],"launch_notes":["note 1","note 2"]}
+
+Rules: no markdown, no commentary, be specific to this project.`,
+      phase1PacketSchema.shape.landing_page,
+      undefined,
+      AGENT_PROFILES.researcher_quick,
+    ),
+    runJsonQuery(
+      `You are Brand Agent for "${input.project_name}". Generate a brand identity kit.
+Use web search to research current design trends and color palettes for ${input.focus_areas[0] ?? "tech"} brands.
+
+Input:\n${ctx}${guidance}
+
+Return STRICT JSON only:
+{"voice":"brand voice description","color_palette":["#hex","#hex","#hex"],"font_pairing":"heading + body fonts","logo_prompt":"logo design direction"}
+
+Rules: use real hex codes, no markdown, be specific to this project.`,
+      phase1PacketSchema.shape.brand_kit,
+      undefined,
+      AGENT_PROFILES.researcher_quick,
+    ),
+    runJsonQuery(
+      `You are Growth Agent for "${input.project_name}". Generate waitlist capture and analytics strategy.
+
+Input:\n${ctx}${guidance}
+
+Return STRICT JSON only:
+{"waitlist":{"capture_stack":"tech stack","double_opt_in":true,"form_fields":["Email","Name"],"target_conversion_rate":"X%"},"analytics":{"provider":"provider name","events":["event1","event2","event3"],"dashboard_views":["view1","view2"]}}
+
+Rules: no markdown, be specific to this project.`,
+      z.object({
+        waitlist: phase1PacketSchema.shape.waitlist,
+        analytics: phase1PacketSchema.shape.analytics,
+      }),
+      undefined,
+      AGENT_PROFILES.strategist,
+    ),
+    runJsonQuery(
+      `You are Outreach Agent for "${input.project_name}". Generate a 3-email onboarding sequence for new waitlist signups.
+
+Input:\n${ctx}${guidance}
+
+Return STRICT JSON only:
+{"emails":[{"day":"Day 0","subject":"subject line","goal":"email goal"},{"day":"Day 2","subject":"subject line","goal":"email goal"},{"day":"Day 5","subject":"subject line","goal":"email goal"}]}
+
+Rules: make subjects compelling, goals actionable, no markdown.`,
+      phase1PacketSchema.shape.email_sequence,
+      undefined,
+      AGENT_PROFILES.strategist,
+    ),
+    runJsonQuery(
+      `You are Growth Agent for "${input.project_name}". Generate a social media launch strategy.
+Use web search for current platform trends and best practices.
+
+Input:\n${ctx}${guidance}
+
+Return STRICT JSON only:
+{"channels":["channel1","channel2"],"content_pillars":["pillar1","pillar2","pillar3"],"posting_cadence":"schedule description"}
+
+Rules: no markdown, be specific to this project and audience.`,
+      phase1PacketSchema.shape.social_strategy,
+      undefined,
+      AGENT_PROFILES.researcher_quick,
+    ),
+  ]);
+
+  const deliverables = {
+    landing_page: landing,
+    brand_kit: brand,
+    waitlist: waitlistAnalytics.waitlist,
+    analytics: waitlistAnalytics.analytics,
+    email_sequence: email,
+    social_strategy: social,
+  };
+
+  const synopsis = await runJsonQuery(
+    `You are CEO Agent. Review Phase 1 deliverables for "${input.project_name}" and provide executive assessment.
+
+Project context:\n${ctx}${guidance}
+
+Phase 1 deliverables produced by the team:
+${JSON.stringify(deliverables, null, 2)}
+
+Return STRICT JSON only:
+{"summary":"executive summary of Phase 1 plan (20+ chars)","reasoning_synopsis":{"decision":"greenlight|revise|kill","confidence":75,"rationale":["point1","point2","point3"],"risks":["risk1"],"next_actions":["action1"],"evidence":[{"claim":"claim","source":"source"}]}}
+
+Rules: ground assessment in the actual deliverables above, no markdown.`,
+    z.object({ summary: z.string().min(20), reasoning_synopsis: reasoningSynopsisSchema }),
+    undefined,
+    AGENT_PROFILES.synthesizer,
+  );
+
+  return {
+    phase: 1,
+    summary: synopsis.summary,
+    landing_page: landing,
+    waitlist: waitlistAnalytics.waitlist,
+    analytics: waitlistAnalytics.analytics,
+    brand_kit: brand,
+    social_strategy: social,
+    email_sequence: email,
+    deliverables: [],
+    reasoning_synopsis: synopsis.reasoning_synopsis,
+  };
 }
 
 export async function generatePhase2Packet(input: PhaseGenerationInput): Promise<Phase2Packet> {
@@ -1022,10 +1249,6 @@ Rules:
   };
 }
 
-const landingHtmlSchema = z.object({
-  html: z.string().min(200),
-});
-
 export async function generatePhase1LandingHtml(input: {
   project_name: string;
   domain: string | null;
@@ -1033,27 +1256,24 @@ export async function generatePhase1LandingHtml(input: {
   brand_kit: { voice: string; color_palette: string[]; font_pairing: string; logo_prompt: string };
   landing_page: { headline: string; subheadline: string; primary_cta: string; sections: string[]; launch_notes: string[] };
   waitlist_fields: string[];
-}): Promise<string> {
+  project_id?: string;
+}): Promise<{ html: string; traces: ToolTrace[] }> {
   const prompt = `You are the Greenlight Studio Design Agent. Generate a complete, production-ready HTML landing page.
 
 You have access to WebSearch and WebFetch — use them to research modern landing page design patterns, competitive layouts, and current design trends before generating the HTML. Take your time to produce outstanding work.
 
-Return STRICT JSON only:
-{
-  "html": "<full HTML document string>"
-}
-
 Requirements:
-- Complete self-contained HTML document (all CSS in <style> tags, no external dependencies)
+- Complete self-contained HTML document (all CSS in <style> tags, no external dependencies except Google Fonts)
 - Mobile-first responsive design with modern aesthetics
 - Brand color palette: ${JSON.stringify(input.brand_kit.color_palette)}
 - Font pairing: ${input.brand_kit.font_pairing}
 - Brand voice: ${input.brand_kit.voice}
-- Include a waitlist signup form with fields: ${input.waitlist_fields.join(', ')} (form action POST to /api/waitlist)
+- Include a waitlist signup form with fields: ${input.waitlist_fields.join(', ')} (form action POST to /api/waitlist)${input.project_id ? `\n- Include hidden input: <input type="hidden" name="project_id" value="${input.project_id}"/>` : ''}
 - Include Open Graph meta tags for social sharing
 - Include semantic HTML and accessibility attributes (aria labels, alt text)
 - Use smooth scroll, subtle animations, and professional typography
 - Design should feel competitive with modern SaaS landing pages — not generic or template-like
+- Include form submission JavaScript that POSTs as JSON and shows a success state
 
 Content to incorporate:
 - Project: ${input.project_name}${input.domain ? ` (${input.domain})` : ''}
@@ -1064,11 +1284,23 @@ Content to incorporate:
 - Launch notes: ${JSON.stringify(input.landing_page.launch_notes)}
 - Idea: ${input.idea_description.slice(0, 400)}
 
-Rules:
-- No markdown code fences
-- No commentary outside JSON
-- The html field must contain the COMPLETE HTML document from <!doctype html> to </html>`;
+Output ONLY the complete HTML document from <!DOCTYPE html> to </html>. No JSON wrapping, no markdown fences, no commentary.`;
 
-  const result = await runJsonQuery(prompt, landingHtmlSchema, undefined, AGENT_PROFILES.design);
-  return result.html;
+  const result = await runRawQuery(prompt, AGENT_PROFILES.designer_full);
+  let html = result.text;
+
+  const docTypeMatch = html.match(/<!DOCTYPE\s+html[^>]*>/i);
+  if (docTypeMatch) {
+    const startIdx = html.indexOf(docTypeMatch[0]);
+    const endIdx = html.lastIndexOf("</html>");
+    if (startIdx >= 0 && endIdx > startIdx) {
+      html = html.slice(startIdx, endIdx + "</html>".length);
+    }
+  }
+
+  if (!html.includes("<!DOCTYPE") && !html.includes("<!doctype")) {
+    throw new Error("Agent did not produce a valid HTML document");
+  }
+
+  return { html, traces: result.traces };
 }

@@ -6,6 +6,7 @@ import { StudioNav } from "@/components/studio-nav";
 import { ProjectChatPane } from "@/components/project-chat-pane";
 import { RetryTaskButton } from "@/components/retry-task-button";
 import { AgentActivityIndicator } from "@/components/agent-activity";
+import { AgentProcessPanel } from "@/components/agent-process-panel";
 import { getOwnedProjects, getPendingApprovalsByProject, getPacketsByProject, getProjectAssets } from "@/lib/studio";
 import type { ProjectPacketRow, ProjectAssetRow } from "@/lib/studio";
 import { withRetry } from "@/lib/retry";
@@ -433,6 +434,8 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
             </div>
           )}
         </section>
+
+        <AgentProcessPanel projectId={projectId} />
 
         <section className="studio-card">
           <h2>Latest Tasks</h2>

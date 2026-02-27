@@ -8,7 +8,7 @@ import { deriveNightShiftActions } from "@/lib/nightshift";
 import { processWeeklyDigests, processNudgeEmails } from "@/lib/drip-emails";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 800;
 
 type ProjectRow = {
   id: string;

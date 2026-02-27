@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
 
-type StudioTab = "board" | "projects" | "inbox" | "chat" | "tasks" | "settings";
+type StudioTab = "dashboard" | "board" | "projects" | "inbox" | "chat" | "tasks" | "settings";
 
 const tabs: Array<{ id: StudioTab; label: string; href: string }> = [
-  { id: "board", label: "Board", href: "/board" },
-  { id: "inbox", label: "Inbox", href: "/inbox" },
+  { id: "dashboard", label: "Exec Dash", href: "/dashboard" },
+  { id: "board", label: "Studio Overview", href: "/board" },
+  { id: "inbox", label: "Approvals", href: "/inbox" },
   { id: "chat", label: "Chat", href: "/chat" },
-  { id: "tasks", label: "Tasks", href: "/tasks" },
+  { id: "tasks", label: "Activity Log", href: "/tasks" },
   { id: "settings", label: "Settings", href: "/settings" },
 ];
 
@@ -42,7 +43,7 @@ export function StudioNav({ active, pendingCount, runningCount = 0, urgentCount 
   return (
     <nav className="nav" style={{ position: "relative" }}>
       <div className="nav-left">
-        <Link href="/board" className={`logo ${isAlive ? "logo-breathing" : ""}`}>
+        <Link href="/dashboard" className={`logo ${isAlive ? "logo-breathing" : ""}`}>
           ▲ <span className="logo-text">Startup Machine</span>
         </Link>
         <div className="nav-tabs">

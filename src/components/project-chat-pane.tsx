@@ -9,9 +9,16 @@ type ChatMessage = {
   created_at: string;
 };
 
+type DeliverableLink = {
+  label: string;
+  href: string;
+  external?: boolean;
+};
+
 type ProjectChatPaneProps = {
   projectId: string;
   title?: string;
+  deliverableLinks?: DeliverableLink[];
 };
 
 function roleLabel(role: ChatMessage["role"]) {
@@ -20,7 +27,7 @@ function roleLabel(role: ChatMessage["role"]) {
   return "You";
 }
 
-export function ProjectChatPane({ projectId, title = "Project Chat" }: ProjectChatPaneProps) {
+export function ProjectChatPane({ projectId, title = "Project Chat", deliverableLinks }: ProjectChatPaneProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -118,6 +125,24 @@ export function ProjectChatPane({ projectId, title = "Project Chat" }: ProjectCh
           Refresh
         </button>
       </div>
+
+      {deliverableLinks && deliverableLinks.length > 0 && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", padding: "8px 0", borderBottom: "1px solid var(--border, rgba(255,255,255,.08))", marginBottom: 8 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text3, #64748B)", textTransform: "uppercase", letterSpacing: ".04em", alignSelf: "center" }}>Deliverables:</span>
+          {deliverableLinks.map((link) => (
+            <a
+              key={link.href}
+              href={link.href}
+              target={link.external ? "_blank" : undefined}
+              rel={link.external ? "noopener noreferrer" : undefined}
+              className="btn btn-details btn-sm"
+              style={{ fontSize: 11, padding: "3px 10px" }}
+            >
+              {link.label}
+            </a>
+          ))}
+        </div>
+      )}
 
       {error && <p className="meta-line bad">{error}</p>}
 

@@ -2,6 +2,7 @@ import { createServiceSupabase } from "@/lib/supabase";
 import { log_task, save_packet } from "@/lib/supabase-mcp";
 import { withRetry } from "@/lib/retry";
 import { generatePhase1Packet, generatePhase2Packet, generatePhase3Packet } from "@/lib/agent";
+import { generatePhase1Deliverables } from "@/lib/phase1-deliverables";
 import type { Phase1Packet, Phase2Packet, Phase3Packet } from "@/types/phase-packets";
 
 type ProjectRow = {
@@ -306,6 +307,13 @@ export async function enqueueNextPhaseArtifacts(projectId: string, phase: number
   if (approvalLookupError) throw new Error(approvalLookupError.message);
   if (existingApproval && !forceRegenerate) return;
 
+  await db
+    .from("tasks")
+    .update({ status: "failed", detail: "Superseded by retry", completed_at: new Date().toISOString() })
+    .eq("project_id", projectId)
+    .eq("status", "running")
+    .like("description", `phase${plan.phase}_%`);
+
   await withRetry(() =>
     log_task(projectId, "ceo_agent", `phase${plan.phase}_init`, "running", `Initializing Phase ${plan.phase} artifacts`),
   );
@@ -314,7 +322,18 @@ export async function enqueueNextPhaseArtifacts(projectId: string, phase: number
     await withRetry(() => log_task(projectId, task.agent, task.description, "running", task.detail));
   }
 
-  const packet = await generatePacketForPhase(project as ProjectRow, plan.phase, revisionGuidance);
+  let packet: Phase1Packet | Phase2Packet | Phase3Packet;
+  try {
+    packet = await generatePacketForPhase(project as ProjectRow, plan.phase, revisionGuidance);
+  } catch (genError) {
+    const errorMsg = genError instanceof Error ? genError.message : "Phase artifact generation failed";
+    for (const task of plan.tasks) {
+      await log_task(projectId, task.agent, task.description, "failed", errorMsg).catch(() => {});
+    }
+    await log_task(projectId, "ceo_agent", `phase${plan.phase}_init`, "failed", errorMsg).catch(() => {});
+    throw genError;
+  }
+
   const packetId = await withRetry(() => save_packet(projectId, plan.phase, packet));
   const confidence = packet.reasoning_synopsis.confidence;
   const risk = riskFromConfidence(confidence);
@@ -322,6 +341,10 @@ export async function enqueueNextPhaseArtifacts(projectId: string, phase: number
   for (const task of plan.tasks) {
     await withRetry(() => log_task(projectId, task.agent, task.description, "completed", task.detail));
   }
+
+  await withRetry(() =>
+    log_task(projectId, "ceo_agent", `phase${plan.phase}_init`, "completed", `Phase ${plan.phase} initialization complete`),
+  );
 
   await withRetry(() =>
     log_task(
@@ -332,6 +355,23 @@ export async function enqueueNextPhaseArtifacts(projectId: string, phase: number
       `Phase ${plan.phase} artifacts generated (${confidence}/100 confidence)`,
     ),
   );
+
+  if (plan.phase === 1) {
+    try {
+      await generatePhase1Deliverables(
+        {
+          id: projectId,
+          name: (project as ProjectRow).name,
+          domain: (project as ProjectRow).domain,
+          idea_description: (project as ProjectRow).idea_description,
+          owner_clerk_id: undefined,
+        },
+        packet as Phase1Packet,
+      );
+    } catch {
+      // Deliverable generation failures are non-fatal — tasks are already individually logged
+    }
+  }
 
   if (forceRegenerate) {
     await withRetry(() =>

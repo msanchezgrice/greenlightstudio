@@ -17,6 +17,8 @@ export type ProjectSummary = {
   } | null;
   night_shift: boolean;
   focus_areas: string[] | null;
+  live_url: string | null;
+  deploy_status: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -42,7 +44,7 @@ export async function getOwnedProjects(userId: string) {
   const { data, error } = await withRetry(() =>
     db
       .from("projects")
-      .select("id,name,phase,domain,repo_url,runtime_mode,permissions,night_shift,focus_areas,created_at,updated_at")
+      .select("id,name,phase,domain,repo_url,runtime_mode,permissions,night_shift,focus_areas,live_url,deploy_status,created_at,updated_at")
       .eq("owner_clerk_id", userId)
       .order("created_at", { ascending: false }),
   );
@@ -241,4 +243,82 @@ export async function getProjectAssets(projectId: string) {
   );
   if (error) throw new Error(error.message);
   return (data ?? []) as ProjectAssetRow[];
+}
+
+const MILESTONE_DESCRIPTIONS = new Set([
+  "phase0_packet", "phase0_complete",
+  "phase1_landing_deploy", "phase1_brand_assets", "phase1_complete",
+  "phase2_distribute", "phase2_email", "phase2_ads",
+  "phase3_deploy", "phase3_golive",
+  "nightshift_summary",
+]);
+
+export async function getRecentMilestones(userId: string, limit = 6) {
+  const db = createServiceSupabase();
+  const { data: projects } = await withRetry(() =>
+    db.from("projects").select("id,name").eq("owner_clerk_id", userId),
+  );
+  if (!projects?.length) return [];
+  const projectIds = projects.map((p) => p.id);
+  const projectNames = new Map(projects.map((p) => [p.id, p.name]));
+  const { data, error } = await withRetry(() =>
+    db
+      .from("tasks")
+      .select("project_id,agent,description,status,detail,created_at")
+      .in("project_id", projectIds)
+      .eq("status", "completed")
+      .order("created_at", { ascending: false })
+      .limit(100),
+  );
+  if (error) throw new Error(error.message);
+  const milestones = (data ?? [])
+    .filter((row) => MILESTONE_DESCRIPTIONS.has(row.description as string))
+    .slice(0, limit);
+  return milestones.map((row) => ({
+    project_name: projectNames.get(row.project_id as string) ?? "Unknown",
+    project_id: row.project_id as string,
+    agent: row.agent as string,
+    description: row.description as string,
+    status: row.status as string,
+    detail: (row.detail as string | null) ?? null,
+    created_at: row.created_at as string,
+  }));
+}
+
+export async function getAllRunningTasks(projectIds: string[]) {
+  if (!projectIds.length) return [];
+  const db = createServiceSupabase();
+  const { data, error } = await withRetry(() =>
+    db
+      .from("tasks")
+      .select("project_id,agent,description,detail")
+      .in("project_id", projectIds)
+      .eq("status", "running")
+      .order("created_at", { ascending: false })
+      .limit(20),
+  );
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => ({
+    project_id: row.project_id as string,
+    agent: row.agent as string,
+    description: row.description as string,
+    detail: (row.detail as string | null) ?? null,
+  }));
+}
+
+const STALE_TASK_THRESHOLD_MIN = 15;
+
+export async function cleanupStaleTasks(projectIds: string[]) {
+  if (!projectIds.length) return 0;
+  const db = createServiceSupabase();
+  const cutoff = new Date(Date.now() - STALE_TASK_THRESHOLD_MIN * 60 * 1000).toISOString();
+  const { data, error } = await db
+    .from("tasks")
+    .update({ status: "failed", detail: "Timed out (stale task cleanup)" })
+    .in("project_id", projectIds)
+    .eq("status", "running")
+    .lt("created_at", cutoff)
+    .select("id");
+  if (error) return 0;
+  return data?.length ?? 0;
 }

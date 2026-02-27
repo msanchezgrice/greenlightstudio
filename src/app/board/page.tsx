@@ -13,6 +13,7 @@ import {
   getPendingApprovalsByProject,
   getRecentActivity,
   getRunningTasks,
+  cleanupStaleTasks,
 } from "@/lib/studio";
 
 export default async function BoardPage() {
@@ -37,6 +38,8 @@ export default async function BoardPage() {
     getRunningTasks(projectIds),
     getRecentActivity(userId),
   ]);
+
+  cleanupStaleTasks(projectIds).catch(() => {});
 
   const nightShiftEnabled = projects.filter((p) => p.night_shift).length;
   const confidences = projects

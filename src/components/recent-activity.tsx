@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
 import { getAgentProfile, humanizeTaskDescription } from "@/lib/phases";
 
 type ActivityItem = {
@@ -10,11 +13,11 @@ type ActivityItem = {
   created_at: string;
 };
 
-function statusEmoji(status: string) {
-  if (status === "completed") return "✅";
-  if (status === "failed") return "❌";
-  if (status === "running") return "⚡";
-  return "⏳";
+function statusColor(status: string) {
+  if (status === "completed") return "var(--green)";
+  if (status === "failed") return "var(--red)";
+  if (status === "running") return "var(--yellow)";
+  return "var(--text3)";
 }
 
 function relativeTime(iso: string) {
@@ -28,36 +31,76 @@ function relativeTime(iso: string) {
   return `${days}d ago`;
 }
 
+function fingerprint(item: ActivityItem) {
+  return `${item.project_id}|${item.description}|${item.created_at}`;
+}
+
 export function RecentActivity({ items }: { items: ActivityItem[] }) {
+  const prevFingerprints = useRef<Set<string>>(new Set());
+  const [freshSet, setFreshSet] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const currentFps = new Set(items.map(fingerprint));
+    if (prevFingerprints.current.size > 0) {
+      const fresh = new Set<string>();
+      for (const fp of currentFps) {
+        if (!prevFingerprints.current.has(fp)) fresh.add(fp);
+      }
+      if (fresh.size > 0) {
+        setFreshSet(fresh);
+        const t = setTimeout(() => setFreshSet(new Set()), 800);
+        prevFingerprints.current = currentFps;
+        return () => clearTimeout(t);
+      }
+    }
+    prevFingerprints.current = currentFps;
+  }, [items]);
+
+  // Live-update relative times every 30s
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 30000);
+    return () => clearInterval(t);
+  }, []);
+
   if (!items.length) return null;
 
   return (
     <section>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "36px 0 16px" }}>
-        <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--heading)", margin: 0 }}>Recent Activity</h2>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--heading)", margin: 0, fontFamily: "var(--font-display)" }}>
+          Recent Activity
+        </h2>
       </div>
-      <div className="activity-grid">
-        {items.map((item, i) => {
+      <div className="timeline">
+        {items.slice(0, 8).map((item, i) => {
           const agent = getAgentProfile(item.agent);
+          const isFresh = freshSet.has(fingerprint(item));
           return (
-            <div key={i} className="activity-card">
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: 8 }}>
-                <span className="activity-title" style={{ fontSize: 12, fontWeight: 600 }}>
-                  {item.project_name}
-                </span>
-                <span className="activity-time">{relativeTime(item.created_at)}</span>
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4, color: "var(--heading)" }}>
-                {humanizeTaskDescription(item.description)}
-              </div>
-              {item.detail && (
-                <div style={{ fontSize: 11, color: "var(--text2)", lineHeight: 1.4 }}>
-                  {item.detail}
+            <div
+              key={`${item.project_id}-${item.created_at}-${i}`}
+              className="timeline-item"
+              style={
+                isFresh
+                  ? { animation: "slideInDown 0.5s ease both" }
+                  : { animation: `fadeInUp 0.4s ease ${i * 0.1}s both` }
+              }
+            >
+              <div className="timeline-dot" style={{ color: statusColor(item.status), background: statusColor(item.status) }} />
+              <div className="timeline-content">
+                <div className="timeline-top">
+                  <span className="timeline-project-name">{item.project_name}</span>
+                  <span className="timeline-time">{relativeTime(item.created_at)}</span>
                 </div>
-              )}
-              <div className="activity-icon">
-                <span className="activity-icon">{statusEmoji(item.status)}</span>{" "}
-                <span style={{ color: agent.color }}>{agent.icon} {agent.name}</span>
+                <div className="timeline-desc">{humanizeTaskDescription(item.description)}</div>
+                {item.detail && (
+                  <div style={{ fontSize: 11, color: "var(--text2)", lineHeight: 1.4, marginBottom: 4 }}>
+                    {item.detail}
+                  </div>
+                )}
+                <div className="timeline-agent" style={{ color: agent.color }}>
+                  {agent.icon} {agent.name}
+                </div>
               </div>
             </div>
           );

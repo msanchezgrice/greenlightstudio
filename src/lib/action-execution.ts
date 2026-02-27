@@ -225,17 +225,22 @@ export async function executeApprovedAction(input: {
           await withRetry(() =>
             log_task(input.project.id, "design_agent", "phase1_design_agent_html", "running", `Design Agent generating landing page (attempt ${agentAttempts})`),
           );
-          html = await generatePhase1LandingHtml({
+          const agentResult = await generatePhase1LandingHtml({
             project_name: input.project.name,
             domain: input.project.domain,
             idea_description: (payload.idea_description as string) ?? input.project.name,
             brand_kit: phasePacket.brand_kit,
             landing_page: phasePacket.landing_page,
             waitlist_fields: phasePacket.waitlist.form_fields,
+            project_id: input.project.id,
           });
+          html = agentResult.html;
           agentSuccess = true;
+          const traceLog = agentResult.traces.length > 0
+            ? ` | Tools: ${agentResult.traces.map((t) => t.tool).join(", ")}`
+            : "";
           await withRetry(() =>
-            log_task(input.project.id, "design_agent", "phase1_design_agent_html", "completed", "Design Agent generated custom landing page"),
+            log_task(input.project.id, "design_agent", "phase1_design_agent_html", "completed", `Design Agent generated custom landing page${traceLog}`),
           );
         } catch (designError) {
           lastAgentError = designError instanceof Error ? designError.message : "Unknown design agent error";

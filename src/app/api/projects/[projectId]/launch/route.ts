@@ -6,7 +6,7 @@ import { createServiceSupabase } from "@/lib/supabase";
 import { logPhase0Failure, runPhase0 } from "@/lib/phase0";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 800;
 
 type LaunchTaskRow = {
   description: string;

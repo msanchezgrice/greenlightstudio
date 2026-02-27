@@ -2,25 +2,35 @@
 
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
-import { humanizeTaskDescription } from "@/lib/phases";
+import { humanizeTaskDescription, getAgentProfile } from "@/lib/phases";
+import { AgentActivityIndicator } from "@/components/agent-activity";
+
+export type RunningAgent = {
+  projectId: string;
+  projectName: string;
+  agent: string;
+  description: string;
+};
 
 /* ---------- AnimatedNumber ---------- */
 
-function AnimatedNumber({ value, duration = 800 }: { value: number; duration?: number }) {
-  const [display, setDisplay] = useState(0);
+export function AnimatedNumber({ value, duration = 800 }: { value: number; duration?: number }) {
+  const [display, setDisplay] = useState(value);
+  const prevValue = useRef(value);
   const raf = useRef<number | null>(null);
 
   useEffect(() => {
-    if (value === 0) {
-      setDisplay(0);
-      return;
-    }
+    const from = prevValue.current;
+    prevValue.current = value;
+
+    if (from === value) return;
+
     const start = performance.now();
     function tick(now: number) {
       const elapsed = now - start;
       const progress = Math.min(elapsed / duration, 1);
-      const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
-      setDisplay(Math.round(value * eased));
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplay(Math.round(from + (value - from) * eased));
       if (progress < 1) raf.current = requestAnimationFrame(tick);
     }
     raf.current = requestAnimationFrame(tick);
@@ -45,6 +55,7 @@ export type ProjectRow = {
   running_desc: string | null;
   latest_task_status: string | null;
   latest_task_desc: string | null;
+  live_url: string | null;
 };
 
 type FilterPhase = "all" | "0" | "1" | "2" | "3" | "failed";
@@ -120,16 +131,101 @@ function confidenceColor(c: number | null): string {
   return "#EF4444";
 }
 
+function NowBanner({ agents }: { agents: RunningAgent[] }) {
+  const prevIds = useRef<Set<string>>(new Set());
+  const [newIds, setNewIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const currentIds = new Set(agents.map((a) => a.projectId));
+    const fresh = new Set<string>();
+    for (const id of currentIds) {
+      if (!prevIds.current.has(id)) fresh.add(id);
+    }
+    prevIds.current = currentIds;
+    if (fresh.size > 0) {
+      setNewIds(fresh);
+      const timer = setTimeout(() => setNewIds(new Set()), 600);
+      return () => clearTimeout(timer);
+    }
+  }, [agents]);
+
+  if (!agents.length) return null;
+  return (
+    <div className="now-banner">
+      <span className="now-label">● Now</span>
+      <div className="now-divider" />
+      {agents.map((a) => {
+        const profile = getAgentProfile(a.agent);
+        const isNew = newIds.has(a.projectId);
+        return (
+          <div
+            key={a.projectId}
+            className="now-agent"
+            style={isNew ? { animation: "fadeInUp 0.5s ease both" } : undefined}
+          >
+            <div
+              className="now-agent-icon"
+              style={{ background: `${profile.color}18`, color: profile.color }}
+            >
+              {profile.icon}
+            </div>
+            <div>
+              <div className="now-agent-name">
+                {profile.name}
+                <span className="live-dot active" style={{ background: profile.color }} />
+              </div>
+              <div className="now-agent-project">{a.projectName}</div>
+              <div className="now-agent-status">{humanizeTaskDescription(a.description)}</div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function BoardContent({
   projects,
   packetCount: _packetCount,
+  runningAgents = [],
 }: {
   projects: ProjectRow[];
   packetCount: number;
+  runningAgents?: RunningAgent[];
 }) {
   const [filter, setFilter] = useState<FilterPhase>("all");
   const [sort, setSort] = useState<SortMode>("updated");
   const [retrying, setRetrying] = useState<Set<string>>(new Set());
+
+  // --- New/changed row detection ---
+  const prevProjects = useRef<Map<string, string>>(new Map());
+  const [newRowIds, setNewRowIds] = useState<Set<string>>(new Set());
+  const [changedRowIds, setChangedRowIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const fresh = new Set<string>();
+    const changed = new Set<string>();
+    for (const p of projects) {
+      const fingerprint = `${p.phase}|${p.running_agent}|${p.latest_task_status}|${p.confidence}`;
+      const prev = prevProjects.current.get(p.id);
+      if (prev === undefined) {
+        fresh.add(p.id);
+      } else if (prev !== fingerprint) {
+        changed.add(p.id);
+      }
+      prevProjects.current.set(p.id, fingerprint);
+    }
+    if (fresh.size > 0) {
+      setNewRowIds(fresh);
+      const t = setTimeout(() => setNewRowIds(new Set()), 800);
+      return () => clearTimeout(t);
+    }
+    if (changed.size > 0) {
+      setChangedRowIds(changed);
+      const t = setTimeout(() => setChangedRowIds(new Set()), 1200);
+      return () => clearTimeout(t);
+    }
+  }, [projects]);
 
   const retryLaunch = useCallback(async (projectId: string) => {
     setRetrying((prev) => new Set(prev).add(projectId));
@@ -190,6 +286,7 @@ export function BoardContent({
 
   return (
     <>
+      <NowBanner agents={runningAgents} />
       <div className="board-filter-bar">
         <div style={{ display: "flex", gap: 6 }}>
           {filters.map((f) => (
@@ -239,9 +336,14 @@ export function BoardContent({
               const status = statusInfo(p);
               const phaseStyle = phaseColors[p.phase] ?? phaseColors[0];
               const confColor = confidenceColor(p.confidence);
+              const isNew = newRowIds.has(p.id);
+              const isChanged = changedRowIds.has(p.id);
 
               return (
-                <tr key={p.id}>
+                <tr
+                  key={p.id}
+                  style={isNew ? { animation: "fadeInUp 0.5s ease both" } : isChanged ? { animation: "statFlashGreen 1s ease" } : undefined}
+                >
                   {/* Project */}
                   <td>
                     <Link
@@ -330,12 +432,19 @@ export function BoardContent({
 
                   {/* Status */}
                   <td>
-                    <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12 }}>
-                      <div className={`board-status-dot ${status.className}`} />
-                      <span style={status.className === "failed" ? { color: "var(--red)" } : undefined}>
-                        {status.label}
-                      </span>
-                    </div>
+                    {p.running_agent ? (
+                      <AgentActivityIndicator
+                        agentKey={p.running_agent}
+                        taskDescription={p.running_desc ? humanizeTaskDescription(p.running_desc) : null}
+                      />
+                    ) : (
+                      <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12 }}>
+                        <div className={`board-status-dot ${status.className}`} />
+                        <span style={status.className === "failed" ? { color: "var(--red)" } : undefined}>
+                          {status.label}
+                        </span>
+                      </div>
+                    )}
                   </td>
 
                   {/* Night Shift */}
@@ -367,6 +476,11 @@ export function BoardContent({
                         <Link href={`/projects/${p.id}/packet`} className="board-action">
                           Packet
                         </Link>
+                      )}
+                      {p.live_url && (
+                        <a href={p.live_url} target="_blank" rel="noopener noreferrer" className="board-action">
+                          Landing
+                        </a>
                       )}
                       <Link href="/inbox" className="board-action">
                         Inbox

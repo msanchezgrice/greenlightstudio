@@ -143,8 +143,33 @@ export async function log_task(projectId: string, agent: string, description: st
     detail: detail ?? null,
   };
 
+  const isTerminal = status === "completed" || status === "failed";
+
   const [{ error: taskError }, { error: logError }] = await withRetry(async () => {
-    const taskResult = await db.from("tasks").insert(taskPayload);
+    let taskResult;
+    if (isTerminal) {
+      const { data: existing } = await db
+        .from("tasks")
+        .select("id")
+        .eq("project_id", projectId)
+        .eq("agent", agent)
+        .eq("description", description)
+        .eq("status", "running")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existing) {
+        taskResult = await db
+          .from("tasks")
+          .update({ status, detail: detail ?? null, completed_at: new Date().toISOString() })
+          .eq("id", existing.id);
+      } else {
+        taskResult = await db.from("tasks").insert(taskPayload);
+      }
+    } else {
+      taskResult = await db.from("tasks").insert(taskPayload);
+    }
     const logResult = await db.from("task_log").insert({ project_id: projectId, step: description, status, detail });
     return [taskResult, logResult] as const;
   });

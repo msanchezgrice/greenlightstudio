@@ -4,6 +4,7 @@ import { withRetry } from "@/lib/retry";
 import {
   welcomeEmail,
   phase0ReadyEmail,
+  phase1ReadyEmail,
   weeklyDigestEmail,
   nudgeNoReviewsEmail,
   nudgeNoSignoffsEmail,
@@ -164,6 +165,70 @@ export async function sendPhase0ReadyDrip(input: {
     await recordDrip({
       userId: input.userId,
       emailType: "phase0_ready",
+      projectId: input.projectId,
+      digestWeek: null,
+      toEmail: input.email,
+      subject,
+      resendMessageId: null,
+      status: "failed",
+      error: detail,
+    }).catch(() => {});
+    return { sent: false, reason: detail };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 1 deliverables ready — called after phase1-deliverables completes
+// ---------------------------------------------------------------------------
+
+export async function sendPhase1ReadyDrip(input: {
+  userId: string;
+  email: string;
+  projectId: string;
+  projectName: string;
+  landingUrl: string | null;
+}): Promise<DripResult> {
+  if (!isResendConfigured()) return { sent: false, reason: "resend_not_configured" };
+
+  const db = createServiceSupabase();
+  const baseUrl = getAppBaseUrl();
+
+  const { count } = await withRetry(() =>
+    db
+      .from("drip_email_log")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", input.userId)
+      .eq("email_type", "phase1_ready")
+      .eq("project_id", input.projectId),
+  );
+  if ((count ?? 0) > 0) return { sent: false, reason: "already_sent" };
+
+  const { subject, html } = phase1ReadyEmail({
+    projectName: input.projectName,
+    projectId: input.projectId,
+    landingUrl: input.landingUrl,
+    baseUrl,
+  });
+
+  try {
+    const result = await sendResendEmail({ to: input.email, subject, html });
+    await recordDrip({
+      userId: input.userId,
+      emailType: "phase1_ready",
+      projectId: input.projectId,
+      digestWeek: null,
+      toEmail: input.email,
+      subject,
+      resendMessageId: result.id,
+      status: "sent",
+      error: null,
+    });
+    return { sent: true };
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : "Send failed";
+    await recordDrip({
+      userId: input.userId,
+      emailType: "phase1_ready",
       projectId: input.projectId,
       digestWeek: null,
       toEmail: input.email,

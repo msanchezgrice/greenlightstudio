@@ -6,6 +6,7 @@ import { StudioNav } from "@/components/studio-nav";
 import { ProjectChatPane } from "@/components/project-chat-pane";
 import { RetryTaskButton } from "@/components/retry-task-button";
 import { AgentActivityIndicator } from "@/components/agent-activity";
+import { AgentProcessPanel } from "@/components/agent-process-panel";
 import { getOwnedProjects, getPendingApprovalsByProject } from "@/lib/studio";
 import { PHASES, phaseStatus, getAgentProfile, humanizeTaskDescription, taskOutputLink, type PhaseId } from "@/lib/phases";
 import { parsePhasePacket, type PhasePacket } from "@/types/phase-packets";
@@ -607,6 +608,8 @@ export default async function ProjectPhaseWorkspacePage({
             </section>
           </>
         )}
+
+        <AgentProcessPanel projectId={projectId} />
 
         <section className="studio-card">
           <h2>Latest Tasks</h2>

@@ -6,7 +6,7 @@ import { withRetry } from "@/lib/retry";
 import { generateProjectChatReply } from "@/lib/agent";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 800;
 
 const postSchema = z.object({
   message: z.string().trim().min(1).max(3000),

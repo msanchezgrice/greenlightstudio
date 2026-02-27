@@ -144,6 +144,45 @@ export function phase0ReadyEmail(input: {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 1 deliverables ready
+// ---------------------------------------------------------------------------
+
+export function phase1ReadyEmail(input: {
+  projectName: string;
+  projectId: string;
+  landingUrl: string | null;
+  baseUrl: string;
+}) {
+  const subject = `Phase 1 deliverables ready — ${input.projectName}`;
+  const landingRow = input.landingUrl
+    ? `<tr>
+        <td width="50%" style="padding:12px;background:#0A0F1A;border:1px solid #1F2937;border-radius:8px">
+          <span style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#64748B;margin-bottom:4px">Landing Page</span>
+          <a href="${esc(input.landingUrl)}" style="color:#22C55E;font-size:14px;font-weight:600;text-decoration:none">Live &rarr;</a>
+        </td>
+        <td width="12"></td>
+        <td width="50%" style="padding:12px;background:#0A0F1A;border:1px solid #1F2937;border-radius:8px">
+          <span style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#64748B;margin-bottom:4px">Brand Kit</span>
+          <span style="font-size:14px;font-weight:600;color:#F1F5F9">Generated</span>
+        </td>
+      </tr>`
+    : "";
+
+  const body = [
+    heading("Your validation assets are ready"),
+    paragraph(
+      `The agents have finished building Phase&nbsp;1 deliverables for <strong style="color:#F1F5F9">${esc(input.projectName)}</strong>. ` +
+      `Your landing page, brand kit, and email sequence are ready for review.`,
+    ),
+    landingRow ? `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 20px">${landingRow}</table>` : "",
+    paragraph("Open the Phase 1 workspace to see all your generated assets and review the gate decision."),
+    btn("View Phase 1 workspace", `${input.baseUrl}/projects/${input.projectId}/phases/1`),
+  ].join("");
+
+  return { subject, html: wrap(subject, `Landing page, brand kit & email sequence for ${input.projectName}`, body) };
+}
+
+// ---------------------------------------------------------------------------
 // Weekly digest
 // ---------------------------------------------------------------------------
 
