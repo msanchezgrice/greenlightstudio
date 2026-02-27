@@ -5,6 +5,7 @@ import { SignInButton, useAuth } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
 import { onboardingSchema, scanResultSchema, type ScanResult } from "@/types/domain";
 import { createBrowserSupabase } from "@/lib/supabase-browser";
+import { humanizeTaskDescription } from "@/lib/phases";
 
 type Step = "import" | "discover" | "results" | "error" | "clarify" | "confirm" | "launched";
 
@@ -1401,7 +1402,7 @@ export function OnboardingWizard() {
               <div className="field-label">Packet Generation Progress{busy && launchElapsed > 3 ? ` — ${formatElapsed(launchElapsed)}` : ""}</div>
               {launchProgress.map((task, index) => (
                 <div key={`${task.created_at}-${index}`} className="task-item">
-                  <span>{task.description}{task.detail ? ` — ${task.detail}` : ""}</span>
+                  <span>{humanizeTaskDescription(task.description)}{task.detail ? ` — ${task.detail}` : ""}</span>
                   <span className={`task-status ${task.status}`}>{task.status}</span>
                 </div>
               ))}
@@ -1446,7 +1447,7 @@ export function OnboardingWizard() {
             <div className="task-progress" style={{ marginTop: 12 }}>
               {launchProgress.map((task, index) => (
                 <div key={`${task.created_at}-${index}`} className="task-item">
-                  <span>{task.description}{task.detail ? ` — ${task.detail}` : ""}</span>
+                  <span>{humanizeTaskDescription(task.description)}{task.detail ? ` — ${task.detail}` : ""}</span>
                   <span className={`task-status ${task.status}`}>{task.status}</span>
                 </div>
               ))}

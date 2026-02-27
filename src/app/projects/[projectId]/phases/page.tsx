@@ -4,7 +4,7 @@ import { createServiceSupabase } from "@/lib/supabase";
 import { withRetry } from "@/lib/retry";
 import { StudioNav } from "@/components/studio-nav";
 import { getOwnedProjects, getPendingApprovalsByProject } from "@/lib/studio";
-import { PHASES, phaseStatus, taskPhase, type PhaseId } from "@/lib/phases";
+import { PHASES, phaseStatus, taskPhase, getAgentProfile, humanizeTaskDescription, type PhaseId } from "@/lib/phases";
 
 type ProjectRow = {
   id: string;
@@ -245,17 +245,24 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
                         </tr>
                       </thead>
                       <tbody>
-                        {phaseTasks.map((task) => (
-                          <tr key={task.id}>
-                            <td>
-                              <div className="table-main">{task.description}</div>
-                              <div className="table-sub">{task.detail ?? "No detail"}</div>
-                            </td>
-                            <td>{task.agent}</td>
-                            <td className={taskClass(task.status)}>{task.status}</td>
-                            <td>{new Date(task.created_at).toLocaleString()}</td>
-                          </tr>
-                        ))}
+                        {phaseTasks.map((task) => {
+                          const agent = getAgentProfile(task.agent);
+                          return (
+                            <tr key={task.id}>
+                              <td>
+                                <div className="table-main">{humanizeTaskDescription(task.description)}</div>
+                                <div className="table-sub">{task.detail ?? ""}</div>
+                              </td>
+                              <td>
+                                <span style={{ color: agent.color, fontWeight: 600 }}>
+                                  {agent.icon} {agent.name}
+                                </span>
+                              </td>
+                              <td className={taskClass(task.status)}>{task.status}</td>
+                              <td>{new Date(task.created_at).toLocaleString()}</td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
