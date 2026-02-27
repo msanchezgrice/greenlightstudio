@@ -8,12 +8,21 @@ export function RetryTaskButton({ projectId }: { projectId: string }) {
   async function handleRetry() {
     setRetrying(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}/launch`, { method: "POST" });
+      const res = await fetch(`/api/projects/${projectId}/launch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ forceNewApproval: true }),
+      });
       if (!res.ok) {
         const json = await res.json().catch(() => null) as Record<string, unknown> | null;
         alert(typeof json?.error === "string" ? json.error : `Retry failed (HTTP ${res.status})`);
       } else {
-        window.location.reload();
+        const json = await res.json().catch(() => null) as Record<string, unknown> | null;
+        if (json?.alreadyRunning) {
+          alert("A launch is already in progress for this project.");
+        } else {
+          window.location.reload();
+        }
       }
     } catch {
       alert("Network error — please try again.");

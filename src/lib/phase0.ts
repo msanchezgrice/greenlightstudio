@@ -3,6 +3,7 @@ import { generatePhase0Packet } from "@/lib/agent";
 import { onboardingSchema, packetSchema, projectAssetSchema, type Packet, type ProjectAsset } from "@/types/domain";
 import { save_packet, log_task } from "@/lib/supabase-mcp";
 import { withRetry } from "@/lib/retry";
+import { sendPhase0ReadyDrip } from "@/lib/drip-emails";
 
 type RunPhase0Options = {
   projectId: string;
@@ -211,4 +212,33 @@ export async function runPhase0({ projectId, userId, revisionGuidance, forceNewA
   }
 
   await withRetry(() => log_task(projectId, "ceo_agent", "phase0_complete", "completed", "Phase 0 packet generated"));
+
+  // Fire-and-forget drip notification for first Phase 0 report
+  try {
+    const dripDb = createServiceSupabase();
+    const [{ data: ownerRow }, { data: projectRow }, { data: packetRow }] = await Promise.all([
+      dripDb.from("users").select("id, email").eq("clerk_id", userId).maybeSingle(),
+      dripDb.from("projects").select("name").eq("id", projectId).single(),
+      dripDb
+        .from("phase_packets")
+        .select("confidence_score, ceo_recommendation")
+        .eq("project_id", projectId)
+        .eq("phase", 0)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+    if (ownerRow?.email && projectRow?.name && packetRow) {
+      await sendPhase0ReadyDrip({
+        userId: ownerRow.id as string,
+        email: ownerRow.email as string,
+        projectId,
+        projectName: projectRow.name as string,
+        confidence: (packetRow.confidence_score as number) ?? 50,
+        recommendation: (packetRow.ceo_recommendation as string) ?? "revise",
+      });
+    }
+  } catch {
+    // Non-fatal: drip email failure should not break phase0
+  }
 }

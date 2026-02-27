@@ -98,7 +98,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
     withRetry(() =>
       db
         .from("projects")
-        .select("id,name,domain,repo_url,phase,runtime_mode,permissions,night_shift,focus_areas,created_at,updated_at")
+        .select("id,name,domain,repo_url,phase,runtime_mode,permissions,night_shift,focus_areas,live_url,deploy_status,created_at,updated_at")
         .eq("id", projectId)
         .eq("owner_clerk_id", userId)
         .maybeSingle(),
@@ -203,6 +203,16 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
             <Link href="/inbox" className="btn btn-details">
               Open Inbox
             </Link>
+            {project.live_url && (
+              <a
+                href={project.live_url as string}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn btn-approve"
+              >
+                View Landing Page
+              </a>
+            )}
           </div>
         </div>
 

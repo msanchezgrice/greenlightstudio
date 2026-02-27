@@ -47,6 +47,22 @@
   color: #f8fafc;
 }
 
+.navSignIn {
+  background: transparent;
+  border: 1px solid #1e293b;
+  color: #94a3b8;
+  padding: 7px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.navSignIn:hover {
+  border-color: rgb(34 197 94 / 25%);
+  color: #f8fafc;
+}
+
 .navCta {
   background: #22c55e;
   color: #070b14;

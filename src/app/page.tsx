@@ -1,6 +1,7 @@
 import Link from "next/link";
 import styles from "./landing.module.css";
 import { WaitlistForm } from "@/components/waitlist-form";
+import { SignInButton, SignedIn, SignedOut } from "@clerk/nextjs";
 
 export default function Home() {
   return (
@@ -13,9 +14,17 @@ export default function Home() {
           <a href="#phases">Phases</a>
           <a href="#features">Features</a>
           <a href="#agents">Agents</a>
-          <a className={styles.navCta} href="#cta">
-            Join Waitlist
-          </a>
+          <SignedOut>
+            <SignInButton mode="modal">
+              <button className={styles.navSignIn}>Sign In</button>
+            </SignInButton>
+          </SignedOut>
+          <SignedIn>
+            <Link href="/board" className={styles.navCta}>Dashboard</Link>
+          </SignedIn>
+          <SignedOut>
+            <Link href="/onboarding" className={styles.navCta}>Get Started</Link>
+          </SignedOut>
         </div>
         </div>
       </nav>
@@ -28,9 +37,9 @@ export default function Home() {
           the market, drafts a pitch deck, and delivers a go/no-go recommendation by morning.
         </p>
         <div className={styles.heroCtas}>
-          <a href="#cta" className={styles.btnPrimary}>
-            Join the Waitlist →
-          </a>
+          <Link href="/onboarding" className={styles.btnPrimary}>
+            Get Started →
+          </Link>
           <a href="#phases" className={styles.btnSecondary}>
             See the pipeline
           </a>

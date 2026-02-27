@@ -5,6 +5,7 @@ import { withRetry } from "@/lib/retry";
 import { processDueEmailJobs } from "@/lib/action-execution";
 import { parsePhasePacket } from "@/types/phase-packets";
 import { deriveNightShiftActions } from "@/lib/nightshift";
+import { processWeeklyDigests, processNudgeEmails } from "@/lib/drip-emails";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -93,7 +94,15 @@ async function queueExecutionApproval(input: {
   return true;
 }
 
+export async function GET(req: Request) {
+  return nightShiftHandler(req);
+}
+
 export async function POST(req: Request) {
+  return nightShiftHandler(req);
+}
+
+async function nightShiftHandler(req: Request) {
   const cronSecret = process.env.CRON_SECRET;
   const nightShiftSecret = process.env.NIGHT_SHIFT_SECRET;
   const url = new URL(req.url);
@@ -300,11 +309,29 @@ export async function POST(req: Request) {
     }
   }
 
+  let dripDigest: Awaited<ReturnType<typeof processWeeklyDigests>> | null = null;
+  let dripNudge: Awaited<ReturnType<typeof processNudgeEmails>> | null = null;
+  let dripError: string | null = null;
+
+  try {
+    if (typeof processWeeklyDigests === "function") {
+      dripDigest = await processWeeklyDigests();
+    }
+    if (typeof processNudgeEmails === "function") {
+      dripNudge = await processNudgeEmails();
+    }
+  } catch (error) {
+    dripError = error instanceof Error ? error.message : "Failed processing drip emails";
+  }
+
   return NextResponse.json({
     ran_at: new Date().toISOString(),
     project_count: projects?.length ?? 0,
     email_jobs: emailJobSummary,
     email_jobs_error: emailJobError,
+    drip_digest: dripDigest,
+    drip_nudge: dripNudge,
+    drip_error: dripError,
     results,
   });
 }

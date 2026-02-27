@@ -213,23 +213,38 @@ export async function executeApprovedAction(input: {
 
     if (input.approval.action_type === "deploy_landing_page") {
       const phasePacket = phase1PacketSchema.parse(payload.phase_packet ?? payload);
-      let html: string;
-      try {
-        html = await generatePhase1LandingHtml({
-          project_name: input.project.name,
-          domain: input.project.domain,
-          idea_description: (payload.idea_description as string) ?? input.project.name,
-          brand_kit: phasePacket.brand_kit,
-          landing_page: phasePacket.landing_page,
-          waitlist_fields: phasePacket.waitlist.form_fields,
-        });
+      let html = "";
+      let agentAttempts = 0;
+      const maxAgentAttempts = 2;
+      let agentSuccess = false;
+      let lastAgentError = "";
+
+      while (agentAttempts < maxAgentAttempts && !agentSuccess) {
+        agentAttempts++;
+        try {
+          await withRetry(() =>
+            log_task(input.project.id, "design_agent", "phase1_design_agent_html", "running", `Design Agent generating landing page (attempt ${agentAttempts})`),
+          );
+          html = await generatePhase1LandingHtml({
+            project_name: input.project.name,
+            domain: input.project.domain,
+            idea_description: (payload.idea_description as string) ?? input.project.name,
+            brand_kit: phasePacket.brand_kit,
+            landing_page: phasePacket.landing_page,
+            waitlist_fields: phasePacket.waitlist.form_fields,
+          });
+          agentSuccess = true;
+          await withRetry(() =>
+            log_task(input.project.id, "design_agent", "phase1_design_agent_html", "completed", "Design Agent generated custom landing page"),
+          );
+        } catch (designError) {
+          lastAgentError = designError instanceof Error ? designError.message : "Unknown design agent error";
+        }
+      }
+
+      if (!agentSuccess) {
         await withRetry(() =>
-          log_task(input.project.id, "design_agent", "phase1_design_agent_html", "completed", "Design Agent generated custom landing page"),
-        );
-      } catch (designError) {
-        const detail = designError instanceof Error ? designError.message : "Unknown design agent error";
-        await withRetry(() =>
-          log_task(input.project.id, "design_agent", "phase1_design_agent_fallback", "completed", `Design Agent failed, using template: ${detail.slice(0, 200)}`),
+          log_task(input.project.id, "design_agent", "phase1_design_agent_fallback", "completed", `Design Agent failed after ${agentAttempts} attempts, using template: ${lastAgentError.slice(0, 200)}`),
         );
         html = renderPhase1LandingHtml(input.project, phasePacket);
       }

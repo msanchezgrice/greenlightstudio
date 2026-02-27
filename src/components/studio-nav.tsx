@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { UserButton } from "@clerk/nextjs";
 
 type StudioTab = "board" | "projects" | "inbox" | "chat" | "tasks" | "settings";
 
@@ -28,6 +29,14 @@ export function StudioNav({ active, pendingCount }: { active: StudioTab; pending
       </div>
       <div className="nav-right">
         <div className="meta-line">{pendingCount} pending</div>
+        <UserButton
+          afterSignOutUrl="/"
+          appearance={{
+            elements: {
+              avatarBox: { width: 30, height: 30 },
+            },
+          }}
+        />
       </div>
     </nav>
   );

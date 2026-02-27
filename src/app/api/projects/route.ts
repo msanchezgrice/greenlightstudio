@@ -1,9 +1,10 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { onboardingSchema } from "@/types/domain";
 import { create_project, upsertUser } from "@/lib/supabase-mcp";
 import { getOwnedProjects, getLatestPacketsByProject } from "@/lib/studio";
 import { withRetry } from "@/lib/retry";
+import { sendWelcomeDrip } from "@/lib/drip-emails";
 
 export async function GET() {
   const { userId } = await auth();
@@ -161,6 +162,24 @@ export async function POST(req: Request) {
       );
       projectIds.push(projectId);
     }
+
+    const firstProjectName = projectSeedName({
+      domain: targetDomains[0] ?? null,
+      ideaDescription: seedIdeaDescription,
+      repoUrl,
+      scanTitle: scanMetaTitle,
+    });
+
+    after(async () => {
+      try {
+        const allProjects = await getOwnedProjects(userId);
+        if (allProjects.length === projectIds.length && primaryEmail) {
+          await sendWelcomeDrip(userRowId, primaryEmail, firstProjectName);
+        }
+      } catch {
+        // Non-fatal: welcome email failure should not affect project creation
+      }
+    });
 
     return NextResponse.json({ projectId: projectIds[0], projectIds, createdCount: projectIds.length });
   } catch (error) {

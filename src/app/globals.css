@@ -3493,6 +3493,69 @@ a {
   line-height: 1.4;
 }
 
+/* ---------- Task Queue Animations ---------- */
+
+.task-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.task-status-badge.running {
+  background: #eab30812;
+  color: var(--yellow);
+  animation: taskRunPulse 2s ease-in-out infinite;
+}
+
+.task-status-badge.completed {
+  background: #22c55e12;
+  color: var(--green);
+}
+
+.task-status-badge.failed {
+  background: #ef444412;
+  color: var(--red);
+}
+
+.task-status-badge.queued {
+  background: #64748b12;
+  color: var(--text3);
+}
+
+.task-running-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--yellow);
+  animation: pulse-dot 1.2s ease-in-out infinite;
+  box-shadow: 0 0 6px rgba(234,179,8,0.5);
+}
+
+@keyframes taskRunPulse {
+  0%, 100% { background: #eab30812; }
+  50% { background: #eab30820; }
+}
+
+.task-row-running {
+  background: #eab30806 !important;
+  border-left: 2px solid var(--yellow);
+}
+
+.task-row-completed-glow {
+  animation: completedGlow 2s ease-out !important;
+}
+
+@keyframes completedGlow {
+  0% { background: #22c55e20; box-shadow: inset 0 0 20px rgba(34,197,94,0.15); }
+  100% { background: transparent; box-shadow: none; }
+}
+
 /* ---------- Animation ---------- */
 
 @keyframes pulse-dot {

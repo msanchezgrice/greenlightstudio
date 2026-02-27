@@ -1,11 +1,10 @@
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { StudioNav } from "@/components/studio-nav";
-import { RetryTaskButton } from "@/components/retry-task-button";
 import { createServiceSupabase } from "@/lib/supabase";
 import { getOwnedProjects, getPendingApprovalsByProject } from "@/lib/studio";
 import { withRetry } from "@/lib/retry";
-import { getAgentProfile, humanizeTaskDescription, taskOutputLink } from "@/lib/phases";
+import { AnimatedTaskQueue } from "@/components/animated-task-queue";
 
 type TaskRow = {
   id: string;
@@ -26,13 +25,6 @@ type TaskLogRow = {
   created_at: string;
 };
 
-function statusClass(status: string) {
-  if (status === "completed") return "good";
-  if (status === "failed") return "bad";
-  if (status === "running" || status === "queued") return "warn";
-  return "tone-muted";
-}
-
 export default async function TasksPage() {
   const { userId } = await auth();
   if (!userId) return null;
@@ -40,7 +32,7 @@ export default async function TasksPage() {
   const db = createServiceSupabase();
   const projects = await getOwnedProjects(userId);
   const projectIds = projects.map((project) => project.id);
-  const projectNameMap = new Map(projects.map((project) => [project.id, project.name]));
+  const projectNameMap = Object.fromEntries(projects.map((project) => [project.id, project.name]));
 
   const [{ total: pendingCount }, tasksQuery, logQuery] = await Promise.all([
     getPendingApprovalsByProject(projectIds),
@@ -83,93 +75,11 @@ export default async function TasksPage() {
             <p className="meta-line">Create a project first to generate tasks and logs.</p>
           </section>
         ) : (
-          <>
-            <section className="studio-card">
-              <h2>Task Queue</h2>
-              {!tasks.length ? (
-                <p className="meta-line">No tasks recorded yet.</p>
-              ) : (
-                <div className="table-shell">
-                  <table className="studio-table compact">
-                    <thead>
-                      <tr>
-                        <th>Project</th>
-                        <th>Agent</th>
-                        <th>Task</th>
-                        <th>Status</th>
-                        <th>Created</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {tasks.map((task) => {
-                        const agent = getAgentProfile(task.agent);
-                        const output = taskOutputLink(task.description, task.project_id);
-                        return (
-                          <tr key={task.id}>
-                            <td>{projectNameMap.get(task.project_id) ?? task.project_id}</td>
-                            <td>
-                              <span style={{ color: agent.color, fontWeight: 600 }}>
-                                {agent.icon} {agent.name}
-                              </span>
-                            </td>
-                            <td>
-                              <div className="table-main">{humanizeTaskDescription(task.description)}</div>
-                              <div className="table-sub">{task.detail ?? ""}</div>
-                            </td>
-                            <td className={statusClass(task.status)}>{task.status}</td>
-                            <td>{new Date(task.created_at).toLocaleString()}</td>
-                            <td style={{ whiteSpace: "nowrap" }}>
-                              {task.status === "failed" && (
-                                <RetryTaskButton projectId={task.project_id} />
-                              )}
-                              {task.status === "completed" && output && (
-                                <Link href={output.href} className="btn btn-details btn-sm">
-                                  {output.label}
-                                </Link>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-
-            <section className="studio-card">
-              <h2>Task Log</h2>
-              {!logRows.length ? (
-                <p className="meta-line">No task log entries yet.</p>
-              ) : (
-                <div className="table-shell">
-                  <table className="studio-table compact">
-                    <thead>
-                      <tr>
-                        <th>Project</th>
-                        <th>Step</th>
-                        <th>Status</th>
-                        <th>Detail</th>
-                        <th>Created</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {logRows.map((entry) => (
-                        <tr key={entry.id}>
-                          <td>{projectNameMap.get(entry.project_id) ?? entry.project_id}</td>
-                          <td>{humanizeTaskDescription(entry.step)}</td>
-                          <td className={statusClass(entry.status)}>{entry.status}</td>
-                          <td>{entry.detail ?? ""}</td>
-                          <td>{new Date(entry.created_at).toLocaleString()}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-          </>
+          <AnimatedTaskQueue
+            tasks={tasks}
+            logRows={logRows}
+            projectNameMap={projectNameMap}
+          />
         )}
       </main>
     </>

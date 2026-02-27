@@ -214,6 +214,154 @@ function saveCacheStore(store: CacheStore) {
 }
 
 // ---------------------------------------------------------------------------
+// Project Briefing — shows key actions & recent tasks in chat
+// ---------------------------------------------------------------------------
+
+type BriefingTask = {
+  agent: string;
+  description: string;
+  status: string;
+  detail: string | null;
+  created_at: string;
+};
+
+type BriefingApproval = {
+  title: string;
+  status: string;
+  risk: string;
+  action_type: string;
+};
+
+function ProjectBriefing({ projectId }: { projectId: string }) {
+  const [tasks, setTasks] = useState<BriefingTask[]>([]);
+  const [approvals, setApprovals] = useState<BriefingApproval[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [visible, setVisible] = useState(0);
+  const prevProjectId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (projectId === prevProjectId.current) return;
+    prevProjectId.current = projectId;
+    setLoaded(false);
+    setVisible(0);
+
+    Promise.all([
+      fetch(`/api/projects/${projectId}/progress`).then((r) => r.ok ? r.json() : null),
+    ])
+      .then(([progressData]) => {
+        const p = progressData as { tasks?: BriefingTask[]; approvals?: BriefingApproval[] } | null;
+        setTasks(Array.isArray(p?.tasks) ? p.tasks.slice(0, 8) : []);
+        setApprovals(Array.isArray(p?.approvals) ? p.approvals.filter((a) => a.status === "pending").slice(0, 4) : []);
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!loaded || tasks.length === 0) return;
+    let count = 0;
+    const timer = setInterval(() => {
+      count += 1;
+      setVisible(Math.min(count, tasks.length));
+      if (count >= tasks.length) clearInterval(timer);
+    }, 200);
+    return () => clearInterval(timer);
+  }, [loaded, tasks.length]);
+
+  if (!loaded || tasks.length === 0) return null;
+
+  const visibleTasks = tasks.slice(0, visible);
+  const runningTasks = tasks.filter((t) => t.status === "running");
+  const completedTasks = tasks.filter((t) => t.status === "completed");
+  const failedTasks = tasks.filter((t) => t.status === "failed");
+
+  return (
+    <div style={{ animation: "fadeInUp 0.4s ease both", marginBottom: 16 }}>
+      <div className="chat-data-card" style={{ borderColor: "#22c55e33" }}>
+        <div className="chat-data-card-title">
+          {CEO.icon} Recent Activity
+        </div>
+        <div className="chat-data-card-row">
+          <span>Running</span>
+          <span style={{ color: runningTasks.length > 0 ? "var(--yellow)" : "var(--text3)" }}>
+            {runningTasks.length} task{runningTasks.length !== 1 ? "s" : ""}
+          </span>
+        </div>
+        <div className="chat-data-card-row">
+          <span>Completed</span>
+          <span style={{ color: "var(--green)" }}>{completedTasks.length}</span>
+        </div>
+        {failedTasks.length > 0 && (
+          <div className="chat-data-card-row">
+            <span>Failed</span>
+            <span style={{ color: "var(--red)" }}>{failedTasks.length}</span>
+          </div>
+        )}
+        {approvals.length > 0 && (
+          <div className="chat-data-card-row">
+            <span>Pending Approvals</span>
+            <span style={{ color: "var(--yellow)" }}>{approvals.length}</span>
+          </div>
+        )}
+        <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+          {visibleTasks.map((task, i) => {
+            const agent = AGENT_PROFILES[task.agent] ?? { icon: "🤖", name: task.agent, color: "#94A3B8" };
+            const isRunning = task.status === "running";
+            return (
+              <div
+                key={`${task.description}-${task.created_at}`}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  fontSize: 11,
+                  padding: "4px 6px",
+                  borderRadius: 6,
+                  background: isRunning ? "#eab30808" : "transparent",
+                  animation: `fadeInUp 0.3s ease ${i * 0.15}s both`,
+                }}
+              >
+                <span style={{ color: agent.color }}>{agent.icon}</span>
+                <span style={{ color: "var(--text2)", flex: 1 }}>
+                  {task.detail?.slice(0, 80) || task.description.replace(/_/g, " ")}
+                </span>
+                <span style={{
+                  fontSize: 10,
+                  fontWeight: 600,
+                  textTransform: "uppercase",
+                  color: isRunning ? "var(--yellow)" : task.status === "completed" ? "var(--green)" : task.status === "failed" ? "var(--red)" : "var(--text3)",
+                }}>
+                  {isRunning && "● "}{task.status}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        {approvals.length > 0 && (
+          <div style={{ marginTop: 8, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+            {approvals.map((a, i) => (
+              <Link
+                key={i}
+                href="/inbox"
+                style={{
+                  display: "block",
+                  fontSize: 11,
+                  color: "var(--yellow)",
+                  padding: "3px 0",
+                  textDecoration: "none",
+                }}
+              >
+                ⚠ {a.title} — needs your review
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -476,6 +624,8 @@ export function ChatPage() {
             {/* Messages */}
             <div className="chat-body">
               {error && <p className="alert error">{error}</p>}
+
+              <ProjectBriefing projectId={selectedProject.id} />
 
               {loadingMessages && messages.length === 0 ? (
                 <p className="meta-line" style={{ padding: "24px", textAlign: "center" }}>

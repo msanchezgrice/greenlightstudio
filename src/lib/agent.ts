@@ -35,6 +35,29 @@ const projectChatReplySchema = z.object({
   reply: z.string().min(1).max(4000),
 });
 
+function repairChatReply(value: unknown): unknown {
+  if (typeof value === "string" && value.trim().length > 0) {
+    return { reply: value.trim().slice(0, 4000) };
+  }
+  if (!isRecord(value)) return value;
+  if (typeof value.reply === "string" && value.reply.trim()) return value;
+
+  const candidates = [value.response, value.message, value.answer, value.content, value.text, value.output];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim().length > 0) {
+      return { reply: candidate.trim().slice(0, 4000) };
+    }
+  }
+
+  for (const key of Object.keys(value)) {
+    if (typeof value[key] === "string" && (value[key] as string).trim().length > 20) {
+      return { reply: (value[key] as string).trim().slice(0, 4000) };
+    }
+  }
+
+  return value;
+}
+
 const phase0RevisionPatchSchema = z
   .object({
     tagline: z.string().optional(),
@@ -747,7 +770,16 @@ Behavior rules:
 - No placeholder text.
 - Reply in <= 200 words unless user explicitly asks for more detail.`;
 
-  const parsed = await runJsonQuery(prompt, projectChatReplySchema, undefined, AGENT_PROFILES.chat);
+  let parsed: z.infer<typeof projectChatReplySchema>;
+  try {
+    parsed = await runJsonQuery(prompt, projectChatReplySchema, repairChatReply, AGENT_PROFILES.chat);
+  } catch (agentError) {
+    const msg = agentError instanceof Error ? agentError.message : "";
+    if (msg.includes("invalid_type") || msg.includes("non-JSON") || msg.includes("empty response")) {
+      return "I wasn't able to process that request. Could you rephrase your question? If you shared a URL, try describing what you'd like to know about it instead.";
+    }
+    throw agentError;
+  }
   const reply = parsed.reply.trim();
   if (!reply) {
     throw new Error("Chat reply was empty");

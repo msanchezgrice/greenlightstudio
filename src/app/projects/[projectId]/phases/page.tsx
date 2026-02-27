@@ -12,6 +12,7 @@ type ProjectRow = {
   domain: string | null;
   phase: number;
   runtime_mode: "shared" | "attached";
+  live_url: string | null;
   updated_at: string;
 };
 
@@ -59,6 +60,13 @@ function phaseChip(status: string) {
   return "phase-upcoming";
 }
 
+const phaseColorMap: Record<number, { gradient: string; border: string; glow: string; accent: string }> = {
+  0: { gradient: "linear-gradient(135deg, #22c55e12, #22c55e06)", border: "#22c55e44", glow: "0 0 20px rgba(34,197,94,0.08)", accent: "#22c55e" },
+  1: { gradient: "linear-gradient(135deg, #3b82f612, #3b82f606)", border: "#3b82f644", glow: "0 0 20px rgba(59,130,246,0.08)", accent: "#3b82f6" },
+  2: { gradient: "linear-gradient(135deg, #a855f712, #a855f706)", border: "#a855f744", glow: "0 0 20px rgba(168,85,247,0.08)", accent: "#a855f7" },
+  3: { gradient: "linear-gradient(135deg, #eab30812, #eab30806)", border: "#eab30844", glow: "0 0 20px rgba(234,179,8,0.08)", accent: "#eab308" },
+};
+
 export default async function ProjectPhasesPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { userId } = await auth();
   if (!userId) return null;
@@ -74,7 +82,7 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
     withRetry(() =>
       db
         .from("projects")
-        .select("id,name,domain,phase,runtime_mode,updated_at")
+        .select("id,name,domain,phase,runtime_mode,live_url,updated_at")
         .eq("id", projectId)
         .eq("owner_clerk_id", userId)
         .maybeSingle(),
@@ -161,12 +169,38 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
           <div className="phase-track">
             {PHASES.map((phase) => {
               const status = phaseStatus(project.phase, phase.id);
+              const colors = phaseColorMap[phase.id] ?? phaseColorMap[0];
+              const isActive = status === "active";
+              const isComplete = status === "completed";
               return (
-                <div key={phase.id} className={`phase-node ${phaseChip(status)}`}>
-                  <div className="phase-node-label">{phase.label}</div>
+                <Link
+                  key={phase.id}
+                  href={`/projects/${projectId}/phases/${phase.id}`}
+                  className={`phase-node ${phaseChip(status)}`}
+                  style={{
+                    background: isActive || isComplete ? colors.gradient : undefined,
+                    borderColor: isActive ? colors.border : isComplete ? colors.border : undefined,
+                    boxShadow: isActive ? colors.glow : undefined,
+                    textDecoration: "none",
+                    transition: "all 0.3s ease",
+                    position: "relative",
+                    overflow: "hidden",
+                  }}
+                >
+                  {isActive && (
+                    <div style={{
+                      position: "absolute", top: 0, left: 0, right: 0, height: 3,
+                      background: `linear-gradient(90deg, ${colors.accent}, ${colors.accent}88)`,
+                    }} />
+                  )}
+                  <div className="phase-node-label" style={isActive ? { color: colors.accent } : undefined}>
+                    {phase.label}
+                  </div>
                   <div className="phase-node-title">{phase.title}</div>
-                  <div className="phase-node-status">{status}</div>
-                </div>
+                  <div className="phase-node-status" style={isActive ? { color: colors.accent, fontWeight: 700 } : undefined}>
+                    {isActive ? "● " : ""}{status}
+                  </div>
+                </Link>
               );
             })}
           </div>
@@ -183,14 +217,35 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
           const queued = phaseTasks.filter((task) => task.status === "queued").length;
           const failed = phaseTasks.filter((task) => task.status === "failed").length;
 
+          const sectionColors = phaseColorMap[phase.id] ?? phaseColorMap[0];
+
           return (
-            <section key={phase.id} className="studio-card">
+            <section
+              key={phase.id}
+              className="studio-card"
+              style={status === "active" ? {
+                borderColor: sectionColors.border,
+                background: sectionColors.gradient,
+                boxShadow: sectionColors.glow,
+              } : undefined}
+            >
               <div className="phase-header">
                 <div>
-                  <h2>{phase.label} · {phase.title}</h2>
+                  <h2 style={status === "active" ? { color: sectionColors.accent } : undefined}>
+                    {phase.label} · {phase.title}
+                  </h2>
                   <p className="meta-line">{phase.summary}</p>
                 </div>
-                <div className={`phase-pill ${phaseChip(status)}`}>{status}</div>
+                <div
+                  className={`phase-pill ${phaseChip(status)}`}
+                  style={status === "active" ? {
+                    background: `${sectionColors.accent}18`,
+                    color: sectionColors.accent,
+                    borderColor: sectionColors.accent,
+                  } : undefined}
+                >
+                  {status}
+                </div>
               </div>
 
               <div className="project-metrics">
@@ -287,6 +342,16 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
                   <span className="btn btn-preview btn-disabled" aria-disabled="true">
                     No Packet
                   </span>
+                )}
+                {phase.id === 1 && project.live_url && (
+                  <a
+                    href={project.live_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-approve"
+                  >
+                    View Landing Page
+                  </a>
                 )}
                 {gate?.status === "pending" && (
                   <Link href="/inbox" className="btn btn-details">

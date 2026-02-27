@@ -18,18 +18,31 @@ export async function GET(_: Request, context: { params: Promise<{ projectId: st
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
-  const { data: tasks, error: tasksError } = await withRetry(() =>
-    db
-      .from("tasks")
-      .select("agent,description,status,detail,created_at")
-      .eq("project_id", projectId)
-      .order("created_at", { ascending: false })
-      .limit(50),
-  );
+  const [tasksQuery, approvalsQuery] = await Promise.all([
+    withRetry(() =>
+      db
+        .from("tasks")
+        .select("agent,description,status,detail,created_at")
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: false })
+        .limit(50),
+    ),
+    withRetry(() =>
+      db
+        .from("approval_queue")
+        .select("title,status,risk,action_type,created_at")
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: false })
+        .limit(20),
+    ),
+  ]);
 
-  if (tasksError) {
-    return NextResponse.json({ error: tasksError.message }, { status: 400 });
+  if (tasksQuery.error) {
+    return NextResponse.json({ error: tasksQuery.error.message }, { status: 400 });
   }
 
-  return NextResponse.json({ tasks: tasks ?? [] });
+  return NextResponse.json({
+    tasks: tasksQuery.data ?? [],
+    approvals: approvalsQuery.data ?? [],
+  });
 }

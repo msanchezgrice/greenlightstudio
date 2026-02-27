@@ -77,9 +77,18 @@ export function humanizeTaskDescription(description: string): string {
 }
 
 export function taskOutputLink(description: string, projectId: string): { href: string; label: string } | null {
+  if (description === "phase1_deploy_live" || description === "phase1_design_agent_html") {
+    return { href: `/launch/${projectId}`, label: "View Landing Page" };
+  }
+  if (description === "phase0_complete" || description === "phase0_packet") {
+    return { href: `/projects/${projectId}/packet`, label: "View Packet" };
+  }
+  if (description === "nightshift_summary") {
+    return { href: `/projects/${projectId}/phases`, label: "View Phases" };
+  }
   const phase = taskPhase(description);
   if (phase === null) return null;
-  if (phase === 0) return { href: `/projects/${projectId}/packet`, label: "View packet" };
+  if (phase === 0) return { href: `/projects/${projectId}/packet`, label: "View Packet" };
   return { href: `/projects/${projectId}/phases/${phase}`, label: `View Phase ${phase}` };
 }
 
