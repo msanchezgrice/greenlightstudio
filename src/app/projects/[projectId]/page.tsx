@@ -7,7 +7,7 @@ import { RetryTaskButton } from "@/components/retry-task-button";
 import { getOwnedProjects, getPendingApprovalsByProject, getPacketsByProject, getProjectAssets } from "@/lib/studio";
 import type { ProjectPacketRow, ProjectAssetRow } from "@/lib/studio";
 import { withRetry } from "@/lib/retry";
-import { getAgentProfile, humanizeTaskDescription, taskOutputHref } from "@/lib/phases";
+import { getAgentProfile, humanizeTaskDescription, taskOutputLink } from "@/lib/phases";
 
 type ApprovalRow = {
   id: string;
@@ -417,7 +417,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
                 <tbody>
                   {tasks.map((task) => {
                     const agent = getAgentProfile(task.agent);
-                    const outputHref = taskOutputHref(task.description, projectId);
+                    const output = taskOutputLink(task.description, projectId);
                     return (
                       <tr key={task.id}>
                         <td>
@@ -435,9 +435,9 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
                           {task.status === "failed" && (
                             <RetryTaskButton projectId={projectId} />
                           )}
-                          {task.status === "completed" && outputHref && (
-                            <Link href={outputHref} className="btn btn-details btn-sm">
-                              View output
+                          {task.status === "completed" && output && (
+                            <Link href={output.href} className="btn btn-details btn-sm">
+                              {output.label}
                             </Link>
                           )}
                         </td>

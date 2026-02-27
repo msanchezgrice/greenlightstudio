@@ -5,7 +5,7 @@ import { RetryTaskButton } from "@/components/retry-task-button";
 import { createServiceSupabase } from "@/lib/supabase";
 import { getOwnedProjects, getPendingApprovalsByProject } from "@/lib/studio";
 import { withRetry } from "@/lib/retry";
-import { getAgentProfile, humanizeTaskDescription, taskOutputHref } from "@/lib/phases";
+import { getAgentProfile, humanizeTaskDescription, taskOutputLink } from "@/lib/phases";
 
 type TaskRow = {
   id: string;
@@ -104,7 +104,7 @@ export default async function TasksPage() {
                     <tbody>
                       {tasks.map((task) => {
                         const agent = getAgentProfile(task.agent);
-                        const outputHref = taskOutputHref(task.description, task.project_id);
+                        const output = taskOutputLink(task.description, task.project_id);
                         return (
                           <tr key={task.id}>
                             <td>{projectNameMap.get(task.project_id) ?? task.project_id}</td>
@@ -123,9 +123,9 @@ export default async function TasksPage() {
                               {task.status === "failed" && (
                                 <RetryTaskButton projectId={task.project_id} />
                               )}
-                              {task.status === "completed" && outputHref && (
-                                <Link href={outputHref} className="btn btn-details btn-sm">
-                                  View output
+                              {task.status === "completed" && output && (
+                                <Link href={output.href} className="btn btn-details btn-sm">
+                                  {output.label}
                                 </Link>
                               )}
                             </td>
@@ -158,7 +158,7 @@ export default async function TasksPage() {
                       {logRows.map((entry) => (
                         <tr key={entry.id}>
                           <td>{projectNameMap.get(entry.project_id) ?? entry.project_id}</td>
-                          <td>{entry.step}</td>
+                          <td>{humanizeTaskDescription(entry.step)}</td>
                           <td className={statusClass(entry.status)}>{entry.status}</td>
                           <td>{entry.detail ?? ""}</td>
                           <td>{new Date(entry.created_at).toLocaleString()}</td>

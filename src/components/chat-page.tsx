@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo, FormEvent, ReactNode } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
+import { AGENT_PROFILES } from "@/lib/phases";
 
 type Project = {
   id: string;
@@ -50,16 +51,23 @@ function statusColor(phase: number): string {
   }
 }
 
+const CEO = AGENT_PROFILES.ceo_agent;
+
 function roleLabel(role: Message["role"]): string {
-  if (role === "assistant") return "CEO Agent";
+  if (role === "assistant") return CEO.name;
   if (role === "system") return "System";
   return "You";
 }
 
 function roleColor(role: Message["role"]): string {
-  if (role === "assistant") return "var(--green)";
+  if (role === "assistant") return CEO.color;
   if (role === "system") return "var(--yellow)";
   return "#3B82F6";
+}
+
+function roleIcon(role: Message["role"]): string {
+  if (role === "assistant") return CEO.icon;
+  return "\u{1F464}";
 }
 
 function formatTime(iso: string): string {
@@ -504,10 +512,12 @@ export function ChatPage() {
                     <div key={msg.id} className={`chat-msg ${msg.role}`}>
                       <div
                         className={`chat-msg-avatar ${msg.role === "assistant" ? "agent" : msg.role}`}
+                        style={msg.role === "assistant" ? {
+                          background: `linear-gradient(135deg, ${CEO.color}30, ${CEO.color}60)`,
+                          border: `2px solid ${CEO.color}`,
+                        } : undefined}
                       >
-                        {msg.role === "assistant"
-                          ? "\u{1F9E0}"
-                          : "\u{1F464}"}
+                        {roleIcon(msg.role)}
                       </div>
                       <div className="chat-msg-content">
                         <div className="chat-msg-header">
@@ -526,14 +536,22 @@ export function ChatPage() {
 
               {sending && (
                 <div className="chat-msg assistant">
-                  <div className="chat-msg-avatar agent">{"\u{1F9E0}"}</div>
+                  <div
+                    className="chat-msg-avatar agent"
+                    style={{
+                      background: `linear-gradient(135deg, ${CEO.color}30, ${CEO.color}60)`,
+                      border: `2px solid ${CEO.color}`,
+                    }}
+                  >
+                    {CEO.icon}
+                  </div>
                   <div className="chat-msg-content">
                     <div className="chat-msg-header">
-                      <span className="chat-msg-name" style={{ color: "var(--green)" }}>
-                        CEO Agent
+                      <span className="chat-msg-name" style={{ color: CEO.color }}>
+                        {CEO.name}
                       </span>
                     </div>
-                    <div className="chat-msg-text" style={{ opacity: 0.6 }}>Thinking...</div>
+                    <div className="chat-msg-text" style={{ opacity: 0.6 }}>{CEO.statusPhrase}</div>
                   </div>
                 </div>
               )}

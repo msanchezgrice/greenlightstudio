@@ -76,11 +76,11 @@ export function humanizeTaskDescription(description: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-export function taskOutputHref(description: string, projectId: string): string | null {
+export function taskOutputLink(description: string, projectId: string): { href: string; label: string } | null {
   const phase = taskPhase(description);
   if (phase === null) return null;
-  if (phase === 0) return `/projects/${projectId}/packet`;
-  return `/projects/${projectId}/phases/${phase}`;
+  if (phase === 0) return { href: `/projects/${projectId}/packet`, label: "View packet" };
+  return { href: `/projects/${projectId}/phases/${phase}`, label: `View Phase ${phase}` };
 }
 
 export const PHASES: PhaseDefinition[] = [

@@ -6,7 +6,7 @@ import { StudioNav } from "@/components/studio-nav";
 import { ProjectChatPane } from "@/components/project-chat-pane";
 import { RetryTaskButton } from "@/components/retry-task-button";
 import { getOwnedProjects, getPendingApprovalsByProject } from "@/lib/studio";
-import { PHASES, phaseStatus, getAgentProfile, humanizeTaskDescription, taskOutputHref, type PhaseId } from "@/lib/phases";
+import { PHASES, phaseStatus, getAgentProfile, humanizeTaskDescription, taskOutputLink, type PhaseId } from "@/lib/phases";
 import { parsePhasePacket, type PhasePacket } from "@/types/phase-packets";
 
 type ProjectRow = {
@@ -464,7 +464,7 @@ export default async function ProjectPhaseWorkspacePage({
                 <tbody>
                   {phaseTasks.map((task) => {
                     const agent = getAgentProfile(task.agent);
-                    const outputHref = taskOutputHref(task.description, projectId);
+                    const output = taskOutputLink(task.description, projectId);
                     return (
                       <tr key={task.id}>
                         <td>
@@ -482,9 +482,9 @@ export default async function ProjectPhaseWorkspacePage({
                           {task.status === "failed" && (
                             <RetryTaskButton projectId={projectId} />
                           )}
-                          {task.status === "completed" && outputHref && (
-                            <Link href={outputHref} className="btn btn-details btn-sm">
-                              View output
+                          {task.status === "completed" && output && (
+                            <Link href={output.href} className="btn btn-details btn-sm">
+                              {output.label}
                             </Link>
                           )}
                         </td>
