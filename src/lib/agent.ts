@@ -363,7 +363,9 @@ function isRetryableAgentFailure(message: string) {
     lower.includes("empty response") ||
     lower.includes("structured output retries") ||
     lower.includes("invalid input:") ||
-    lower.includes("non-json output")
+    lower.includes("non-json output") ||
+    lower.includes("invalid_value") ||
+    lower.includes("invalid option")
   );
 }
 
@@ -372,9 +374,30 @@ function parseSchemaWithRepair<T>(input: unknown, options: QueryAttemptOptions<T
   if (direct.success) return direct.data;
   if (!options.repair) throw direct.error;
 
+  // #region agent log
+  const inputSynopsis = isRecord(input) && isRecord((input as Record<string, unknown>).reasoning_synopsis)
+    ? (input as Record<string, unknown>).reasoning_synopsis as Record<string, unknown>
+    : null;
+  const inputRec = isRecord(input) ? (input as Record<string, unknown>).recommendation : undefined;
+  fetch('http://127.0.0.1:7273/ingest/e1f64a80-6a40-4b4d-947d-ebccb18ed978',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bd7bd1'},body:JSON.stringify({sessionId:'bd7bd1',location:'agent.ts:parseSchemaWithRepair',message:'pre-repair',data:{decision_raw:inputSynopsis?.decision,recommendation_raw:inputRec,direct_error:JSON.stringify(direct.error.issues?.slice(0,3))},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+
   const repaired = options.repair(input);
+
+  // #region agent log
+  const repairedSynopsis = isRecord(repaired) && isRecord((repaired as Record<string, unknown>).reasoning_synopsis)
+    ? (repaired as Record<string, unknown>).reasoning_synopsis as Record<string, unknown>
+    : null;
+  const repairedRec = isRecord(repaired) ? (repaired as Record<string, unknown>).recommendation : undefined;
+  fetch('http://127.0.0.1:7273/ingest/e1f64a80-6a40-4b4d-947d-ebccb18ed978',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bd7bd1'},body:JSON.stringify({sessionId:'bd7bd1',location:'agent.ts:parseSchemaWithRepair',message:'post-repair',data:{decision_repaired:repairedSynopsis?.decision,recommendation_repaired:repairedRec},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+
   const repairedResult = options.schema.safeParse(repaired);
   if (repairedResult.success) return repairedResult.data;
+
+  // #region agent log
+  fetch('http://127.0.0.1:7273/ingest/e1f64a80-6a40-4b4d-947d-ebccb18ed978',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bd7bd1'},body:JSON.stringify({sessionId:'bd7bd1',location:'agent.ts:parseSchemaWithRepair',message:'repair-failed',data:{errors:JSON.stringify(repairedResult.error.issues?.slice(0,5))},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
 
   throw repairedResult.error;
 }
@@ -731,29 +754,34 @@ function normalizePhase0PacketCandidate(value: unknown) {
     });
   }
 
-  const synopsis = next.reasoning_synopsis;
-  if (isRecord(synopsis)) {
-    if (typeof synopsis.decision === "string") {
-      synopsis.decision = synopsis.decision.toLowerCase().trim();
-    }
-    if (typeof synopsis.confidence === "string") {
-      synopsis.confidence = parseInt(synopsis.confidence, 10) || 50;
-    }
+  if (typeof next.recommendation === "string") {
+    next.recommendation = (next.recommendation as string).toLowerCase().trim();
   }
-  if (isRecord(synopsis) && Array.isArray(synopsis.evidence)) {
-    synopsis.evidence = synopsis.evidence.map((entry) => {
-      if (isRecord(entry)) {
-        return {
-          claim: typeof entry.claim === "string" ? entry.claim : String(entry.claim ?? ""),
-          source: typeof entry.source === "string" ? entry.source : "Model output",
-        };
-      }
-      if (typeof entry === "string") {
-        return { claim: entry, source: "Model output" };
-      }
-      return { claim: String(entry ?? ""), source: "Model output" };
-    });
-    next.reasoning_synopsis = synopsis;
+
+  const rawSynopsis = next.reasoning_synopsis;
+  if (isRecord(rawSynopsis)) {
+    const fixed: Record<string, unknown> = { ...rawSynopsis };
+    if (typeof fixed.decision === "string") {
+      fixed.decision = (fixed.decision as string).toLowerCase().trim();
+    }
+    if (typeof fixed.confidence === "string") {
+      fixed.confidence = parseInt(fixed.confidence as string, 10) || 50;
+    }
+    if (Array.isArray(fixed.evidence)) {
+      fixed.evidence = (fixed.evidence as unknown[]).map((entry) => {
+        if (isRecord(entry)) {
+          return {
+            claim: typeof entry.claim === "string" ? entry.claim : String(entry.claim ?? ""),
+            source: typeof entry.source === "string" ? entry.source : "Model output",
+          };
+        }
+        if (typeof entry === "string") {
+          return { claim: entry, source: "Model output" };
+        }
+        return { claim: String(entry ?? ""), source: "Model output" };
+      });
+    }
+    next.reasoning_synopsis = fixed;
   }
 
   return next;
