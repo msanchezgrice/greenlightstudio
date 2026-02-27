@@ -684,6 +684,14 @@ function normalizePhase0PacketCandidate(value: unknown) {
   }
 
   const synopsis = next.reasoning_synopsis;
+  if (isRecord(synopsis)) {
+    if (typeof synopsis.decision === "string") {
+      synopsis.decision = synopsis.decision.toLowerCase().trim();
+    }
+    if (typeof synopsis.confidence === "string") {
+      synopsis.confidence = parseInt(synopsis.confidence, 10) || 50;
+    }
+  }
   if (isRecord(synopsis) && Array.isArray(synopsis.evidence)) {
     synopsis.evidence = synopsis.evidence.map((entry) => {
       if (isRecord(entry)) {
