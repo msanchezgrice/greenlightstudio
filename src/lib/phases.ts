@@ -9,6 +9,80 @@ export type PhaseDefinition = {
   gateActionType: string;
 };
 
+// ---------------------------------------------------------------------------
+// Agent profiles — from 01-agent-embodiment-spec.md
+// ---------------------------------------------------------------------------
+
+export type AgentProfile = {
+  key: string;
+  name: string;
+  color: string;
+  icon: string;
+  statusPhrase: string;
+};
+
+export const AGENT_PROFILES: Record<string, AgentProfile> = {
+  ceo_agent: { key: "ceo_agent", name: "CEO Agent", color: "#22C55E", icon: "👔", statusPhrase: "Synthesizing insights…" },
+  research_agent: { key: "research_agent", name: "Research", color: "#3B82F6", icon: "🔍", statusPhrase: "Scanning competitors…" },
+  design_agent: { key: "design_agent", name: "Design", color: "#A855F7", icon: "🎨", statusPhrase: "Drafting layouts…" },
+  brand_agent: { key: "brand_agent", name: "Brand", color: "#F59E0B", icon: "🎭", statusPhrase: "Crafting identity…" },
+  finance_agent: { key: "finance_agent", name: "Finance", color: "#06B6D4", icon: "📊", statusPhrase: "Sizing the market…" },
+  scanner: { key: "scanner", name: "Scanner", color: "#64748B", icon: "🔎", statusPhrase: "Checking domains…" },
+  repo_analyst: { key: "repo_analyst", name: "Repo Analyst", color: "#EC4899", icon: "📦", statusPhrase: "Analyzing structure…" },
+  engineering: { key: "engineering", name: "Engineering", color: "#F97316", icon: "⚙️", statusPhrase: "Deploying changes…" },
+  night_shift: { key: "night_shift", name: "Night Shift", color: "#8B5CF6", icon: "🌙", statusPhrase: "Running overnight…" },
+};
+
+const FALLBACK_AGENT: AgentProfile = {
+  key: "unknown", name: "Agent", color: "#94A3B8", icon: "🤖", statusPhrase: "Working…",
+};
+
+export function getAgentProfile(agentKey: string): AgentProfile {
+  return AGENT_PROFILES[agentKey] ?? { ...FALLBACK_AGENT, key: agentKey, name: agentKey };
+}
+
+// ---------------------------------------------------------------------------
+// Human-readable task descriptions
+// ---------------------------------------------------------------------------
+
+const TASK_LABELS: Record<string, string> = {
+  phase0_init: "Initializing project",
+  phase0_research: "Researching market & competitors",
+  phase0_research_query: "Running research queries",
+  phase0_packet: "Building pitch packet",
+  phase0_failed: "Research failed",
+  phase1_validate: "Generating validation assets",
+  phase1_validate_review: "Reviewing validation assets",
+  phase1_landing: "Building landing page",
+  phase1_brand: "Creating brand kit",
+  phase1_waitlist: "Setting up waitlist capture",
+  phase2_distribute: "Planning distribution strategy",
+  phase2_distribute_review: "Reviewing distribution plan",
+  phase2_ads: "Preparing ad creatives",
+  phase2_email: "Drafting email campaigns",
+  phase3_golive: "Preparing for launch",
+  phase3_golive_review: "Reviewing launch readiness",
+  phase3_build: "Building product features",
+  phase3_deploy: "Deploying to production",
+  nightshift_summary: "Night Shift summary",
+  nightshift_run: "Night Shift processing",
+};
+
+export function humanizeTaskDescription(description: string): string {
+  if (TASK_LABELS[description]) return TASK_LABELS[description];
+  return description
+    .replace(/^phase\d+_/, "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+export function taskOutputHref(description: string, projectId: string): string | null {
+  const phase = taskPhase(description);
+  if (phase === null) return null;
+  if (phase === 0) return `/projects/${projectId}/packet`;
+  return `/projects/${projectId}/phases/${phase}`;
+}
+
 export const PHASES: PhaseDefinition[] = [
   {
     id: 0,

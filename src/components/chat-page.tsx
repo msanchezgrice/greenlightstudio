@@ -25,11 +25,11 @@ function phaseLabel(phase: number): string {
     case 0:
       return "Research";
     case 1:
-      return "Build";
+      return "Validate";
     case 2:
       return "Distribute";
     case 3:
-      return "Scale";
+      return "Go Live";
     default:
       return `Phase ${phase}`;
   }
@@ -182,6 +182,30 @@ function renderMessageContent(content: string, role: string): ReactNode {
 }
 
 // ---------------------------------------------------------------------------
+// Chat message cache — persisted to localStorage with TTL
+// ---------------------------------------------------------------------------
+
+const CHAT_CACHE_KEY = "sm_chat_cache";
+const CHAT_CACHE_TTL_MS = 5 * 60 * 1000;
+
+type CacheStore = Record<string, { messages: Message[]; ts: number }>;
+
+function loadCacheStore(): CacheStore {
+  try {
+    const raw = localStorage.getItem(CHAT_CACHE_KEY);
+    return raw ? (JSON.parse(raw) as CacheStore) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveCacheStore(store: CacheStore) {
+  try {
+    localStorage.setItem(CHAT_CACHE_KEY, JSON.stringify(store));
+  } catch { /* quota exceeded */ }
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -203,8 +227,9 @@ export function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // --- Feature 1: Client-side message cache ---
-  const messageCacheRef = useRef<Map<string, Message[]>>(new Map());
+  const messageCacheRef = useRef<CacheStore>(
+    typeof window !== "undefined" ? loadCacheStore() : {},
+  );
 
   const selectedProject = useMemo(
     () => projects.find((p) => p.id === selectedId) ?? null,
@@ -235,18 +260,20 @@ export function ChatPage() {
     };
   }, []);
 
-  // Load messages when project changes (with cache)
   const loadMessages = useCallback(async (projectId: string) => {
-    // Show cached messages instantly if available
-    const cached = messageCacheRef.current.get(projectId);
-    if (cached) {
-      setMessages(cached);
+    const entry = messageCacheRef.current[projectId];
+    const isFresh = entry && (Date.now() - entry.ts) < CHAT_CACHE_TTL_MS;
+
+    if (entry) {
+      setMessages(entry.messages);
       setLoadingMessages(false);
     } else {
       setLoadingMessages(true);
     }
 
     setError(null);
+
+    if (isFresh) return;
 
     try {
       const res = await fetch(`/api/projects/${projectId}/chat`, { cache: "no-store" });
@@ -260,14 +287,16 @@ export function ChatPage() {
       }
 
       const freshMessages = Array.isArray(json?.messages) ? json.messages : [];
-      messageCacheRef.current.set(projectId, freshMessages);
+      messageCacheRef.current[projectId] = { messages: freshMessages, ts: Date.now() };
+      saveCacheStore(messageCacheRef.current);
       setMessages(freshMessages);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load messages");
-      if (!cached) setMessages([]);
+      if (!entry) setMessages([]);
     } finally {
       setLoadingMessages(false);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -327,7 +356,7 @@ export function ChatPage() {
         throw new Error(json?.error ?? `Failed to send message (HTTP ${res.status})`);
       }
 
-      // Reload all messages to get assistant reply
+      delete messageCacheRef.current[selectedId];
       await loadMessages(selectedId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send message");
@@ -398,7 +427,13 @@ export function ChatPage() {
                   <span style={{ fontSize: "16px" }}>&#9650;</span>
                 </div>
                 <div>
-                  <div className="chat-header-name">{selectedProject.name}</div>
+                  <Link
+                    href={`/projects/${selectedProject.id}`}
+                    className="chat-header-name"
+                    style={{ textDecoration: "none", color: "inherit" }}
+                  >
+                    {selectedProject.name}
+                  </Link>
                   <div className="chat-header-phase">
                     {selectedProject.domain ? `${selectedProject.domain} \u00B7 ` : ""}
                     Phase {selectedProject.phase} &middot; {phaseLabel(selectedProject.phase)}

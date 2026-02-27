@@ -1,3 +1,5 @@
+import { getAgentProfile, humanizeTaskDescription } from "@/lib/phases";
+
 type ActivityItem = {
   project_name: string;
   project_id: string;
@@ -35,27 +37,31 @@ export function RecentActivity({ items }: { items: ActivityItem[] }) {
         <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--heading)", margin: 0 }}>Recent Activity</h2>
       </div>
       <div className="activity-grid">
-        {items.map((item, i) => (
-          <div key={i} className="activity-card">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: 8 }}>
-              <span className="activity-title" style={{ fontSize: 12, fontWeight: 600 }}>
-                {item.project_name}
-              </span>
-              <span className="activity-time">{relativeTime(item.created_at)}</span>
-            </div>
-            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4, color: "var(--heading)" }}>
-              {item.description}
-            </div>
-            {item.detail && (
-              <div style={{ fontSize: 11, color: "var(--text2)", lineHeight: 1.4 }}>
-                {item.detail}
+        {items.map((item, i) => {
+          const agent = getAgentProfile(item.agent);
+          return (
+            <div key={i} className="activity-card">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: 8 }}>
+                <span className="activity-title" style={{ fontSize: 12, fontWeight: 600 }}>
+                  {item.project_name}
+                </span>
+                <span className="activity-time">{relativeTime(item.created_at)}</span>
               </div>
-            )}
-            <div className="activity-icon">
-              <span className="activity-icon">{statusEmoji(item.status)}</span> {item.agent}
+              <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4, color: "var(--heading)" }}>
+                {humanizeTaskDescription(item.description)}
+              </div>
+              {item.detail && (
+                <div style={{ fontSize: 11, color: "var(--text2)", lineHeight: 1.4 }}>
+                  {item.detail}
+                </div>
+              )}
+              <div className="activity-icon">
+                <span className="activity-icon">{statusEmoji(item.status)}</span>{" "}
+                <span style={{ color: agent.color }}>{agent.icon} {agent.name}</span>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

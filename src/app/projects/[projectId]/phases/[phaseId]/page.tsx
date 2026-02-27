@@ -4,8 +4,9 @@ import { createServiceSupabase } from "@/lib/supabase";
 import { withRetry } from "@/lib/retry";
 import { StudioNav } from "@/components/studio-nav";
 import { ProjectChatPane } from "@/components/project-chat-pane";
+import { RetryTaskButton } from "@/components/retry-task-button";
 import { getOwnedProjects, getPendingApprovalsByProject } from "@/lib/studio";
-import { PHASES, phaseStatus, type PhaseId } from "@/lib/phases";
+import { PHASES, phaseStatus, getAgentProfile, humanizeTaskDescription, taskOutputHref, type PhaseId } from "@/lib/phases";
 import { parsePhasePacket, type PhasePacket } from "@/types/phase-packets";
 
 type ProjectRow = {
@@ -453,24 +454,43 @@ export default async function ProjectPhaseWorkspacePage({
               <table className="studio-table compact">
                 <thead>
                   <tr>
-                    <th>Task</th>
                     <th>Agent</th>
+                    <th>Task</th>
                     <th>Status</th>
                     <th>Created</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {phaseTasks.map((task) => (
-                    <tr key={task.id}>
-                      <td>
-                        <div className="table-main">{task.description}</div>
-                        <div className="table-sub">{task.detail ?? "No detail"}</div>
-                      </td>
-                      <td>{task.agent}</td>
-                      <td className={statusClass(task.status)}>{task.status}</td>
-                      <td>{new Date(task.created_at).toLocaleString()}</td>
-                    </tr>
-                  ))}
+                  {phaseTasks.map((task) => {
+                    const agent = getAgentProfile(task.agent);
+                    const outputHref = taskOutputHref(task.description, projectId);
+                    return (
+                      <tr key={task.id}>
+                        <td>
+                          <span style={{ color: agent.color, fontWeight: 600 }}>
+                            {agent.icon} {agent.name}
+                          </span>
+                        </td>
+                        <td>
+                          <div className="table-main">{humanizeTaskDescription(task.description)}</div>
+                          <div className="table-sub">{task.detail ?? ""}</div>
+                        </td>
+                        <td className={statusClass(task.status)}>{task.status}</td>
+                        <td>{new Date(task.created_at).toLocaleString()}</td>
+                        <td style={{ whiteSpace: "nowrap" }}>
+                          {task.status === "failed" && (
+                            <RetryTaskButton projectId={projectId} />
+                          )}
+                          {task.status === "completed" && outputHref && (
+                            <Link href={outputHref} className="btn btn-details btn-sm">
+                              View output
+                            </Link>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

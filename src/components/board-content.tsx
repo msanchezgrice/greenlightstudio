@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
+import { humanizeTaskDescription } from "@/lib/phases";
 
 /* ---------- AnimatedNumber ---------- */
 
@@ -59,7 +60,8 @@ const phaseColors: Record<number, { bg: string; color: string; label: string }> 
 function progressForProject(p: ProjectRow): { pct: number; label: string; gradient: string } {
   const isFailed = p.latest_task_status === "failed";
   if (isFailed) {
-    return { pct: 20, label: "Agent failed", gradient: "linear-gradient(90deg,#EF4444,#DC2626)" };
+    const failLabel = p.latest_task_desc ? humanizeTaskDescription(p.latest_task_desc) : "Agent failed";
+    return { pct: 20, label: failLabel, gradient: "linear-gradient(90deg,#EF4444,#DC2626)" };
   }
 
   const isRunning = !!p.running_agent;
@@ -67,13 +69,13 @@ function progressForProject(p: ProjectRow): { pct: number; label: string; gradie
 
   if (p.phase >= 3) {
     const pct = isRunning ? 30 : 100;
-    const label = isRunning ? `${p.running_desc ?? "Running"}` : "Complete";
+    const label = isRunning ? humanizeTaskDescription(p.running_desc ?? "Running") : "Complete";
     return { pct, label, gradient: "linear-gradient(90deg,#EAB308,#CA8A04)" };
   }
 
   if (isRunning) {
     const pct = base + 15;
-    const label = p.running_desc ?? "Running";
+    const label = humanizeTaskDescription(p.running_desc ?? "Running");
     return { pct, label, gradient: phaseGradient(p.phase) };
   }
 

@@ -3,9 +3,11 @@ import { auth } from "@clerk/nextjs/server";
 import { createServiceSupabase } from "@/lib/supabase";
 import { StudioNav } from "@/components/studio-nav";
 import { ProjectChatPane } from "@/components/project-chat-pane";
+import { RetryTaskButton } from "@/components/retry-task-button";
 import { getOwnedProjects, getPendingApprovalsByProject, getPacketsByProject, getProjectAssets } from "@/lib/studio";
 import type { ProjectPacketRow, ProjectAssetRow } from "@/lib/studio";
 import { withRetry } from "@/lib/retry";
+import { getAgentProfile, humanizeTaskDescription, taskOutputHref } from "@/lib/phases";
 
 type ApprovalRow = {
   id: string;
@@ -409,20 +411,39 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
                     <th>Task</th>
                     <th>Status</th>
                     <th>Created</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {tasks.map((task) => (
-                    <tr key={task.id}>
-                      <td>{task.agent}</td>
-                      <td>
-                        <div className="table-main">{task.description}</div>
-                        <div className="table-sub">{task.detail ?? "No detail"}</div>
-                      </td>
-                      <td className={statusClass(task.status)}>{task.status}</td>
-                      <td>{new Date(task.created_at).toLocaleString()}</td>
-                    </tr>
-                  ))}
+                  {tasks.map((task) => {
+                    const agent = getAgentProfile(task.agent);
+                    const outputHref = taskOutputHref(task.description, projectId);
+                    return (
+                      <tr key={task.id}>
+                        <td>
+                          <span style={{ color: agent.color, fontWeight: 600 }}>
+                            {agent.icon} {agent.name}
+                          </span>
+                        </td>
+                        <td>
+                          <div className="table-main">{humanizeTaskDescription(task.description)}</div>
+                          <div className="table-sub">{task.detail ?? ""}</div>
+                        </td>
+                        <td className={statusClass(task.status)}>{task.status}</td>
+                        <td>{new Date(task.created_at).toLocaleString()}</td>
+                        <td style={{ whiteSpace: "nowrap" }}>
+                          {task.status === "failed" && (
+                            <RetryTaskButton projectId={projectId} />
+                          )}
+                          {task.status === "completed" && outputHref && (
+                            <Link href={outputHref} className="btn btn-details btn-sm">
+                              View output
+                            </Link>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

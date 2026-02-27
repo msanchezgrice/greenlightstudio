@@ -28,11 +28,11 @@ export default function Home() {
           the market, drafts a pitch deck, and delivers a go/no-go recommendation by morning.
         </p>
         <div className={styles.heroCtas}>
-          <Link href="/onboarding?new=1" className={styles.btnPrimary}>
-            Start Free →
-          </Link>
+          <a href="#cta" className={styles.btnPrimary}>
+            Join the Waitlist →
+          </a>
           <a href="#phases" className={styles.btnSecondary}>
-            See a demo packet
+            See the pipeline
           </a>
         </div>
         <div className={styles.heroStats}>

@@ -1,8 +1,11 @@
+import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { StudioNav } from "@/components/studio-nav";
+import { RetryTaskButton } from "@/components/retry-task-button";
 import { createServiceSupabase } from "@/lib/supabase";
 import { getOwnedProjects, getPendingApprovalsByProject } from "@/lib/studio";
 import { withRetry } from "@/lib/retry";
+import { getAgentProfile, humanizeTaskDescription, taskOutputHref } from "@/lib/phases";
 
 type TaskRow = {
   id: string;
@@ -95,21 +98,40 @@ export default async function TasksPage() {
                         <th>Task</th>
                         <th>Status</th>
                         <th>Created</th>
+                        <th></th>
                       </tr>
                     </thead>
                     <tbody>
-                      {tasks.map((task) => (
-                        <tr key={task.id}>
-                          <td>{projectNameMap.get(task.project_id) ?? task.project_id}</td>
-                          <td>{task.agent}</td>
-                          <td>
-                            <div className="table-main">{task.description}</div>
-                            <div className="table-sub">{task.detail ?? "No detail"}</div>
-                          </td>
-                          <td className={statusClass(task.status)}>{task.status}</td>
-                          <td>{new Date(task.created_at).toLocaleString()}</td>
-                        </tr>
-                      ))}
+                      {tasks.map((task) => {
+                        const agent = getAgentProfile(task.agent);
+                        const outputHref = taskOutputHref(task.description, task.project_id);
+                        return (
+                          <tr key={task.id}>
+                            <td>{projectNameMap.get(task.project_id) ?? task.project_id}</td>
+                            <td>
+                              <span style={{ color: agent.color, fontWeight: 600 }}>
+                                {agent.icon} {agent.name}
+                              </span>
+                            </td>
+                            <td>
+                              <div className="table-main">{humanizeTaskDescription(task.description)}</div>
+                              <div className="table-sub">{task.detail ?? ""}</div>
+                            </td>
+                            <td className={statusClass(task.status)}>{task.status}</td>
+                            <td>{new Date(task.created_at).toLocaleString()}</td>
+                            <td style={{ whiteSpace: "nowrap" }}>
+                              {task.status === "failed" && (
+                                <RetryTaskButton projectId={task.project_id} />
+                              )}
+                              {task.status === "completed" && outputHref && (
+                                <Link href={outputHref} className="btn btn-details btn-sm">
+                                  View output
+                                </Link>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
