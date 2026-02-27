@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { RetryTaskButton } from "@/components/retry-task-button";
-import { getAgentProfile, humanizeTaskDescription, taskOutputLink } from "@/lib/phases";
+import { getAgentProfile, humanizeTaskDescription, taskOutputLink, AGENT_PROFILES } from "@/lib/phases";
 
 type TaskRow = {
   id: string;
@@ -31,6 +31,123 @@ function statusClass(status: string) {
   return "tone-muted";
 }
 
+function ElapsedTimer({ createdAt }: { createdAt: string }) {
+  const [elapsed, setElapsed] = useState("");
+
+  useEffect(() => {
+    function update() {
+      const diff = Math.max(0, Date.now() - new Date(createdAt).getTime());
+      const secs = Math.floor(diff / 1000);
+      const m = Math.floor(secs / 60);
+      const s = secs % 60;
+      setElapsed(`${m}:${String(s).padStart(2, "0")}`);
+    }
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [createdAt]);
+
+  return (
+    <span className="elapsed-timer">
+      <span className="elapsed-dot" />
+      {elapsed}
+    </span>
+  );
+}
+
+function AgentPanel({ tasks }: { tasks: TaskRow[] }) {
+  const activeAgents = new Set(tasks.filter((t) => t.status === "running").map((t) => t.agent));
+  const allAgents = Object.keys(AGENT_PROFILES);
+
+  const sorted = [...allAgents].sort((a, b) => {
+    const aActive = activeAgents.has(a) ? 0 : 1;
+    const bActive = activeAgents.has(b) ? 0 : 1;
+    return aActive - bActive;
+  });
+
+  const visible = sorted.slice(0, 6);
+
+  return (
+    <div className="agent-panel">
+      {visible.map((key, i) => {
+        const profile = getAgentProfile(key);
+        const isActive = activeAgents.has(key);
+        return (
+          <div
+            key={key}
+            className={`agent-panel-card ${isActive ? "active" : ""}`}
+            style={{ animationDelay: `${i * 0.08}s` }}
+          >
+            <div className="agent-panel-icon" style={{ background: `${profile.color}18`, color: profile.color }}>
+              {profile.icon}
+              {isActive && <span className="ring" style={{ borderColor: profile.color }} />}
+            </div>
+            <div>
+              <div className="agent-panel-name">{profile.name}</div>
+              <div className="agent-panel-status">
+                {isActive ? profile.statusPhrase : "Idle"}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function TracePill({ entry }: { entry: TaskLogRow }) {
+  const [showTooltip, setShowTooltip] = useState(false);
+  const dotClass = entry.status === "running" ? "running" : entry.status === "completed" ? "completed" : entry.status === "failed" ? "failed" : "completed";
+  const label = entry.detail?.slice(0, 50) || humanizeTaskDescription(entry.step);
+
+  return (
+    <span
+      className="task-trace-pill"
+      onMouseEnter={() => setShowTooltip(true)}
+      onMouseLeave={() => setShowTooltip(false)}
+    >
+      <span className={`trace-dot ${dotClass}`} />
+      {label}
+      {showTooltip && (
+        <span className="task-trace-tooltip">
+          <strong style={{ color: "var(--heading)" }}>{humanizeTaskDescription(entry.step)}</strong>
+          {entry.detail && <><br />{entry.detail}</>}
+          <br />
+          <span style={{ color: "var(--text3)", fontSize: 10 }}>
+            {new Date(entry.created_at).toLocaleTimeString()}
+          </span>
+        </span>
+      )}
+    </span>
+  );
+}
+
+function TraceStrip({ logEntries }: { logEntries: TaskLogRow[] }) {
+  const stripRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = stripRef.current;
+    if (!el || logEntries.length <= 3) return;
+    let pos = 0;
+    const timer = setInterval(() => {
+      pos += 1;
+      if (pos >= el.scrollWidth - el.clientWidth) pos = 0;
+      el.scrollTo({ left: pos, behavior: "smooth" });
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [logEntries.length]);
+
+  if (logEntries.length === 0) return null;
+
+  return (
+    <div className="task-trace-strip" ref={stripRef}>
+      {logEntries.map((entry) => (
+        <TracePill key={entry.id} entry={entry} />
+      ))}
+    </div>
+  );
+}
+
 const COMPLETED_DELAY_MS = 1500;
 const COMPLETED_STAGGER_MS = 150;
 
@@ -45,7 +162,11 @@ export function AnimatedTaskQueue({
 }) {
   const [showCompleted, setShowCompleted] = useState(false);
   const [completedFlash, setCompletedFlash] = useState<Set<string>>(new Set());
+  const [newTaskIds, setNewTaskIds] = useState<Set<string>>(new Set());
+  const [newLogIds, setNewLogIds] = useState<Set<string>>(new Set());
   const prevStatuses = useRef<Map<string, string>>(new Map());
+  const prevTaskIds = useRef<Set<string>>(new Set());
+  const prevLogIds = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (tasks.length === 0) return;
@@ -53,14 +174,31 @@ export function AnimatedTaskQueue({
     return () => clearTimeout(timer);
   }, [tasks.length]);
 
+  // Detect new tasks + status transitions
   useEffect(() => {
     const flash = new Set<string>();
+    const fresh = new Set<string>();
     for (const task of tasks) {
       const prev = prevStatuses.current.get(task.id);
       if (prev && prev !== "completed" && task.status === "completed") {
         flash.add(task.id);
       }
+      if (!prevTaskIds.current.has(task.id) && prevTaskIds.current.size > 0) {
+        fresh.add(task.id);
+      }
       prevStatuses.current.set(task.id, task.status);
+    }
+    prevTaskIds.current = new Set(tasks.map((t) => t.id));
+
+    if (fresh.size > 0) {
+      setNewTaskIds(fresh);
+      const t = setTimeout(() => setNewTaskIds(new Set()), 800);
+      if (flash.size > 0) {
+        setCompletedFlash(flash);
+        const t2 = setTimeout(() => setCompletedFlash(new Set()), 2000);
+        return () => { clearTimeout(t); clearTimeout(t2); };
+      }
+      return () => clearTimeout(t);
     }
     if (flash.size > 0) {
       setCompletedFlash(flash);
@@ -69,12 +207,37 @@ export function AnimatedTaskQueue({
     }
   }, [tasks]);
 
+  // Detect new log entries
+  useEffect(() => {
+    const fresh = new Set<string>();
+    for (const entry of logRows) {
+      if (!prevLogIds.current.has(entry.id) && prevLogIds.current.size > 0) {
+        fresh.add(entry.id);
+      }
+    }
+    prevLogIds.current = new Set(logRows.map((e) => e.id));
+    if (fresh.size > 0) {
+      setNewLogIds(fresh);
+      const t = setTimeout(() => setNewLogIds(new Set()), 800);
+      return () => clearTimeout(t);
+    }
+  }, [logRows]);
+
   const nonCompleted = tasks.filter((t) => t.status !== "completed");
   const completed = tasks.filter((t) => t.status === "completed");
   const visibleTasks = showCompleted ? [...nonCompleted, ...completed] : nonCompleted;
 
+  const logByProject = new Map<string, TaskLogRow[]>();
+  for (const entry of logRows) {
+    const arr = logByProject.get(entry.project_id) ?? [];
+    arr.push(entry);
+    logByProject.set(entry.project_id, arr);
+  }
+
   return (
     <>
+      <AgentPanel tasks={tasks} />
+
       <section className="studio-card">
         <h2>Task Queue</h2>
         {!tasks.length ? (
@@ -88,7 +251,7 @@ export function AnimatedTaskQueue({
                   <th>Agent</th>
                   <th>Task</th>
                   <th>Status</th>
-                  <th>Created</th>
+                  <th>Time</th>
                   <th></th>
                 </tr>
               </thead>
@@ -97,12 +260,20 @@ export function AnimatedTaskQueue({
                   const agent = getAgentProfile(task.agent);
                   const output = taskOutputLink(task.description, task.project_id);
                   const isRunning = task.status === "running";
+                  const isQueued = task.status === "queued";
                   const isCompleted = task.status === "completed";
                   const justCompleted = completedFlash.has(task.id);
+                  const isNewTask = newTaskIds.has(task.id);
                   const completedIdx = isCompleted ? completed.indexOf(task) : -1;
-                  const animStyle = isCompleted
+                  const animStyle = isNewTask
+                    ? { animation: "slideInDown 0.5s ease both" }
+                    : isCompleted
                     ? { animation: `fadeInUp 0.4s ease ${completedIdx * (COMPLETED_STAGGER_MS / 1000)}s both` }
                     : {};
+
+                  const traceEntries = (isRunning || isQueued)
+                    ? (logByProject.get(task.project_id) ?? []).slice(0, 8)
+                    : [];
 
                   return (
                     <tr
@@ -123,14 +294,30 @@ export function AnimatedTaskQueue({
                       <td>
                         <div className="table-main">{humanizeTaskDescription(task.description)}</div>
                         <div className="table-sub">{task.detail ?? ""}</div>
+                        {traceEntries.length > 0 && <TraceStrip logEntries={traceEntries} />}
+                        {isRunning && (
+                          <div className="shimmer-progress">
+                            <div className="shimmer-fill" style={{ width: "60%" }} />
+                          </div>
+                        )}
                       </td>
                       <td>
                         <span className={`task-status-badge ${task.status}`}>
                           {isRunning && <span className="task-running-dot" />}
-                          {task.status}
+                          {justCompleted ? (
+                            <span className="check-pop">✓</span>
+                          ) : (
+                            task.status
+                          )}
                         </span>
                       </td>
-                      <td>{new Date(task.created_at).toLocaleString()}</td>
+                      <td>
+                        {isRunning ? (
+                          <ElapsedTimer createdAt={task.created_at} />
+                        ) : (
+                          new Date(task.created_at).toLocaleString()
+                        )}
+                      </td>
                       <td style={{ whiteSpace: "nowrap" }}>
                         {task.status === "failed" && (
                           <RetryTaskButton projectId={task.project_id} />
@@ -168,7 +355,10 @@ export function AnimatedTaskQueue({
               </thead>
               <tbody>
                 {logRows.map((entry) => (
-                  <tr key={entry.id}>
+                  <tr
+                    key={entry.id}
+                    style={newLogIds.has(entry.id) ? { animation: "slideInDown 0.4s ease both" } : undefined}
+                  >
                     <td>{projectNameMap[entry.project_id] ?? entry.project_id}</td>
                     <td>{humanizeTaskDescription(entry.step)}</td>
                     <td className={statusClass(entry.status)}>{entry.status}</td>

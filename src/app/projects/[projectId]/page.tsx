@@ -1,13 +1,39 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { createServiceSupabase } from "@/lib/supabase";
 import { StudioNav } from "@/components/studio-nav";
 import { ProjectChatPane } from "@/components/project-chat-pane";
 import { RetryTaskButton } from "@/components/retry-task-button";
+import { AgentActivityIndicator } from "@/components/agent-activity";
 import { getOwnedProjects, getPendingApprovalsByProject, getPacketsByProject, getProjectAssets } from "@/lib/studio";
 import type { ProjectPacketRow, ProjectAssetRow } from "@/lib/studio";
 import { withRetry } from "@/lib/retry";
 import { getAgentProfile, humanizeTaskDescription, taskOutputLink } from "@/lib/phases";
+
+export async function generateMetadata({ params }: { params: Promise<{ projectId: string }> }): Promise<Metadata> {
+  const { projectId } = await params;
+  const db = createServiceSupabase();
+  const { data } = await db.from("projects").select("name,domain,phase").eq("id", projectId).maybeSingle();
+  if (!data) return { title: "Project" };
+  const name = data.name as string;
+  const domain = data.domain as string | null;
+  const phase = data.phase as number;
+  return {
+    title: name,
+    description: `${name} — Phase ${phase} project${domain ? ` for ${domain}` : ""}. AI-generated startup validation on Startup Machine.`,
+    openGraph: {
+      title: `${name} | Startup Machine`,
+      description: `Phase ${phase} AI startup validation${domain ? ` for ${domain}` : ""}.`,
+      type: "article",
+    },
+    twitter: {
+      card: "summary",
+      title: `${name} | Startup Machine`,
+      description: `Phase ${phase} AI startup validation${domain ? ` for ${domain}` : ""}.`,
+    },
+  };
+}
 
 type ApprovalRow = {
   id: string;
@@ -439,7 +465,13 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
                           <div className="table-main">{humanizeTaskDescription(task.description)}</div>
                           <div className="table-sub">{task.detail ?? ""}</div>
                         </td>
-                        <td className={statusClass(task.status)}>{task.status}</td>
+                        <td className={statusClass(task.status)}>
+                          {task.status === "running" ? (
+                            <AgentActivityIndicator agentKey={task.agent} taskDescription={humanizeTaskDescription(task.description)} compact />
+                          ) : (
+                            task.status
+                          )}
+                        </td>
                         <td>{new Date(task.created_at).toLocaleString()}</td>
                         <td style={{ whiteSpace: "nowrap" }}>
                           {task.status === "failed" && (
@@ -460,7 +492,18 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
           )}
         </section>
 
-        <ProjectChatPane projectId={projectId} title="CEO Chat Pane" />
+        <ProjectChatPane
+          projectId={projectId}
+          title="CEO Chat Pane"
+          deliverableLinks={
+            project.live_url
+              ? [
+                  { label: "Landing Page", href: project.live_url as string, external: true },
+                  { label: "Phase 1 Workspace", href: `/projects/${projectId}/phases/1` },
+                ]
+              : undefined
+          }
+        />
       </main>
     </>
   );

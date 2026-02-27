@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { StudioNav } from "@/components/studio-nav";
 import { packetSchema } from "@/types/domain";
+import { AnimatedNumber } from "@/components/board-content";
 
 type Decision = "approved" | "denied" | "revised";
 
@@ -67,11 +68,46 @@ function parseSynopsis(payload: Record<string, unknown>) {
 
 export function InboxView({ initialItems }: { initialItems: Item[] }) {
   const [items, setItems] = useState(initialItems);
+  const prevInitial = useRef(initialItems);
   const [filter, setFilter] = useState<"All" | "Urgent" | "Deploys" | "Ads" | "Outreach">("All");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [flashCard, setFlashCard] = useState<{ id: string; type: "green" | "red" } | null>(null);
+  const [collapsingId, setCollapsingId] = useState<string | null>(null);
+  const [freshIds, setFreshIds] = useState<Set<string>>(new Set());
+  const prevItemIds = useRef<Set<string>>(new Set());
   const router = useRouter();
+
+  useEffect(() => {
+    if (prevInitial.current !== initialItems) {
+      prevInitial.current = initialItems;
+
+      // Detect new items arriving from server
+      const currentIds = new Set(initialItems.map((i) => i.id));
+      if (prevItemIds.current.size > 0) {
+        const fresh = new Set<string>();
+        for (const id of currentIds) {
+          if (!prevItemIds.current.has(id)) fresh.add(id);
+        }
+        if (fresh.size > 0) {
+          setFreshIds(fresh);
+          setTimeout(() => setFreshIds(new Set()), 800);
+        }
+      }
+      prevItemIds.current = currentIds;
+      setItems(initialItems);
+    }
+  }, [initialItems]);
+
+  useEffect(() => {
+    const hasPending = initialItems.some((i) => i.status === "pending");
+    const interval = hasPending ? 6000 : 12000;
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") router.refresh();
+    }, interval);
+    return () => clearInterval(timer);
+  }, [router, initialItems]);
 
   const pending = useMemo(() => items.filter((item) => item.status === "pending"), [items]);
   const resolved = useMemo(() => items.filter((item) => item.status !== "pending"), [items]);
@@ -108,6 +144,17 @@ export function InboxView({ initialItems }: { initialItems: Item[] }) {
     return item.action_type.startsWith("phase") && item.action_type.endsWith("_review");
   }
 
+  const animateDecision = useCallback((id: string, type: "green" | "red") => {
+    setFlashCard({ id, type });
+    setTimeout(() => {
+      setCollapsingId(id);
+      setTimeout(() => {
+        setFlashCard(null);
+        setCollapsingId(null);
+      }, 350);
+    }, 600);
+  }, []);
+
   async function decide(item: Item, decision: Decision, guidance?: string) {
     setLoadingId(item.id);
     setError(null);
@@ -122,6 +169,8 @@ export function InboxView({ initialItems }: { initialItems: Item[] }) {
         const message = typeof json?.error === "string" ? json.error : "Decision failed";
         throw new Error(message);
       }
+
+      animateDecision(item.id, decision === "approved" ? "green" : "red");
 
       setItems((prev) =>
         prev.map((row) =>
@@ -178,16 +227,25 @@ export function InboxView({ initialItems }: { initialItems: Item[] }) {
     await decide(item, "revised");
   }
 
+  function cardClassName(item: Item) {
+    const classes = [`approval-card`, pendingClass(item.risk)];
+    if (item.risk === "high") classes.push("urgent-pulse");
+    if (flashCard?.id === item.id) classes.push(flashCard.type === "green" ? "flash-green" : "flash-red");
+    if (collapsingId === item.id) classes.push("collapsing");
+    if (freshIds.has(item.id)) classes.push("slide-in");
+    return classes.join(" ");
+  }
+
   return (
     <>
-      <StudioNav active="inbox" pendingCount={pending.length} />
+      <StudioNav active="inbox" pendingCount={pending.length} urgentCount={urgentCount} />
 
       <div className="page">
         {error && <div className="alert error">{error}</div>}
 
         <div className="page-header">
-          <div className="page-title">
-            📥 Approval Inbox <span className="count-badge">{pending.length} pending</span>
+          <div className="page-title" style={{ fontFamily: "var(--font-display)" }}>
+            Approval Inbox <span className="count-badge">{pending.length} pending</span>
           </div>
           <div className="filter-bar">
             {(["All", "Urgent", "Deploys", "Ads", "Outreach"] as const).map((bucket) => (
@@ -199,10 +257,22 @@ export function InboxView({ initialItems }: { initialItems: Item[] }) {
         </div>
 
         <div className="stats">
-          <div className="stat"><div className="stat-num urgent">{urgentCount}</div><div className="stat-label">Urgent</div></div>
-          <div className="stat"><div className="stat-num pending">{pending.length}</div><div className="stat-label">Pending</div></div>
-          <div className="stat"><div className="stat-num done">{approvedToday}</div><div className="stat-label">Approved Today</div></div>
-          <div className="stat"><div className="stat-num total">{totalWeek}</div><div className="stat-label">Total This Week</div></div>
+          <div className="stat">
+            <div className="stat-num urgent"><AnimatedNumber value={urgentCount} /></div>
+            <div className="stat-label">Urgent</div>
+          </div>
+          <div className="stat">
+            <div className="stat-num pending"><AnimatedNumber value={pending.length} /></div>
+            <div className="stat-label">Pending</div>
+          </div>
+          <div className="stat">
+            <div className="stat-num done"><AnimatedNumber value={approvedToday} /></div>
+            <div className="stat-label">Approved Today</div>
+          </div>
+          <div className="stat">
+            <div className="stat-num total"><AnimatedNumber value={totalWeek} /></div>
+            <div className="stat-label">Total This Week</div>
+          </div>
         </div>
 
         <div className="section-label"><div className="dot urgent" /> Requires Immediate Review</div>
@@ -210,7 +280,7 @@ export function InboxView({ initialItems }: { initialItems: Item[] }) {
           {filteredPending.filter((item) => item.risk === "high").map((item) => {
             const synopsis = parseSynopsis(item.payload);
             return (
-              <div key={item.id} className={`approval-card ${pendingClass(item.risk)}`}>
+              <div key={item.id} className={cardClassName(item)}>
                 <div className="card-top">
                   <div className="card-project">
                     <div className="project-icon">🚀</div>
@@ -251,7 +321,7 @@ export function InboxView({ initialItems }: { initialItems: Item[] }) {
         <div className="section-label"><div className="dot pending" /> Pending Review</div>
         <div className="card-list">
           {filteredPending.filter((item) => item.risk !== "high").map((item) => (
-            <div key={item.id} className={`approval-card ${pendingClass(item.risk)}`}>
+            <div key={item.id} className={cardClassName(item)}>
               <div className="card-top">
                 <div className="card-project">
                   <div className="project-icon">📦</div>

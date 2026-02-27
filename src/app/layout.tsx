@@ -6,49 +6,52 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://startupmachine.ai"),
-  title: "Startup Machine",
+  title: {
+    default: "Startup Machine — AI Startup Builder",
+    template: "%s | Startup Machine",
+  },
   description: "AI startup builder that generates decision-ready packets with market sizing, competitor analysis, and MVP scope.",
   applicationName: "Startup Machine",
   icons: {
-    icon: [
-      { url: "/favicon.svg", type: "image/svg+xml" },
-      { url: "/favicon.ico" },
-    ],
+    icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
     shortcut: ["/favicon.svg"],
     apple: ["/favicon.svg"],
   },
   openGraph: {
-    title: "Startup Machine | AI Startup Builder",
+    title: "Startup Machine — AI Startup Builder",
     description:
       "Go from idea to decision with AI-generated startup packets: market sizing, competitor analysis, MVP scope, and clear go/no-go recommendations.",
     url: "https://startupmachine.ai",
     siteName: "Startup Machine",
-    images: [
-      {
-        url: "/og-image.png",
-        width: 1200,
-        height: 630,
-        alt: "Startup Machine dashboard preview",
-      },
-    ],
     locale: "en_US",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Startup Machine | AI Startup Builder",
+    title: "Startup Machine — AI Startup Builder",
     description:
       "Validate startup ideas with AI-generated decision packets and clear go/no-go recommendations.",
-    images: ["/og-image.png"],
   },
 };
+
+const fontUrl =
+  "https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&family=IBM+Plex+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap";
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const publishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
+  const head = (
+    <>
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+      <link href={fontUrl} rel="stylesheet" />
+    </>
+  );
+
   if (!publishableKey) {
     return (
       <html lang="en">
+        <head>{head}</head>
         <body>
           {children}
           <Analytics />
@@ -61,6 +64,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <ClerkProvider publishableKey={publishableKey}>
       <html lang="en">
+        <head>{head}</head>
         <body>
           {children}
           <Analytics />

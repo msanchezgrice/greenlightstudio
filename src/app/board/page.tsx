@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { StudioNav } from "@/components/studio-nav";
+import { LiveRefresh } from "@/components/live-refresh";
 import { BoardContent, type ProjectRow } from "@/components/board-content";
+import { BoardStats } from "@/components/board-stats";
 import { RecentActivity } from "@/components/recent-activity";
 import {
   getLatestPacketsByProject,
@@ -63,12 +65,18 @@ export default async function BoardPage() {
       running_desc: running?.description ?? null,
       latest_task_status: task?.status ?? null,
       latest_task_desc: task?.description ?? null,
+      live_url: p.live_url ?? null,
     };
   });
 
   return (
     <>
-      <StudioNav active="board" pendingCount={pendingCount} />
+      <StudioNav
+        active="board"
+        pendingCount={pendingCount}
+        runningCount={runningTasks.size}
+      />
+      <LiveRefresh intervalMs={10000} hasActiveWork={runningTasks.size > 0} />
       <main className="page studio-page">
         <div className="page-header">
           <div>
@@ -87,47 +95,46 @@ export default async function BoardPage() {
           </div>
         </div>
 
-        <div className="studio-stats">
-          <div className="studio-stat">
-            <div className="studio-stat-value" style={{ color: "var(--green)" }}>
-              {projects.length}
-            </div>
-            <div className="studio-stat-label">Active Projects</div>
-          </div>
-          <div className="studio-stat">
-            <div className="studio-stat-value warn">{pendingCount}</div>
-            <div className="studio-stat-label">Pending Approvals</div>
-          </div>
-          <div className="studio-stat">
-            <div className="studio-stat-value" style={{ color: "var(--purple)" }}>
-              {packetCount}
-            </div>
-            <div className="studio-stat-label">Packets Generated</div>
-          </div>
-          <div className="studio-stat">
-            <div className="studio-stat-value" style={{ color: "#3B82F6" }}>
-              {nightShiftEnabled}
-            </div>
-            <div className="studio-stat-label">Night Shift Enabled</div>
-          </div>
-          <div className="studio-stat">
-            <div className="studio-stat-value good">{avgConfidence ?? "--"}</div>
-            <div className="studio-stat-label">Avg Confidence</div>
-          </div>
-        </div>
+        <BoardStats
+          projectCount={projects.length}
+          pendingCount={pendingCount}
+          packetCount={packetCount}
+          nightShiftCount={nightShiftEnabled}
+          avgConfidence={avgConfidence}
+        />
 
-        {!projects.length && (
-          <section className="studio-card">
-            <h2>No projects yet</h2>
-            <p className="meta-line">
-              Run onboarding to create your first project and generate a Phase 0 packet.
+        {!projects.length ? (
+          <section className="zero-state">
+            <div className="zero-state-icon">▲</div>
+            <h2 className="zero-state-title">Welcome to Startup Machine</h2>
+            <p className="zero-state-desc">
+              Create your first project to generate AI-powered decision packets with market sizing,
+              competitor analysis, and confidence scores.
             </p>
+            <div className="zero-state-actions">
+              <Link href="/onboarding?new=1" className="btn btn-approve" style={{ padding: "10px 24px", fontSize: 14 }}>
+                Create Your First Project
+              </Link>
+              <Link href="/bulk-import" className="btn btn-details" style={{ padding: "10px 24px", fontSize: 14 }}>
+                Bulk Import
+              </Link>
+            </div>
           </section>
+        ) : (
+          <>
+            <BoardContent
+              projects={projectRows}
+              packetCount={packetCount}
+              runningAgents={Array.from(runningTasks.entries()).map(([pid, t]) => ({
+                projectId: pid,
+                projectName: projects.find((p) => p.id === pid)?.name ?? pid,
+                agent: t.agent,
+                description: t.description,
+              }))}
+            />
+            <RecentActivity items={recentActivity} />
+          </>
         )}
-
-        <BoardContent projects={projectRows} packetCount={packetCount} />
-
-        <RecentActivity items={recentActivity} />
       </main>
     </>
   );

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { createServiceSupabase } from "@/lib/supabase";
@@ -5,6 +6,24 @@ import { packetSchema } from "@/types/domain";
 import { PacketActions } from "@/components/packet-actions";
 import { PacketDecisionBar } from "@/components/packet-decision-bar";
 import { ProjectChatPane } from "@/components/project-chat-pane";
+import { AgentActivityIndicator } from "@/components/agent-activity";
+
+export async function generateMetadata({ params }: { params: Promise<{ projectId: string }> }): Promise<Metadata> {
+  const { projectId } = await params;
+  const db = createServiceSupabase();
+  const { data } = await db.from("projects").select("name,domain").eq("id", projectId).maybeSingle();
+  if (!data) return { title: "Phase 0 Packet" };
+  const name = data.name as string;
+  return {
+    title: `${name} — Phase 0 Packet`,
+    description: `AI-generated decision packet for ${name}: market sizing, competitor analysis, and confidence score.`,
+    openGraph: {
+      title: `${name} — Phase 0 Packet | Startup Machine`,
+      description: `AI-generated decision packet with market sizing, competitor analysis, and go/no-go recommendation.`,
+      type: "article",
+    },
+  };
+}
 
 type LaunchTask = {
   description: string;
@@ -16,7 +35,16 @@ type LaunchTask = {
 function recommendationClass(rec: string) {
   if (rec === "greenlight") return "green";
   if (rec === "revise") return "yellow";
-  return "red";
+  return "yellow";
+}
+
+function companySearchUrl(name: string) {
+  return `https://www.google.com/search?q=${encodeURIComponent(name)}`;
+}
+
+function sourceLink(source: string) {
+  if (/^https?:\/\//.test(source)) return source;
+  return `https://www.google.com/search?q=${encodeURIComponent(source)}`;
 }
 
 function latestPhase0Attempt(tasks: LaunchTask[]) {
@@ -107,9 +135,10 @@ export default async function PacketPage({ params }: { params: Promise<{ project
             )}
 
             {latestRunning && !latestFailure && (
-              <div className="warning-state" style={{ marginTop: 12 }}>
-                <p className="warning-text">
-                  Launch is still running at step: {latestRunning.description}
+              <div className="warning-state" style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 12 }}>
+                <AgentActivityIndicator agentKey="research_agent" taskDescription={latestRunning.description as string} />
+                <p className="warning-text" style={{ margin: 0 }}>
+                  {latestRunning.description}
                   {latestRunning.detail ? ` — ${latestRunning.detail}` : ""}
                 </p>
               </div>
@@ -253,7 +282,11 @@ export default async function PacketPage({ params }: { params: Promise<{ project
             <tbody>
               {packet.competitor_analysis.map((competitor) => (
                 <tr key={competitor.name}>
-                  <td className="comp-name">{competitor.name}</td>
+                  <td className="comp-name">
+                    <a href={companySearchUrl(competitor.name)} target="_blank" rel="noopener noreferrer" style={{ color: "var(--heading)", textDecoration: "none", borderBottom: "1px dotted var(--text3)" }}>
+                      {competitor.name} ↗
+                    </a>
+                  </td>
                   <td>{competitor.positioning}</td>
                   <td><span className="gap-badge">{competitor.gap}</span></td>
                   <td>{competitor.pricing}</td>
@@ -325,7 +358,7 @@ export default async function PacketPage({ params }: { params: Promise<{ project
             <div className="syn-item"><div className="syn-label">Decision</div><div className="syn-value">{packet.reasoning_synopsis.decision}</div></div>
             <div className="syn-item"><div className="syn-label">Confidence</div><div className="syn-value">{packet.reasoning_synopsis.confidence}</div></div>
             <div className="syn-item"><div className="syn-label">Next Actions</div><div className="syn-value">{packet.reasoning_synopsis.next_actions.join(", ")}</div></div>
-            <div className="syn-item"><div className="syn-label">Evidence</div><div className="syn-value">{packet.reasoning_synopsis.evidence.map((entry) => `${entry.claim} (${entry.source})`).join("; ")}</div></div>
+            <div className="syn-item"><div className="syn-label">Evidence</div><div className="syn-value">{packet.reasoning_synopsis.evidence.map((entry, i) => (<span key={i}>{i > 0 && "; "}{entry.claim} (<a href={sourceLink(entry.source)} target="_blank" rel="noopener noreferrer" style={{ color: "var(--cyan)", textDecoration: "none", borderBottom: "1px dotted var(--cyan)" }}>{entry.source}</a>)</span>))}</div></div>
           </div>
         </section>
 

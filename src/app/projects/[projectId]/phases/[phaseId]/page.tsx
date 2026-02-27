@@ -5,6 +5,7 @@ import { withRetry } from "@/lib/retry";
 import { StudioNav } from "@/components/studio-nav";
 import { ProjectChatPane } from "@/components/project-chat-pane";
 import { RetryTaskButton } from "@/components/retry-task-button";
+import { AgentActivityIndicator } from "@/components/agent-activity";
 import { getOwnedProjects, getPendingApprovalsByProject } from "@/lib/studio";
 import { PHASES, phaseStatus, getAgentProfile, humanizeTaskDescription, taskOutputLink, type PhaseId } from "@/lib/phases";
 import { parsePhasePacket, type PhasePacket } from "@/types/phase-packets";
@@ -96,11 +97,11 @@ export default async function ProjectPhaseWorkspacePage({
   const projectIds = projects.map((entry) => entry.id);
   const { total: pendingCount } = await getPendingApprovalsByProject(projectIds);
 
-  const [projectQuery, packetQuery, approvalsQuery, tasksQuery] = await Promise.all([
+  const [projectQuery, packetQuery, approvalsQuery, tasksQuery, deploymentQuery, assetsQuery] = await Promise.all([
     withRetry(() =>
       db
         .from("projects")
-        .select("id,name,domain,phase,runtime_mode,updated_at")
+        .select("id,name,domain,phase,runtime_mode,updated_at,live_url")
         .eq("id", projectId)
         .eq("owner_clerk_id", userId)
         .maybeSingle(),
@@ -130,6 +131,23 @@ export default async function ProjectPhaseWorkspacePage({
         .order("created_at", { ascending: false })
         .limit(200),
     ),
+    withRetry(() =>
+      db
+        .from("project_deployments")
+        .select("project_id,phase,status,metadata,deployed_at")
+        .eq("project_id", projectId)
+        .maybeSingle(),
+    ),
+    withRetry(() =>
+      db
+        .from("project_assets")
+        .select("id,kind,storage_path,filename,mime_type,metadata,created_at")
+        .eq("project_id", projectId)
+        .eq("phase", phase)
+        .eq("status", "uploaded")
+        .order("created_at", { ascending: false })
+        .limit(50),
+    ),
   ]);
 
   if (projectQuery.error || !projectQuery.data) {
@@ -146,11 +164,25 @@ export default async function ProjectPhaseWorkspacePage({
     );
   }
 
-  const project = projectQuery.data as ProjectRow;
+  const project = projectQuery.data as ProjectRow & { live_url?: string };
   const packetRow = (packetQuery.data as PacketRow | null) ?? null;
   const approvals = (approvalsQuery.data ?? []) as ApprovalRow[];
   const allTasks = (tasksQuery.data ?? []) as TaskRow[];
   const phaseTasks = allTasks.filter((task) => task.description.startsWith(`phase${phase}_`)).slice(0, 30);
+  const deployment = deploymentQuery.data as { project_id: string; phase: number; status: string; metadata: Record<string, unknown>; deployed_at: string } | null;
+  const assets = (assetsQuery.data ?? []) as Array<{
+    id: string;
+    kind: string;
+    storage_path: string;
+    filename: string;
+    mime_type: string | null;
+    metadata: Record<string, unknown>;
+    created_at: string;
+  }>;
+  const brandAssets = assets.filter((a) => a.metadata?.brand_asset === true);
+  const brandKitDoc = assets.find((a) => a.metadata?.brand_kit_doc === true);
+  const landingAsset = assets.find((a) => a.kind === "landing_html");
+  const liveUrl = project.live_url ?? (deployment ? `/launch/${projectId}` : null);
 
   const currentPhaseDefinition = PHASES.find((entry) => entry.id === phase) ?? PHASES[0];
   const status = phaseStatus(project.phase, phase);
@@ -246,12 +278,36 @@ export default async function ProjectPhaseWorkspacePage({
           <>
             <section className="studio-card">
               <h2>Validation Summary</h2>
-              <p className="meta-line">{packetParse.packet.summary}</p>
+              <p style={{ color: "var(--text)", lineHeight: 1.6, fontSize: 14, margin: 0 }}>
+                {packetParse.packet.summary}
+              </p>
             </section>
 
+            {/* Landing Page — live preview + link */}
             <section className="studio-card">
-              <h2>Landing + Waitlist</h2>
-              <div className="project-metrics">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                <h2 style={{ margin: 0 }}>Landing Page</h2>
+                <div className="table-actions">
+                  {liveUrl && (
+                    <a href={liveUrl} target="_blank" rel="noopener noreferrer" className="btn btn-primary btn-sm">
+                      Open Live Page
+                    </a>
+                  )}
+                </div>
+              </div>
+              {liveUrl ? (
+                <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)", background: "#000" }}>
+                  <iframe
+                    src={liveUrl}
+                    title="Landing Page Preview"
+                    style={{ width: "100%", height: 480, border: "none", display: "block" }}
+                    sandbox="allow-scripts allow-forms allow-same-origin"
+                  />
+                </div>
+              ) : (
+                <p className="meta-line">Landing page not yet deployed.</p>
+              )}
+              <div className="project-metrics" style={{ marginTop: 16 }}>
                 <div>
                   <div className="metric-label">Headline</div>
                   <div className="metric-value">{packetParse.packet.landing_page.headline}</div>
@@ -264,66 +320,173 @@ export default async function ProjectPhaseWorkspacePage({
                   <div className="metric-label">Target CVR</div>
                   <div className="metric-value">{packetParse.packet.waitlist.target_conversion_rate}</div>
                 </div>
-              </div>
-              <div className="table-shell" style={{ marginTop: 10 }}>
-                <table className="studio-table compact">
-                  <thead>
-                    <tr>
-                      <th>Landing Sections</th>
-                      <th>Waitlist Fields</th>
-                      <th>Launch Notes</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td>{packetParse.packet.landing_page.sections.join(", ")}</td>
-                      <td>{packetParse.packet.waitlist.form_fields.join(", ")}</td>
-                      <td>{packetParse.packet.landing_page.launch_notes.join(", ")}</td>
-                    </tr>
-                  </tbody>
-                </table>
+                <div>
+                  <div className="metric-label">Waitlist Fields</div>
+                  <div className="metric-value">{packetParse.packet.waitlist.form_fields.join(", ")}</div>
+                </div>
               </div>
             </section>
 
+            {/* Brand Kit — asset gallery + palette */}
             <section className="studio-card">
-              <h2>Analytics, Brand, and Comms</h2>
-              <div className="table-shell">
-                <table className="studio-table compact">
-                  <thead>
-                    <tr>
-                      <th>Analytics</th>
-                      <th>Brand</th>
-                      <th>Social + Email</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td>
-                        Provider: {packetParse.packet.analytics.provider}
-                        <br />
-                        Events: {packetParse.packet.analytics.events.join(", ")}
-                        <br />
-                        Views: {packetParse.packet.analytics.dashboard_views.join(", ")}
-                      </td>
-                      <td>
-                        Voice: {packetParse.packet.brand_kit.voice}
-                        <br />
-                        Palette: {packetParse.packet.brand_kit.color_palette.join(", ")}
-                        <br />
-                        Fonts: {packetParse.packet.brand_kit.font_pairing}
-                      </td>
-                      <td>
-                        Channels: {packetParse.packet.social_strategy.channels.join(", ")}
-                        <br />
-                        Cadence: {packetParse.packet.social_strategy.posting_cadence}
-                        <br />
-                        Emails: {packetParse.packet.email_sequence.emails.map((item) => `${item.day}: ${item.subject}`).join(" · ")}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                <h2 style={{ margin: 0 }}>Brand Kit</h2>
+                {brandKitDoc && (
+                  <a
+                    href={`/api/projects/${projectId}/assets/${brandKitDoc.id}/preview`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-details btn-sm"
+                  >
+                    Open Brand Kit Document
+                  </a>
+                )}
+              </div>
+              {brandAssets.length > 0 && (
+                <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginBottom: 20 }}>
+                  {brandAssets.map((asset) => {
+                    const label = (asset.metadata?.label as string) ?? asset.filename;
+                    return (
+                      <div key={asset.id} style={{ textAlign: "center" }}>
+                        <div
+                          style={{
+                            width: 100,
+                            height: 100,
+                            borderRadius: 16,
+                            border: "1px solid var(--border)",
+                            background: "var(--surface, rgba(255,255,255,.03))",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            overflow: "hidden",
+                            marginBottom: 8,
+                          }}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={`/api/projects/${projectId}/assets/${asset.id}/preview`}
+                            alt={label}
+                            style={{ width: "80%", height: "80%", objectFit: "contain" }}
+                          />
+                        </div>
+                        <div className="meta-line" style={{ fontSize: 12 }}>{label}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="project-metrics">
+                <div>
+                  <div className="metric-label">Voice</div>
+                  <div className="metric-value">{packetParse.packet.brand_kit.voice}</div>
+                </div>
+                <div>
+                  <div className="metric-label">Color Palette</div>
+                  <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                    {packetParse.packet.brand_kit.color_palette.map((color) => (
+                      <div
+                        key={color}
+                        title={color}
+                        style={{
+                          width: 32,
+                          height: 32,
+                          borderRadius: 8,
+                          background: color.startsWith("#") ? color : "var(--card2)",
+                          border: "1px solid rgba(255,255,255,.15)",
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div className="metric-label">Font Pairing</div>
+                  <div className="metric-value">{packetParse.packet.brand_kit.font_pairing}</div>
+                </div>
+                <div>
+                  <div className="metric-label">Logo Prompt</div>
+                  <div className="metric-value" style={{ fontSize: 13 }}>{packetParse.packet.brand_kit.logo_prompt}</div>
+                </div>
               </div>
             </section>
+
+            {/* Email Drip Sequence */}
+            <section className="studio-card">
+              <h2>Welcome Email Sequence</h2>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 8 }}>
+                {packetParse.packet.email_sequence.emails.map((email, i) => (
+                  <div
+                    key={`${email.day}-${i}`}
+                    style={{
+                      display: "flex",
+                      gap: 16,
+                      alignItems: "flex-start",
+                      padding: "16px 20px",
+                      background: "var(--surface, rgba(255,255,255,.03))",
+                      border: "1px solid var(--border, rgba(255,255,255,.08))",
+                      borderRadius: 12,
+                    }}
+                  >
+                    <div
+                      style={{
+                        minWidth: 56,
+                        padding: "4px 10px",
+                        borderRadius: 6,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        textAlign: "center",
+                        background: "rgba(59,130,246,.12)",
+                        color: "#60A5FA",
+                      }}
+                    >
+                      {email.day}
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 600, marginBottom: 2 }}>{email.subject}</div>
+                      <div className="meta-line">{email.goal}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* Analytics + Social Strategy */}
+            <div className="phase-two-col">
+              <section className="studio-card">
+                <h2>Analytics</h2>
+                <div className="metric-label">Provider</div>
+                <div className="metric-value" style={{ marginBottom: 8 }}>{packetParse.packet.analytics.provider}</div>
+                <div className="metric-label">Key Events</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                  {packetParse.packet.analytics.events.map((e) => (
+                    <span key={e} className="deliverable-chip">{e}</span>
+                  ))}
+                </div>
+                <div className="metric-label">Dashboard Views</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {packetParse.packet.analytics.dashboard_views.map((v) => (
+                    <span key={v} className="deliverable-chip">{v}</span>
+                  ))}
+                </div>
+              </section>
+
+              <section className="studio-card">
+                <h2>Social Strategy</h2>
+                <div className="metric-label">Channels</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                  {packetParse.packet.social_strategy.channels.map((ch) => (
+                    <span key={ch} className="pill blue">{ch}</span>
+                  ))}
+                </div>
+                <div className="metric-label">Posting Cadence</div>
+                <div className="metric-value" style={{ marginBottom: 8 }}>{packetParse.packet.social_strategy.posting_cadence}</div>
+                <div className="metric-label">Content Pillars</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {packetParse.packet.social_strategy.content_pillars.map((p) => (
+                    <span key={p} className="deliverable-chip">{p}</span>
+                  ))}
+                </div>
+              </section>
+            </div>
           </>
         )}
 
@@ -476,7 +639,13 @@ export default async function ProjectPhaseWorkspacePage({
                           <div className="table-main">{humanizeTaskDescription(task.description)}</div>
                           <div className="table-sub">{task.detail ?? ""}</div>
                         </td>
-                        <td className={statusClass(task.status)}>{task.status}</td>
+                        <td className={statusClass(task.status)}>
+                          {task.status === "running" ? (
+                            <AgentActivityIndicator agentKey={task.agent} taskDescription={humanizeTaskDescription(task.description)} compact />
+                          ) : (
+                            task.status
+                          )}
+                        </td>
                         <td>{new Date(task.created_at).toLocaleString()}</td>
                         <td style={{ whiteSpace: "nowrap" }}>
                           {task.status === "failed" && (
@@ -497,7 +666,15 @@ export default async function ProjectPhaseWorkspacePage({
           )}
         </section>
 
-        <ProjectChatPane projectId={projectId} title="CEO Chat Pane" />
+        <ProjectChatPane
+          projectId={projectId}
+          title="CEO Chat Pane"
+          deliverableLinks={phase === 1 ? [
+            ...(liveUrl ? [{ label: "Landing Page", href: liveUrl, external: true }] : []),
+            ...(brandKitDoc ? [{ label: "Brand Kit", href: `/api/projects/${projectId}/assets/${brandKitDoc.id}/preview`, external: true }] : []),
+            { label: "Phase 1 Workspace", href: `/projects/${projectId}/phases/1` },
+          ] : undefined}
+        />
 
         <section className="studio-card">
           <h2>Gate History</h2>

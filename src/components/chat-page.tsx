@@ -130,7 +130,7 @@ function renderMessageContent(content: string, role: string): ReactNode {
 
       if (kvLines.length >= 2) {
         parts.push(
-          <div key={`card-${keyCounter++}`} className="msg-card">
+          <div key={`card-${keyCounter++}`} className="msg-card chat-data-card-enter">
             <div className="msg-card-title">{line}</div>
             {kvLines.map((kv, idx) => (
               <div key={idx} className="msg-card-row">
@@ -163,7 +163,7 @@ function renderMessageContent(content: string, role: string): ReactNode {
 
       if (kvLines.length >= 2) {
         parts.push(
-          <div key={`bcard-${keyCounter++}`} className="msg-card">
+          <div key={`bcard-${keyCounter++}`} className="msg-card chat-data-card-enter">
             {kvLines.map((kv, idx) => (
               <div key={idx} className="msg-card-row">
                 <span>{kv.key}</span>
@@ -253,10 +253,9 @@ function ProjectBriefing({ projectId }: { projectId: string }) {
     const seen = typeof window !== "undefined" && sessionStorage.getItem(briefingSessionKey(projectId)) === "1";
     setAlreadySeen(seen);
 
-    Promise.all([
-      fetch(`/api/projects/${projectId}/progress`).then((r) => r.ok ? r.json() : null),
-    ])
-      .then(([progressData]) => {
+    fetch(`/api/projects/${projectId}/progress`, { cache: "no-store" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((progressData) => {
         const p = progressData as { tasks?: BriefingTask[]; approvals?: BriefingApproval[] } | null;
         const t = Array.isArray(p?.tasks) ? p.tasks.slice(0, 8) : [];
         setTasks(t);
@@ -292,7 +291,7 @@ function ProjectBriefing({ projectId }: { projectId: string }) {
 
   return (
     <div style={{ animation: "fadeInUp 0.4s ease both", marginBottom: 16 }}>
-      <div className="chat-data-card" style={{ borderColor: "#22c55e33" }}>
+      <div className="chat-data-card chat-data-card-enter" style={{ borderColor: "#22c55e33" }}>
         <div className="chat-data-card-title">
           {CEO.icon} Recent Activity
         </div>
@@ -472,13 +471,24 @@ export function ChatPage() {
 
   useEffect(() => {
     if (selectedId) {
+      delete messageCacheRef.current[selectedId];
       loadMessages(selectedId);
     } else {
       setMessages([]);
     }
   }, [selectedId, loadMessages]);
 
-  // Scroll to bottom on new messages
+  useEffect(() => {
+    if (!selectedId || sending) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        delete messageCacheRef.current[selectedId];
+        loadMessages(selectedId);
+      }
+    }, 10000);
+    return () => clearInterval(timer);
+  }, [selectedId, sending, loadMessages]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length, sending]);
@@ -548,7 +558,16 @@ export function ChatPage() {
           {loadingProjects ? (
             <p className="meta-line" style={{ padding: "12px" }}>Loading projects...</p>
           ) : projects.length === 0 ? (
-            <p className="meta-line" style={{ padding: "12px" }}>No projects yet.</p>
+            <div style={{ padding: "24px 12px", textAlign: "center" }}>
+              <p style={{ color: "var(--text3)", fontSize: 13, marginBottom: 12 }}>No projects yet.</p>
+              <Link
+                href="/onboarding?new=1"
+                className="btn btn-approve"
+                style={{ fontSize: 12, padding: "7px 14px" }}
+              >
+                + New Project
+              </Link>
+            </div>
           ) : (
             projects.map((project) => (
               <button
@@ -557,7 +576,7 @@ export function ChatPage() {
                 className={`chat-project-item${selectedId === project.id ? " active" : ""}`}
                 onClick={() => selectProject(project.id)}
               >
-                <div className="chat-project-name">
+                <div className="chat-project-name" style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <span
                     className="chat-project-dot"
                     style={{ background: statusColor(project.phase) }}
@@ -674,7 +693,7 @@ export function ChatPage() {
                   }
 
                   return (
-                    <div key={msg.id} className={`chat-msg ${msg.role}`}>
+                    <div key={msg.id} className={`chat-msg ${msg.role} chat-msg-enter`}>
                       <div
                         className={`chat-msg-avatar ${msg.role === "assistant" ? "agent" : msg.role}`}
                         style={msg.role === "assistant" ? {
@@ -700,23 +719,16 @@ export function ChatPage() {
               )}
 
               {sending && (
-                <div className="chat-msg assistant">
-                  <div
-                    className="chat-msg-avatar agent"
-                    style={{
-                      background: `linear-gradient(135deg, ${CEO.color}30, ${CEO.color}60)`,
-                      border: `2px solid ${CEO.color}`,
-                    }}
-                  >
+                <div className="thinking-bubble">
+                  <div className="thinking-avatar">
                     {CEO.icon}
+                    <span className="pulse-ring" />
                   </div>
-                  <div className="chat-msg-content">
-                    <div className="chat-msg-header">
-                      <span className="chat-msg-name" style={{ color: CEO.color }}>
-                        {CEO.name}
-                      </span>
+                  <div className="thinking-content">
+                    <div className="thinking-dots">
+                      <span /><span /><span />
                     </div>
-                    <div className="chat-msg-text" style={{ opacity: 0.6 }}>{CEO.statusPhrase}</div>
+                    <span className="thinking-label">{CEO.statusPhrase}</span>
                   </div>
                 </div>
               )}
@@ -751,10 +763,29 @@ export function ChatPage() {
           </>
         ) : (
           <div className="chat-no-project">
-            <h2 style={{ marginBottom: 8 }}>Select a project to start chatting</h2>
-            <p className="meta-line">
-              Choose a project from the sidebar to chat with your CEO agent.
-            </p>
+            {projects.length === 0 ? (
+              <>
+                <div style={{ fontSize: 40, marginBottom: 16 }}>💬</div>
+                <h2 style={{ marginBottom: 8, color: "var(--heading)" }}>Chat with Your AI CEO</h2>
+                <p className="meta-line" style={{ maxWidth: 400, marginBottom: 16 }}>
+                  Create a project to start chatting with your CEO agent about strategy, execution, and next steps.
+                </p>
+                <Link
+                  href="/onboarding?new=1"
+                  className="btn btn-approve"
+                  style={{ fontSize: 14, padding: "10px 24px" }}
+                >
+                  Create a Project
+                </Link>
+              </>
+            ) : (
+              <>
+                <h2 style={{ marginBottom: 8, color: "var(--heading)" }}>Select a project to start chatting</h2>
+                <p className="meta-line">
+                  Choose a project from the sidebar to chat with your CEO agent.
+                </p>
+              </>
+            )}
           </div>
         )}
       </main>

@@ -11,23 +11,63 @@ const tabs: Array<{ id: StudioTab; label: string; href: string }> = [
   { id: "settings", label: "Settings", href: "/settings" },
 ];
 
-export function StudioNav({ active, pendingCount }: { active: StudioTab; pendingCount: number }) {
+type NavProps = {
+  active: StudioTab;
+  pendingCount: number;
+  runningCount?: number;
+  urgentCount?: number;
+};
+
+function TabBadge({ tab, pendingCount, urgentCount, runningCount }: {
+  tab: StudioTab;
+  pendingCount: number;
+  urgentCount?: number;
+  runningCount?: number;
+}) {
+  if (tab === "inbox" && (urgentCount ?? 0) > 0) {
+    return <span className="tab-badge red">{urgentCount}</span>;
+  }
+  if (tab === "inbox" && pendingCount > 0) {
+    return <span className="tab-badge red">{pendingCount}</span>;
+  }
+  if (tab === "tasks" && (runningCount ?? 0) > 0) {
+    return <span className="tab-badge yellow">{runningCount}</span>;
+  }
+  return null;
+}
+
+export function StudioNav({ active, pendingCount, runningCount = 0, urgentCount = 0 }: NavProps) {
+  const isAlive = runningCount > 0;
+
   return (
-    <nav className="nav">
+    <nav className="nav" style={{ position: "relative" }}>
       <div className="nav-left">
-        <Link href="/board" className="logo">
-          ▲ <span>Startup Machine</span>
+        <Link href="/board" className={`logo ${isAlive ? "logo-breathing" : ""}`}>
+          ▲ <span className="logo-text">Startup Machine</span>
         </Link>
         <div className="nav-tabs">
           {tabs.map((tab) => (
             <Link key={tab.id} href={tab.href} className={`nav-tab ${active === tab.id ? "active" : ""}`}>
               {tab.label}
+              <TabBadge
+                tab={tab.id}
+                pendingCount={pendingCount}
+                urgentCount={urgentCount}
+                runningCount={runningCount}
+              />
             </Link>
           ))}
         </div>
       </div>
       <div className="nav-right">
-        <div className="meta-line">{pendingCount} pending</div>
+        <div className={`agent-ticker ${isAlive ? "" : "idle"}`}>
+          <span className="ticker-dot" />
+          <span>
+            {isAlive
+              ? `${runningCount} agent${runningCount > 1 ? "s" : ""} active`
+              : "All quiet"}
+          </span>
+        </div>
         <UserButton
           afterSignOutUrl="/"
           appearance={{

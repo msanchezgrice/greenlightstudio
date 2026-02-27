@@ -1,5 +1,7 @@
+import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { createServiceSupabase } from "@/lib/supabase";
+import { StudioNav } from "@/components/studio-nav";
 import { InboxView } from "@/components/inbox-view";
 import { get_approval_queue } from "@/lib/supabase-mcp";
 
@@ -30,10 +32,27 @@ export default async function InboxPage() {
 
   if (!projects.length) {
     return (
-      <main className="page empty-page">
-        <h1 className="page-title">📥 Approval Inbox</h1>
-        <p className="meta-line">No projects found. Start with onboarding first.</p>
-      </main>
+      <>
+        <StudioNav active="inbox" pendingCount={0} />
+        <main className="page studio-page">
+          <section className="zero-state">
+            <div className="zero-state-icon">📥</div>
+            <h2 className="zero-state-title">Your Inbox is Empty</h2>
+            <p className="zero-state-desc">
+              When your AI agents need approval for high-impact actions, they will appear here.
+              Create a project to get started.
+            </p>
+            <div className="zero-state-actions">
+              <Link href="/onboarding?new=1" className="btn btn-approve" style={{ padding: "10px 24px", fontSize: 14 }}>
+                Create a Project
+              </Link>
+              <Link href="/board" className="btn btn-details" style={{ padding: "10px 24px", fontSize: 14 }}>
+                Go to Board
+              </Link>
+            </div>
+          </section>
+        </main>
+      </>
     );
   }
 
