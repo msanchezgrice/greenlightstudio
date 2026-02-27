@@ -284,7 +284,7 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     tools: ['WebSearch'],
     allowedTools: ['WebSearch'],
     maxTurns: 4,
-    timeoutMs: 240_000,
+    timeoutMs: 480_000,
     permissionMode: 'dontAsk',
   },
   designer_full: {
@@ -308,7 +308,7 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     tools: [],
     allowedTools: [],
     maxTurns: 6,
-    timeoutMs: 120_000,
+    timeoutMs: 300_000,
     permissionMode: 'dontAsk',
   },
   ceo_phase0: {
@@ -316,7 +316,7 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     tools: ['WebSearch'],
     allowedTools: ['WebSearch'],
     maxTurns: 8,
-    timeoutMs: 270_000,
+    timeoutMs: 600_000,
     permissionMode: 'dontAsk',
   },
 };
@@ -369,34 +369,41 @@ function isRetryableAgentFailure(message: string) {
   );
 }
 
-function parseSchemaWithRepair<T>(input: unknown, options: QueryAttemptOptions<T>) {
+function parseSchemaWithRepair<T>(input: unknown, options: QueryAttemptOptions<T>, debugProjectId?: string) {
   const direct = options.schema.safeParse(input);
   if (direct.success) return direct.data;
   if (!options.repair) throw direct.error;
 
   // #region agent log
-  const inputSynopsis = isRecord(input) && isRecord((input as Record<string, unknown>).reasoning_synopsis)
-    ? (input as Record<string, unknown>).reasoning_synopsis as Record<string, unknown>
-    : null;
-  const inputRec = isRecord(input) ? (input as Record<string, unknown>).recommendation : undefined;
-  fetch('http://127.0.0.1:7273/ingest/e1f64a80-6a40-4b4d-947d-ebccb18ed978',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bd7bd1'},body:JSON.stringify({sessionId:'bd7bd1',location:'agent.ts:parseSchemaWithRepair',message:'pre-repair',data:{decision_raw:inputSynopsis?.decision,recommendation_raw:inputRec,direct_error:JSON.stringify(direct.error.issues?.slice(0,3))},timestamp:Date.now()})}).catch(()=>{});
+  if (debugProjectId) {
+    const synopsis = isRecord(input) && isRecord((input as Record<string, unknown>).reasoning_synopsis)
+      ? (input as Record<string, unknown>).reasoning_synopsis as Record<string, unknown> : null;
+    const rec = isRecord(input) ? (input as Record<string, unknown>).recommendation : undefined;
+    log_task(debugProjectId, "debug", "_debug_repair_pre", "running",
+      `decision=${synopsis?.decision}|rec=${rec}|err=${JSON.stringify(direct.error.issues?.slice(0, 2))}`.slice(0, 320)).catch(() => {});
+  }
   // #endregion
 
   const repaired = options.repair(input);
 
-  // #region agent log
-  const repairedSynopsis = isRecord(repaired) && isRecord((repaired as Record<string, unknown>).reasoning_synopsis)
-    ? (repaired as Record<string, unknown>).reasoning_synopsis as Record<string, unknown>
-    : null;
-  const repairedRec = isRecord(repaired) ? (repaired as Record<string, unknown>).recommendation : undefined;
-  fetch('http://127.0.0.1:7273/ingest/e1f64a80-6a40-4b4d-947d-ebccb18ed978',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bd7bd1'},body:JSON.stringify({sessionId:'bd7bd1',location:'agent.ts:parseSchemaWithRepair',message:'post-repair',data:{decision_repaired:repairedSynopsis?.decision,recommendation_repaired:repairedRec},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
-
   const repairedResult = options.schema.safeParse(repaired);
-  if (repairedResult.success) return repairedResult.data;
+  if (repairedResult.success) {
+    // #region agent log
+    if (debugProjectId) {
+      const rs = isRecord(repaired) && isRecord((repaired as Record<string, unknown>).reasoning_synopsis)
+        ? (repaired as Record<string, unknown>).reasoning_synopsis as Record<string, unknown> : null;
+      log_task(debugProjectId, "debug", "_debug_repair_ok", "completed",
+        `decision=${rs?.decision}|rec=${isRecord(repaired) ? (repaired as Record<string, unknown>).recommendation : "?"}`.slice(0, 320)).catch(() => {});
+    }
+    // #endregion
+    return repairedResult.data;
+  }
 
   // #region agent log
-  fetch('http://127.0.0.1:7273/ingest/e1f64a80-6a40-4b4d-947d-ebccb18ed978',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bd7bd1'},body:JSON.stringify({sessionId:'bd7bd1',location:'agent.ts:parseSchemaWithRepair',message:'repair-failed',data:{errors:JSON.stringify(repairedResult.error.issues?.slice(0,5))},timestamp:Date.now()})}).catch(()=>{});
+  if (debugProjectId) {
+    log_task(debugProjectId, "debug", "_debug_repair_fail", "failed",
+      JSON.stringify(repairedResult.error.issues?.slice(0, 3)).slice(0, 320)).catch(() => {});
+  }
   // #endregion
 
   throw repairedResult.error;
@@ -417,7 +424,7 @@ function createToolGuard(profile: AgentProfile) {
   };
 }
 
-async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptions<T>, profile: QueryProfile, agentProfile: AgentProfile = AGENT_PROFILES.none, traceTarget?: TraceTarget) {
+async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptions<T>, profile: QueryProfile, agentProfile: AgentProfile = AGENT_PROFILES.none, traceTarget?: TraceTarget, debugProjectId?: string) {
   const executablePath = resolveClaudeCodeExecutablePath();
   const stderrChunks: string[] = [];
   const cwd = IS_SERVERLESS_RUNTIME ? AGENT_RUNTIME_TMP_DIR : process.cwd();
@@ -522,7 +529,14 @@ async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptio
 
   const finalText = resultText.trim() || raw.trim() || streamedRaw.trim() || streamedJsonRaw.trim();
 
-  const parseFinalText = () => parseSchemaWithRepair(parseAgentJson<T>(finalText), options);
+  const parseFinalText = () => parseSchemaWithRepair(parseAgentJson<T>(finalText), options, debugProjectId);
+
+  // #region agent log
+  if (debugProjectId) {
+    log_task(debugProjectId, "debug", `_debug_attempt_${profile.name}`, timedOut ? "failed" : "running",
+      `timeout=${timedOut}|t=${Math.round(effectiveTimeoutMs / 1000)}s|saw=${state.sawResult}|struct=${typeof structuredOutput !== "undefined"}|text=${finalText.length}|profile=${agentProfile.name}`.slice(0, 320)).catch(() => {});
+  }
+  // #endregion
 
   if (timedOut) {
     if (finalText) {
@@ -555,7 +569,7 @@ async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptio
   }
 
   if (typeof structuredOutput !== "undefined") {
-    return parseSchemaWithRepair(structuredOutput, options);
+    return parseSchemaWithRepair(structuredOutput, options, debugProjectId);
   }
 
   if (resultError && !finalText) throw new Error(resultError);
@@ -675,7 +689,7 @@ async function runRawQuery(prompt: string, agentProfile: AgentProfile = AGENT_PR
   return { text: finalText, traces };
 }
 
-async function runJsonQuery<T>(prompt: string, schema: z.ZodType<T>, repair?: (value: unknown) => unknown, agentProfile: AgentProfile = AGENT_PROFILES.none, traceTarget?: TraceTarget) {
+async function runJsonQuery<T>(prompt: string, schema: z.ZodType<T>, repair?: (value: unknown) => unknown, agentProfile: AgentProfile = AGENT_PROFILES.none, traceTarget?: TraceTarget, debugProjectId?: string) {
   const profiles: QueryProfile[] = [
     { name: "structured_default", useOutputFormat: true },
     { name: "text_default", useOutputFormat: false },
@@ -684,7 +698,7 @@ async function runJsonQuery<T>(prompt: string, schema: z.ZodType<T>, repair?: (v
   const errors: string[] = [];
   for (const profile of profiles) {
     try {
-      return await executeQueryAttempt(prompt, { schema, repair }, profile, agentProfile, traceTarget);
+      return await executeQueryAttempt(prompt, { schema, repair }, profile, agentProfile, traceTarget, debugProjectId);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown query error";
       errors.push(`${profile.name}: ${message}`);
@@ -911,6 +925,7 @@ Rules:
       undefined,
       AGENT_PROFILES.researcher_quick,
       tt?.("research_agent", "phase0_comp"),
+      projectId,
     ),
     runJsonQuery(
       `You are Market Research Agent. Return STRICT JSON only.\nInput:\n${ctx}\n${guidanceBlock}${attachedFilesBlock}\n\nRequired JSON shape:\n{"market_sizing":{"tam":"","sam":"","som":""},"notes":["",""]}\n\nRules:\n- use web search to find real market data and TAM/SAM/SOM estimates\n- notes should capture key market insights\n- no markdown fences, no commentary, raw JSON only`,
@@ -918,6 +933,7 @@ Rules:
       undefined,
       AGENT_PROFILES.researcher_quick,
       tt?.("research_agent", "phase0_mkt"),
+      projectId,
     ),
     runJsonQuery(
       ceoPrompt,
@@ -925,6 +941,7 @@ Rules:
       normalizePhase0PacketCandidate,
       AGENT_PROFILES.ceo_phase0,
       tt?.("ceo_agent", "phase0_ceo"),
+      projectId,
     ),
   ]);
 
@@ -978,7 +995,7 @@ Rules:
 - Use the research brief data for competitor_analysis and market_sizing
 - confidence values are 0-100 integers`;
 
-  const fallbackPacket = await runJsonQuery(fallbackPrompt, packetSchema, normalizePhase0PacketCandidate, AGENT_PROFILES.synthesizer);
+  const fallbackPacket = await runJsonQuery(fallbackPrompt, packetSchema, normalizePhase0PacketCandidate, AGENT_PROFILES.synthesizer, undefined, projectId);
   if (compSettled.status === "fulfilled") {
     fallbackPacket.competitor_analysis = compSettled.value.competitors;
   }
