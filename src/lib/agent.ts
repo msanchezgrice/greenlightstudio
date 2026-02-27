@@ -735,6 +735,22 @@ function parseAgentJson<T>(raw: string) {
   throw new Error("Agent returned non-JSON output");
 }
 
+const PHASE0_ENUM_VALUES = ["greenlight", "revise", "kill"] as const;
+
+function extractEnumKeyword(raw: string): string {
+  const lower = raw.toLowerCase().trim();
+  for (const keyword of PHASE0_ENUM_VALUES) {
+    if (lower === keyword) return keyword;
+  }
+  for (const keyword of PHASE0_ENUM_VALUES) {
+    if (lower.startsWith(keyword)) return keyword;
+  }
+  for (const keyword of PHASE0_ENUM_VALUES) {
+    if (lower.includes(keyword)) return keyword;
+  }
+  return lower;
+}
+
 function normalizePhase0PacketCandidate(value: unknown) {
   if (!isRecord(value)) return value;
   const next: Record<string, unknown> = { ...value };
@@ -769,14 +785,14 @@ function normalizePhase0PacketCandidate(value: unknown) {
   }
 
   if (typeof next.recommendation === "string") {
-    next.recommendation = (next.recommendation as string).toLowerCase().trim();
+    next.recommendation = extractEnumKeyword(next.recommendation as string);
   }
 
   const rawSynopsis = next.reasoning_synopsis;
   if (isRecord(rawSynopsis)) {
     const fixed: Record<string, unknown> = { ...rawSynopsis };
     if (typeof fixed.decision === "string") {
-      fixed.decision = (fixed.decision as string).toLowerCase().trim();
+      fixed.decision = extractEnumKeyword(fixed.decision as string);
     }
     if (typeof fixed.confidence === "string") {
       fixed.confidence = parseInt(fixed.confidence as string, 10) || 50;
