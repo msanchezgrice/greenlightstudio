@@ -183,8 +183,9 @@ export default async function ProjectPhaseWorkspacePage({
   const brandAssets = assets.filter((a) => a.metadata?.brand_asset === true);
   const brandKitDoc = assets.find((a) => a.metadata?.brand_kit_doc === true);
   const landingAsset = assets.find((a) => a.kind === "landing_html");
-  const previewUrl = deployment ? `/launch/${projectId}` : null;
-  const liveUrl = project.live_url ?? previewUrl;
+  const previewUrl = deployment ? `/launch/${projectId}` : (landingAsset ? `/launch/${projectId}` : null);
+  const rawLiveUrl = project.live_url;
+  const liveUrl = rawLiveUrl && !rawLiveUrl.includes("localhost") ? rawLiveUrl : previewUrl;
 
   const currentPhaseDefinition = PHASES.find((entry) => entry.id === phase) ?? PHASES[0];
   const status = phaseStatus(project.phase, phase);
