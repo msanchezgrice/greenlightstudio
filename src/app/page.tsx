@@ -15,7 +15,7 @@ export default function Home() {
           <a href="#features">Features</a>
           <a href="#agents">Agents</a>
           <SignedOut>
-            <SignInButton mode="modal">
+            <SignInButton mode="modal" forceRedirectUrl="/board">
               <button className={styles.navSignIn}>Sign In</button>
             </SignInButton>
           </SignedOut>

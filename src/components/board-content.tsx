@@ -244,7 +244,10 @@ export function BoardContent({
                 <tr key={p.id}>
                   {/* Project */}
                   <td>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <Link
+                      href={`/projects/${p.id}`}
+                      style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: "inherit" }}
+                    >
                       <div
                         style={{
                           width: 34,
@@ -267,7 +270,7 @@ export function BoardContent({
                           {p.domain ?? "No domain"}
                         </div>
                       </div>
-                    </div>
+                    </Link>
                   </td>
 
                   {/* Phase badge */}

@@ -232,11 +232,16 @@ type BriefingApproval = {
   action_type: string;
 };
 
+function briefingSessionKey(projectId: string) {
+  return `sm_briefing_seen_${projectId}`;
+}
+
 function ProjectBriefing({ projectId }: { projectId: string }) {
   const [tasks, setTasks] = useState<BriefingTask[]>([]);
   const [approvals, setApprovals] = useState<BriefingApproval[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [visible, setVisible] = useState(0);
+  const [alreadySeen, setAlreadySeen] = useState(false);
   const prevProjectId = useRef<string | null>(null);
 
   useEffect(() => {
@@ -245,20 +250,30 @@ function ProjectBriefing({ projectId }: { projectId: string }) {
     setLoaded(false);
     setVisible(0);
 
+    const seen = typeof window !== "undefined" && sessionStorage.getItem(briefingSessionKey(projectId)) === "1";
+    setAlreadySeen(seen);
+
     Promise.all([
       fetch(`/api/projects/${projectId}/progress`).then((r) => r.ok ? r.json() : null),
     ])
       .then(([progressData]) => {
         const p = progressData as { tasks?: BriefingTask[]; approvals?: BriefingApproval[] } | null;
-        setTasks(Array.isArray(p?.tasks) ? p.tasks.slice(0, 8) : []);
+        const t = Array.isArray(p?.tasks) ? p.tasks.slice(0, 8) : [];
+        setTasks(t);
         setApprovals(Array.isArray(p?.approvals) ? p.approvals.filter((a) => a.status === "pending").slice(0, 4) : []);
         setLoaded(true);
+        if (t.length > 0 && typeof window !== "undefined") {
+          sessionStorage.setItem(briefingSessionKey(projectId), "1");
+        }
       })
       .catch(() => setLoaded(true));
   }, [projectId]);
 
   useEffect(() => {
-    if (!loaded || tasks.length === 0) return;
+    if (!loaded || tasks.length === 0 || alreadySeen) {
+      if (loaded && alreadySeen) setVisible(tasks.length);
+      return;
+    }
     let count = 0;
     const timer = setInterval(() => {
       count += 1;
@@ -266,7 +281,7 @@ function ProjectBriefing({ projectId }: { projectId: string }) {
       if (count >= tasks.length) clearInterval(timer);
     }, 200);
     return () => clearInterval(timer);
-  }, [loaded, tasks.length]);
+  }, [loaded, tasks.length, alreadySeen]);
 
   if (!loaded || tasks.length === 0) return null;
 

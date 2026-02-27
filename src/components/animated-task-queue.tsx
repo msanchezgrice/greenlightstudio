@@ -31,8 +31,8 @@ function statusClass(status: string) {
   return "tone-muted";
 }
 
-const FEED_BATCH_SIZE = 5;
-const FEED_INTERVAL_MS = 120;
+const COMPLETED_DELAY_MS = 1500;
+const COMPLETED_STAGGER_MS = 150;
 
 export function AnimatedTaskQueue({
   tasks,
@@ -43,19 +43,14 @@ export function AnimatedTaskQueue({
   logRows: TaskLogRow[];
   projectNameMap: Record<string, string>;
 }) {
-  const [visibleCount, setVisibleCount] = useState(0);
+  const [showCompleted, setShowCompleted] = useState(false);
   const [completedFlash, setCompletedFlash] = useState<Set<string>>(new Set());
   const prevStatuses = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
     if (tasks.length === 0) return;
-    let count = 0;
-    const timer = setInterval(() => {
-      count += FEED_BATCH_SIZE;
-      setVisibleCount(Math.min(count, tasks.length));
-      if (count >= tasks.length) clearInterval(timer);
-    }, FEED_INTERVAL_MS);
-    return () => clearInterval(timer);
+    const timer = setTimeout(() => setShowCompleted(true), COMPLETED_DELAY_MS);
+    return () => clearTimeout(timer);
   }, [tasks.length]);
 
   useEffect(() => {
@@ -74,7 +69,9 @@ export function AnimatedTaskQueue({
     }
   }, [tasks]);
 
-  const visibleTasks = tasks.slice(0, visibleCount);
+  const nonCompleted = tasks.filter((t) => t.status !== "completed");
+  const completed = tasks.filter((t) => t.status === "completed");
+  const visibleTasks = showCompleted ? [...nonCompleted, ...completed] : nonCompleted;
 
   return (
     <>
@@ -96,19 +93,22 @@ export function AnimatedTaskQueue({
                 </tr>
               </thead>
               <tbody>
-                {visibleTasks.map((task, i) => {
+                {visibleTasks.map((task) => {
                   const agent = getAgentProfile(task.agent);
                   const output = taskOutputLink(task.description, task.project_id);
                   const isRunning = task.status === "running";
+                  const isCompleted = task.status === "completed";
                   const justCompleted = completedFlash.has(task.id);
+                  const completedIdx = isCompleted ? completed.indexOf(task) : -1;
+                  const animStyle = isCompleted
+                    ? { animation: `fadeInUp 0.4s ease ${completedIdx * (COMPLETED_STAGGER_MS / 1000)}s both` }
+                    : {};
 
                   return (
                     <tr
                       key={task.id}
                       className={justCompleted ? "task-row-completed-glow" : isRunning ? "task-row-running" : ""}
-                      style={{
-                        animation: `fadeInUp 0.35s ease ${i * 0.04}s both`,
-                      }}
+                      style={animStyle}
                     >
                       <td>
                         <Link href={`/projects/${task.project_id}`} style={{ color: "var(--heading)", fontWeight: 500, textDecoration: "none" }}>

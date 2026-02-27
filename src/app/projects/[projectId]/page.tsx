@@ -156,7 +156,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   if (projectQuery.error || !projectQuery.data) {
     return (
       <>
-        <StudioNav active="projects" pendingCount={pendingCount} />
+        <StudioNav active="board" pendingCount={pendingCount} />
         <main className="page studio-page">
           <section className="studio-card">
             <h2>Project not found</h2>
@@ -177,7 +177,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
 
   return (
     <>
-      <StudioNav active="projects" pendingCount={pendingCount} />
+      <StudioNav active="board" pendingCount={pendingCount} />
       <main className="page studio-page">
         <div className="page-header">
           <div>

@@ -28,7 +28,7 @@ export default async function ProjectsPage() {
 
   return (
     <>
-      <StudioNav active="projects" pendingCount={pendingCount} />
+      <StudioNav active="board" pendingCount={pendingCount} />
       <main className="page studio-page">
         <div className="page-header">
           <h1 className="page-title">Projects</h1>
