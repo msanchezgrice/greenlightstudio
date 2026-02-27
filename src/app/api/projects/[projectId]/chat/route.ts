@@ -45,25 +45,67 @@ type ApprovalRow = {
   created_at: string;
 };
 
+function truncateForChat(value: unknown, maxLen = 300): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const trimmed = value.trim();
+  return trimmed.length > maxLen ? `${trimmed.slice(0, maxLen)}…` : trimmed;
+}
+
 function packetSummary(packet: unknown) {
   if (!packet || typeof packet !== "object") {
-    return { recommendation: null, summary: null };
+    return { recommendation: null, summary: null, tagline: null, competitor_analysis: null, market_sizing: null, target_persona: null, mvp_scope: null, reasoning_synopsis: null };
   }
 
   const record = packet as Record<string, unknown>;
   const recommendation = typeof record.recommendation === "string" ? record.recommendation : null;
 
-  if (typeof record.summary === "string" && record.summary.trim()) {
-    return { recommendation, summary: record.summary.trim() };
-  }
-  if (typeof record.elevator_pitch === "string" && record.elevator_pitch.trim()) {
-    return { recommendation, summary: record.elevator_pitch.trim() };
-  }
-  if (typeof record.tagline === "string" && record.tagline.trim()) {
-    return { recommendation, summary: record.tagline.trim() };
+  const summary =
+    (typeof record.summary === "string" && record.summary.trim()) ? record.summary.trim()
+    : (typeof record.elevator_pitch === "string" && record.elevator_pitch.trim()) ? record.elevator_pitch.trim()
+    : null;
+
+  const tagline = truncateForChat(record.tagline);
+
+  let competitor_analysis: unknown = null;
+  if (Array.isArray(record.competitor_analysis)) {
+    competitor_analysis = record.competitor_analysis.slice(0, 5).map((entry) => {
+      if (!entry || typeof entry !== "object") return entry;
+      const e = entry as Record<string, unknown>;
+      return { name: e.name, positioning: truncateForChat(e.positioning, 120), gap: truncateForChat(e.gap, 120) };
+    });
   }
 
-  return { recommendation, summary: null };
+  let market_sizing: unknown = null;
+  if (record.market_sizing && typeof record.market_sizing === "object") {
+    const ms = record.market_sizing as Record<string, unknown>;
+    market_sizing = { tam: truncateForChat(ms.tam, 150), sam: truncateForChat(ms.sam, 150), som: truncateForChat(ms.som, 150) };
+  }
+
+  let target_persona: unknown = null;
+  if (record.target_persona && typeof record.target_persona === "object") {
+    const tp = record.target_persona as Record<string, unknown>;
+    target_persona = { name: tp.name, description: truncateForChat(tp.description, 200), pain_points: Array.isArray(tp.pain_points) ? tp.pain_points.slice(0, 5) : null };
+  }
+
+  let mvp_scope: unknown = null;
+  if (record.mvp_scope && typeof record.mvp_scope === "object") {
+    const mvp = record.mvp_scope as Record<string, unknown>;
+    mvp_scope = { in_scope: Array.isArray(mvp.in_scope) ? mvp.in_scope.slice(0, 6) : null, deferred: Array.isArray(mvp.deferred) ? mvp.deferred.slice(0, 4) : null };
+  }
+
+  let reasoning_synopsis: unknown = null;
+  if (record.reasoning_synopsis && typeof record.reasoning_synopsis === "object") {
+    const rs = record.reasoning_synopsis as Record<string, unknown>;
+    reasoning_synopsis = {
+      decision: rs.decision,
+      confidence: rs.confidence,
+      rationale: Array.isArray(rs.rationale) ? rs.rationale.slice(0, 4) : null,
+      risks: Array.isArray(rs.risks) ? rs.risks.slice(0, 4) : null,
+      next_actions: Array.isArray(rs.next_actions) ? rs.next_actions.slice(0, 4) : null,
+    };
+  }
+
+  return { recommendation, summary, tagline, competitor_analysis, market_sizing, target_persona, mvp_scope, reasoning_synopsis };
 }
 
 async function loadOwnedProject(projectId: string, userId: string) {

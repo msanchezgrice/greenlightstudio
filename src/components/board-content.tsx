@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
 
 /* ---------- AnimatedNumber ---------- */
@@ -127,6 +127,25 @@ export function BoardContent({
 }) {
   const [filter, setFilter] = useState<FilterPhase>("all");
   const [sort, setSort] = useState<SortMode>("updated");
+  const [retrying, setRetrying] = useState<Set<string>>(new Set());
+
+  const retryLaunch = useCallback(async (projectId: string) => {
+    setRetrying((prev) => new Set(prev).add(projectId));
+    try {
+      const res = await fetch(`/api/projects/${projectId}/launch`, { method: "POST" });
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        const msg = (json as Record<string, unknown> | null)?.error;
+        alert(typeof msg === "string" ? msg : `Retry failed (HTTP ${res.status})`);
+      } else {
+        window.location.reload();
+      }
+    } catch {
+      alert("Network error — please try again.");
+    } finally {
+      setRetrying((prev) => { const next = new Set(prev); next.delete(projectId); return next; });
+    }
+  }, []);
 
   const filtered = useMemo(() => {
     let list = [...projects];
@@ -320,6 +339,16 @@ export function BoardContent({
                       <Link href={`/projects/${p.id}`} className="board-action primary">
                         Open
                       </Link>
+                      {p.latest_task_status === "failed" && p.confidence === null && (
+                        <button
+                          className="board-action"
+                          style={{ color: "var(--green)", borderColor: "var(--green)" }}
+                          disabled={retrying.has(p.id)}
+                          onClick={() => retryLaunch(p.id)}
+                        >
+                          {retrying.has(p.id) ? "Retrying…" : "Retry"}
+                        </button>
+                      )}
                       {p.confidence !== null && (
                         <Link href={`/projects/${p.id}/packet`} className="board-action">
                           Packet

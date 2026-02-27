@@ -731,6 +731,7 @@ export function OnboardingWizard() {
         method: "POST",
       });
       const launchJson = await parseResponseJson(launchRes);
+
       if (!launchRes.ok) {
         const errorMessage = typeof launchJson?.error === "string" ? launchJson.error : `Launch failed (HTTP ${launchRes.status})`;
         throw new Error(errorMessage);

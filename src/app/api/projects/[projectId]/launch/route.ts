@@ -1,5 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { z } from "zod";
 import { withRetry } from "@/lib/retry";
 import { createServiceSupabase } from "@/lib/supabase";
@@ -120,12 +120,19 @@ export async function POST(req: Request, context: { params: Promise<{ projectId:
       }
     }
 
-    await runPhase0({
-      projectId,
-      userId: runAsUserId,
-      revisionGuidance,
-      forceNewApproval,
+    after(async () => {
+      try {
+        await runPhase0({
+          projectId,
+          userId: runAsUserId,
+          revisionGuidance,
+          forceNewApproval,
+        });
+      } catch (bgError) {
+        await logPhase0Failure(projectId, bgError);
+      }
     });
+
     return NextResponse.json({ ok: true, started: true });
   } catch (error) {
     await logPhase0Failure(projectId, error);

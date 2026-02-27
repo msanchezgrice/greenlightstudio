@@ -13,7 +13,7 @@ import {
 } from "@/types/phase-packets";
 import { z } from "zod";
 
-const AGENT_QUERY_TIMEOUT_MS = Math.max(30_000, Number(process.env.CLAUDE_AGENT_QUERY_TIMEOUT_MS ?? 120_000));
+const AGENT_QUERY_TIMEOUT_MS = Math.max(30_000, Number(process.env.CLAUDE_AGENT_QUERY_TIMEOUT_MS ?? 180_000));
 const AGENT_QUERY_MAX_TURNS = 12;
 const AGENT_RUNTIME_TMP_DIR = process.env.CLAUDE_SDK_TMPDIR?.trim() || "/tmp";
 const IS_SERVERLESS_RUNTIME = Boolean(process.env.VERCEL || process.env.LAMBDA_TASK_ROOT);
@@ -73,6 +73,12 @@ type ProjectChatInput = {
     confidence: number;
     recommendation: string | null;
     summary: string | null;
+    tagline?: string | null;
+    competitor_analysis?: unknown;
+    market_sizing?: unknown;
+    target_persona?: unknown;
+    mvp_scope?: unknown;
+    reasoning_synopsis?: unknown;
   } | null;
   recentTasks: Array<{
     agent: string;
@@ -286,7 +292,8 @@ function isRetryableAgentFailure(message: string) {
     lower.includes("without result message") ||
     lower.includes("empty response") ||
     lower.includes("structured output retries") ||
-    lower.includes("invalid input:")
+    lower.includes("invalid input:") ||
+    lower.includes("non-json output")
   );
 }
 
@@ -730,13 +737,15 @@ User project context:
 ${JSON.stringify(context, null, 2)}
 
 Behavior rules:
-- Be specific to this project context, packet state, and recent task statuses.
-- If the user asks for next steps, provide concrete, actionable steps in order.
+- Ground every answer in the project's actual data: packet findings, competitor analysis, market sizing, target persona, MVP scope, reasoning risks, recent tasks, and approval statuses.
+- When discussing strategy, reference specific competitors, market numbers, or persona pain points from the packet.
+- If the user asks for next steps, derive them from the packet's next_actions, risks, and current phase.
+- Proactively surface relevant developments: new tasks completed, approvals pending, or risks identified.
 - If information is missing, say exactly what is missing and how to get it.
 - Keep tone concise and operational.
 - No markdown code fences.
 - No placeholder text.
-- Reply in <= 180 words unless user explicitly asks for more detail.`;
+- Reply in <= 200 words unless user explicitly asks for more detail.`;
 
   const parsed = await runJsonQuery(prompt, projectChatReplySchema, undefined, AGENT_PROFILES.chat);
   const reply = parsed.reply.trim();
