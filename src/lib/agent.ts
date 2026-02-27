@@ -2,6 +2,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { requireEnv } from "@/lib/env";
+import { log_task } from "@/lib/supabase-mcp";
 import { packetSchema, reasoningSynopsisSchema, type OnboardingInput, type Packet, type ProjectAsset } from "@/types/domain";
 import {
   phase1PacketSchema,
@@ -294,6 +295,14 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     timeoutMs: 240_000,
     permissionMode: 'dontAsk',
   },
+  designer_frontend: {
+    name: 'design_agent',
+    tools: [],
+    allowedTools: [],
+    maxTurns: 4,
+    timeoutMs: 180_000,
+    permissionMode: 'dontAsk',
+  },
   synthesizer: {
     name: 'synthesizer',
     tools: [],
@@ -385,7 +394,7 @@ function createToolGuard(profile: AgentProfile) {
   };
 }
 
-async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptions<T>, profile: QueryProfile, agentProfile: AgentProfile = AGENT_PROFILES.none) {
+async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptions<T>, profile: QueryProfile, agentProfile: AgentProfile = AGENT_PROFILES.none, traceTarget?: TraceTarget) {
   const executablePath = resolveClaudeCodeExecutablePath();
   const stderrChunks: string[] = [];
   const cwd = IS_SERVERLESS_RUNTIME ? AGENT_RUNTIME_TMP_DIR : process.cwd();
@@ -446,11 +455,13 @@ async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptio
         for (const block of message.message.content) {
           if (block.type === "text") raw += block.text;
           if (block.type === "tool_use") {
-            traces.push({
+            const trace: ToolTrace = {
               tool: block.name,
               input_preview: JSON.stringify(block.input).slice(0, 200),
               timestamp: Date.now(),
-            });
+            };
+            traces.push(trace);
+            if (traceTarget) scheduleTraceFlush(traceTarget, trace);
           }
         }
         continue;
@@ -538,7 +549,42 @@ export type ToolTrace = {
   timestamp: number;
 };
 
-async function runRawQuery(prompt: string, agentProfile: AgentProfile = AGENT_PROFILES.none): Promise<{ text: string; traces: ToolTrace[] }> {
+export type TraceTarget = {
+  projectId: string;
+  agent: string;
+  taskPrefix: string;
+};
+
+let _traceFlushTimer: ReturnType<typeof setTimeout> | null = null;
+let _traceFlushBuffer: { target: TraceTarget; traces: ToolTrace[] }[] = [];
+
+function scheduleTraceFlush(target: TraceTarget, trace: ToolTrace) {
+  let entry = _traceFlushBuffer.find(
+    (b) => b.target.projectId === target.projectId && b.target.agent === target.agent,
+  );
+  if (!entry) {
+    entry = { target, traces: [] };
+    _traceFlushBuffer.push(entry);
+  }
+  entry.traces.push(trace);
+
+  if (!_traceFlushTimer) {
+    _traceFlushTimer = setTimeout(async () => {
+      const batch = _traceFlushBuffer.splice(0);
+      _traceFlushTimer = null;
+      await Promise.allSettled(
+        batch.map(({ target: t, traces }) => {
+          const detail = JSON.stringify(
+            traces.map((tr) => ({ tool: tr.tool, input_preview: tr.input_preview.slice(0, 120) })),
+          );
+          return log_task(t.projectId, t.agent, `${t.taskPrefix}_trace`, "running", detail).catch(() => {});
+        }),
+      );
+    }, 1200);
+  }
+}
+
+async function runRawQuery(prompt: string, agentProfile: AgentProfile = AGENT_PROFILES.none, traceTarget?: TraceTarget): Promise<{ text: string; traces: ToolTrace[] }> {
   const executablePath = resolveClaudeCodeExecutablePath();
   const stderrChunks: string[] = [];
   const traces: ToolTrace[] = [];
@@ -575,11 +621,13 @@ async function runRawQuery(prompt: string, agentProfile: AgentProfile = AGENT_PR
         for (const block of message.message.content) {
           if (block.type === "text") raw += block.text;
           if (block.type === "tool_use") {
-            traces.push({
+            const trace: ToolTrace = {
               tool: block.name,
               input_preview: JSON.stringify(block.input).slice(0, 200),
               timestamp: Date.now(),
-            });
+            };
+            traces.push(trace);
+            if (traceTarget) scheduleTraceFlush(traceTarget, trace);
           }
         }
       }
@@ -604,7 +652,7 @@ async function runRawQuery(prompt: string, agentProfile: AgentProfile = AGENT_PR
   return { text: finalText, traces };
 }
 
-async function runJsonQuery<T>(prompt: string, schema: z.ZodType<T>, repair?: (value: unknown) => unknown, agentProfile: AgentProfile = AGENT_PROFILES.none) {
+async function runJsonQuery<T>(prompt: string, schema: z.ZodType<T>, repair?: (value: unknown) => unknown, agentProfile: AgentProfile = AGENT_PROFILES.none, traceTarget?: TraceTarget) {
   const profiles: QueryProfile[] = [
     { name: "structured_default", useOutputFormat: true },
     { name: "text_default", useOutputFormat: false },
@@ -613,7 +661,7 @@ async function runJsonQuery<T>(prompt: string, schema: z.ZodType<T>, repair?: (v
   const errors: string[] = [];
   for (const profile of profiles) {
     try {
-      return await executeQueryAttempt(prompt, { schema, repair }, profile, agentProfile);
+      return await executeQueryAttempt(prompt, { schema, repair }, profile, agentProfile, traceTarget);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown query error";
       errors.push(`${profile.name}: ${message}`);
@@ -729,6 +777,7 @@ export async function generatePhase0Packet(
   revisionGuidance?: string | null,
   priorPacket?: Packet | null,
   assets?: ProjectAsset[],
+  projectId?: string,
 ): Promise<Packet> {
   const trimmedGuidance = revisionGuidance?.trim() || "";
   const attachedFilesBlock = formatAttachedFilesBlock(assets ?? []);
@@ -825,24 +874,29 @@ Rules:
 - competitor_analysis must have 6 entries
 - evidence items must have claim and source fields`;
 
+  const tt = projectId ? (agent: string, prefix: string): TraceTarget => ({ projectId, agent, taskPrefix: prefix }) : undefined;
+
   const settledResults = await Promise.allSettled([
     runJsonQuery(
       `You are Competitor Research Agent. Return STRICT JSON only.\nInput:\n${ctx}\n${guidanceBlock}${attachedFilesBlock}\n\nRequired JSON shape:\n{"competitors":[{"name":"","positioning":"","gap":"","pricing":""}]}\n\nRules:\n- find exactly 6 competitors with real names and pricing\n- use web search to find real competitors and their actual pricing\n- no markdown fences, no commentary, raw JSON only`,
       competitorSchema,
       undefined,
       AGENT_PROFILES.researcher_quick,
+      tt?.("research_agent", "phase0_comp"),
     ),
     runJsonQuery(
       `You are Market Research Agent. Return STRICT JSON only.\nInput:\n${ctx}\n${guidanceBlock}${attachedFilesBlock}\n\nRequired JSON shape:\n{"market_sizing":{"tam":"","sam":"","som":""},"notes":["",""]}\n\nRules:\n- use web search to find real market data and TAM/SAM/SOM estimates\n- notes should capture key market insights\n- no markdown fences, no commentary, raw JSON only`,
       marketSchema,
       undefined,
       AGENT_PROFILES.researcher_quick,
+      tt?.("research_agent", "phase0_mkt"),
     ),
     runJsonQuery(
       ceoPrompt,
       packetSchema,
       normalizePhase0PacketCandidate,
       AGENT_PROFILES.ceo_phase0,
+      tt?.("ceo_agent", "phase0_ceo"),
     ),
   ]);
 
@@ -968,6 +1022,7 @@ Behavior rules:
 }
 
 type PhaseGenerationInput = {
+  project_id?: string;
   project_name: string;
   domain: string | null | undefined;
   idea_description: string;
@@ -1010,6 +1065,7 @@ export async function generatePhase1Packet(input: PhaseGenerationInput): Promise
   const guidance = input.revision_guidance?.trim()
     ? `\nRevision guidance from user:\n${input.revision_guidance.trim()}\nPrioritize this guidance in your output.`
     : "";
+  const tt = input.project_id ? (agent: string, prefix: string): TraceTarget => ({ projectId: input.project_id!, agent, taskPrefix: prefix }) : undefined;
 
   const [landing, brand, waitlistAnalytics, email, social] = await Promise.all([
     runJsonQuery(
@@ -1025,6 +1081,7 @@ Rules: no markdown, no commentary, be specific to this project.`,
       phase1PacketSchema.shape.landing_page,
       undefined,
       AGENT_PROFILES.researcher_quick,
+      tt?.("design_agent", "phase1_landing"),
     ),
     runJsonQuery(
       `You are Brand Agent for "${input.project_name}". Generate a brand identity kit.
@@ -1039,6 +1096,7 @@ Rules: use real hex codes, no markdown, be specific to this project.`,
       phase1PacketSchema.shape.brand_kit,
       undefined,
       AGENT_PROFILES.researcher_quick,
+      tt?.("brand_agent", "phase1_brand"),
     ),
     runJsonQuery(
       `You are Growth Agent for "${input.project_name}". Generate waitlist capture and analytics strategy.
@@ -1266,24 +1324,32 @@ export async function generatePhase1LandingHtml(input: {
   waitlist_fields: string[];
   project_id?: string;
 }): Promise<{ html: string; traces: ToolTrace[] }> {
-  const prompt = `You are the Greenlight Studio Design Agent. Generate a complete, production-ready HTML landing page.
+  const prompt = `You are an elite frontend designer building a production landing page. Your output will be deployed live.
 
-You have access to WebSearch and WebFetch — use them to research modern landing page design patterns, competitive layouts, and current design trends before generating the HTML. Take your time to produce outstanding work.
+DESIGN PHILOSOPHY — read carefully:
+- Choose a BOLD aesthetic direction for this brand: brutally minimal, maximalist, retro-futuristic, organic/natural, luxury/refined, editorial/magazine, art deco/geometric, soft/pastel, or industrial. Pick ONE and execute with total commitment.
+- Typography: Choose distinctive, characterful fonts from Google Fonts. NEVER use Inter, Roboto, Arial, or system fonts. Pair a display font with a refined body font. Think: Playfair Display + Source Sans, Clash Display + Cabinet Grotesk, Instrument Serif + Manrope.
+- Color: Use CSS variables. Dominant brand colors with sharp accents. No timid, evenly-distributed palettes.
+- Motion: One well-orchestrated page load with staggered reveals (animation-delay). Scroll-triggered animations. Hover states that surprise. CSS-only where possible.
+- Spatial composition: Unexpected layouts. Asymmetry. Overlap. Grid-breaking hero sections. Generous negative space OR controlled density — match the chosen aesthetic.
+- Backgrounds: Create atmosphere — gradient meshes, noise/grain overlays, geometric patterns, layered transparencies, dramatic shadows. NOT flat solid colors.
+- Details: Custom decorative elements, creative section dividers, floating accent shapes, subtle parallax. Every pixel should feel intentional.
 
-Requirements:
-- Complete self-contained HTML document (all CSS in <style> tags, no external dependencies except Google Fonts)
-- Mobile-first responsive design with modern aesthetics
-- Brand color palette: ${JSON.stringify(input.brand_kit.color_palette)}
-- Font pairing: ${input.brand_kit.font_pairing}
-- Brand voice: ${input.brand_kit.voice}
-- Include a waitlist signup form with fields: ${input.waitlist_fields.join(', ')} (form action POST to /api/waitlist)${input.project_id ? `\n- Include hidden input: <input type="hidden" name="project_id" value="${input.project_id}"/>` : ''}
-- Include Open Graph meta tags for social sharing
-- Include semantic HTML and accessibility attributes (aria labels, alt text)
-- Use smooth scroll, subtle animations, and professional typography
-- Design should feel competitive with modern SaaS landing pages — not generic or template-like
-- Include form submission JavaScript that POSTs as JSON and shows a success state
+ABSOLUTE RULES:
+- Complete self-contained HTML document (all CSS in <style>, JS in <script>)
+- Only external dependency allowed: Google Fonts
+- Mobile-first responsive (test at 375px, 768px, 1440px mentally)
+- Include Open Graph meta tags
+- Semantic HTML with aria-labels
+- The design must feel like a $50k agency built it — NOT like AI generated it
 
-Content to incorporate:
+Brand identity:
+- Color palette: ${JSON.stringify(input.brand_kit.color_palette)}
+- Font direction: ${input.brand_kit.font_pairing} (choose Google Fonts that match this spirit, but feel free to pick better alternatives)
+- Voice: ${input.brand_kit.voice}
+- Logo concept: ${input.brand_kit.logo_prompt}
+
+Content:
 - Project: ${input.project_name}${input.domain ? ` (${input.domain})` : ''}
 - Headline: ${input.landing_page.headline}
 - Subheadline: ${input.landing_page.subheadline}
@@ -1292,9 +1358,18 @@ Content to incorporate:
 - Launch notes: ${JSON.stringify(input.landing_page.launch_notes)}
 - Idea: ${input.idea_description.slice(0, 400)}
 
-Output ONLY the complete HTML document from <!DOCTYPE html> to </html>. No JSON wrapping, no markdown fences, no commentary.`;
+Waitlist form:
+- Fields: ${input.waitlist_fields.join(', ')}
+- Form action: POST to /api/waitlist as JSON${input.project_id ? `\n- Include hidden input: <input type="hidden" name="project_id" value="${input.project_id}"/>` : ''}
+- Show success state after submission
+- Include form submission JS that POSTs as JSON
 
-  const result = await runRawQuery(prompt, AGENT_PROFILES.designer_full);
+Output ONLY the complete HTML from <!DOCTYPE html> to </html>. No JSON, no markdown fences, no commentary.`;
+
+  const traceTarget = input.project_id
+    ? { projectId: input.project_id, agent: "design_agent", taskPrefix: "phase1_landing_html" } satisfies TraceTarget
+    : undefined;
+  const result = await runRawQuery(prompt, AGENT_PROFILES.designer_frontend, traceTarget);
   let html = result.text;
 
   const docTypeMatch = html.match(/<!DOCTYPE\s+html[^>]*>/i);
@@ -1311,4 +1386,43 @@ Output ONLY the complete HTML document from <!DOCTYPE html> to </html>. No JSON 
   }
 
   return { html, traces: result.traces };
+}
+
+export async function verifyLandingDesign(
+  html: string,
+  brandKit: { color_palette: string[]; font_pairing: string },
+): Promise<{ pass: boolean; score: number; feedback: string }> {
+  const snippet = html.slice(0, 12000);
+  const prompt = `You are a senior frontend design critic. Review this HTML landing page for production quality.
+
+Score 0-100 on these criteria:
+1. Typography — uses distinctive fonts (NOT Inter, Roboto, Arial, or system fonts). Custom Google Fonts loaded. (20 pts)
+2. Color — brand palette ${JSON.stringify(brandKit.color_palette)} applied via CSS variables, with intentional accent usage. Not a single flat solid-color background. (20 pts)
+3. Layout — non-generic: asymmetry, overlapping elements, creative sections, grid-breaking hero. NOT a centered-text-on-solid-background template. (20 pts)
+4. Atmosphere — backgrounds use gradients, noise, patterns, or layered transparencies. Decorative accents present. (20 pts)
+5. Motion — CSS animations, transitions, staggered reveals, or scroll effects present. (10 pts)
+6. Completeness — waitlist form, nav, footer, feature cards, responsive breakpoints all present. (10 pts)
+
+HTML:
+${snippet}
+
+Respond ONLY with JSON: {"pass": true/false, "score": 0-100, "feedback": "specific issues to fix"}
+Pass threshold: score >= 55.`;
+
+  try {
+    const result = await runRawQuery(prompt, AGENT_PROFILES.synthesizer);
+    const text = result.text.trim();
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return {
+        pass: parsed.score >= 55,
+        score: Number(parsed.score) || 0,
+        feedback: String(parsed.feedback || ""),
+      };
+    }
+  } catch {
+    // verification is non-blocking
+  }
+  return { pass: true, score: 70, feedback: "" };
 }

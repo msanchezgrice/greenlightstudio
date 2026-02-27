@@ -2,7 +2,9 @@ import { createServiceSupabase } from "@/lib/supabase";
 import { withRetry } from "@/lib/retry";
 import { log_task } from "@/lib/supabase-mcp";
 import { sendPhase1ReadyDrip } from "@/lib/drip-emails";
-import { generatePhase1LandingHtml, type ToolTrace } from "@/lib/agent";
+import { generatePhase1LandingHtml, verifyLandingDesign, type ToolTrace } from "@/lib/agent";
+import { generateBrandImages, uploadBrandImages } from "@/lib/brand-generator";
+import { renderBrandBriefHtml, generateBrandBriefPptx } from "@/lib/brand-presentation";
 import type { Phase1Packet } from "@/types/phase-packets";
 
 type ProjectInfo = {
@@ -606,22 +608,34 @@ export async function generatePhase1Deliverables(
   let landingUrl: string | null = null;
 
   const landingTrack = async () => {
-    await log_task(project.id, "design_agent", "phase1_landing_deploy", "running", "Agent designing production landing page (WebSearch + WebFetch)");
+    await log_task(project.id, "design_agent", "phase1_landing_deploy", "running", "Agent designing production landing page (frontend-design skill)");
+
+    const landingInput = {
+      project_name: project.name,
+      domain: project.domain,
+      idea_description: project.idea_description,
+      brand_kit: packet.brand_kit,
+      landing_page: packet.landing_page,
+      waitlist_fields: packet.waitlist.form_fields,
+      project_id: project.id,
+    };
 
     let html: string;
     let traces: ToolTrace[] = [];
     try {
-      const agentResult = await generatePhase1LandingHtml({
-        project_name: project.name,
-        domain: project.domain,
-        idea_description: project.idea_description,
-        brand_kit: packet.brand_kit,
-        landing_page: packet.landing_page,
-        waitlist_fields: packet.waitlist.form_fields,
-        project_id: project.id,
-      });
+      const agentResult = await generatePhase1LandingHtml(landingInput);
       html = agentResult.html;
       traces = agentResult.traces;
+
+      const review = await verifyLandingDesign(html, packet.brand_kit);
+      await log_task(project.id, "design_agent", "phase1_landing_review", "completed", `Design score: ${review.score}/100 — ${review.feedback.slice(0, 200)}`).catch(() => {});
+
+      if (!review.pass) {
+        await log_task(project.id, "design_agent", "phase1_landing_regen", "running", `Score ${review.score} below threshold, regenerating with feedback`);
+        const retry = await generatePhase1LandingHtml(landingInput);
+        html = retry.html;
+        traces = [...traces, ...retry.traces];
+      }
     } catch (agentError) {
       const msg = agentError instanceof Error ? agentError.message : "Agent landing page generation failed";
       await log_task(project.id, "design_agent", "phase1_landing_agent_fallback", "running", `Agent failed (${msg}), using template fallback`);
@@ -664,8 +678,10 @@ export async function generatePhase1Deliverables(
     );
     if (asset) assetIds.push(asset.id);
 
-    const baseUrl = appBaseUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-    landingUrl = `${baseUrl}/launch/${project.id}`;
+    const { data: publicUrlData } = db.storage.from("project-assets").getPublicUrl(deploymentPath);
+    const storageUrl = publicUrlData?.publicUrl;
+    const baseUrl = appBaseUrl ?? process.env.NEXT_PUBLIC_APP_URL;
+    landingUrl = storageUrl || (baseUrl ? `${baseUrl}/launch/${project.id}` : `/launch/${project.id}`);
 
     await Promise.all([
       withRetry(() =>
@@ -694,56 +710,81 @@ export async function generatePhase1Deliverables(
   };
 
   const brandTrack = async () => {
-    await log_task(project.id, "brand_agent", "phase1_brand_assets", "running", "Generating brand assets");
+    await log_task(project.id, "brand_agent", "phase1_brand_assets", "running", "Generating AI brand images + presentations");
 
-    const logoSvg = generateBrandLogoSvg(project.name, packet.brand_kit.color_palette);
-    const wordmarkSvg = generateWordmarkSvg(project.name, packet.brand_kit.color_palette);
-    const brandKitHtml = renderBrandKitHtml(project, packet);
+    const brandImages = await generateBrandImages(project.id, project.name, packet.brand_kit);
+    const imageAssetIds = await uploadBrandImages(project.id, brandImages, project.owner_clerk_id);
+    assetIds.push(...imageAssetIds);
 
-    const uploads = [
-      { svg: logoSvg, filename: "logo.svg", label: "Logo Mark", mime: "image/svg+xml" },
-      { svg: wordmarkSvg, filename: "wordmark.svg", label: "Wordmark", mime: "image/svg+xml" },
-      { svg: brandKitHtml, filename: "brand-kit.html", label: "Brand Kit Document", mime: "text/html" },
-    ];
+    const baseUrl = appBaseUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+    const imageUrls: Record<string, string> = {};
+    for (const img of brandImages) {
+      const key = img.filename.replace(/\.\w+$/, "");
+      const { data: pub } = db.storage.from("project-assets").getPublicUrl(img.storagePath);
+      imageUrls[key] = pub?.publicUrl ?? `${baseUrl}/api/projects/${project.id}/assets/preview?path=${encodeURIComponent(img.storagePath)}`;
+    }
 
-    await Promise.all(
-      uploads.map(async ({ svg, filename, label, mime }) => {
-        const isBrandKit = filename === "brand-kit.html";
-        const storagePath = `${project.id}/brand/${filename}`;
-        await withRetry(() =>
-          db.storage.from("project-assets").upload(storagePath, new TextEncoder().encode(svg), {
-            contentType: isBrandKit ? "text/html; charset=utf-8" : mime,
-            upsert: true,
-          }),
-        );
-        const { data: brandAsset } = await withRetry(() =>
-          db
-            .from("project_assets")
-            .insert({
-              project_id: project.id,
-              phase: 1,
-              kind: "upload",
-              storage_bucket: "project-assets",
-              storage_path: storagePath,
-              filename,
-              mime_type: mime,
-              size_bytes: Buffer.byteLength(svg, "utf8"),
-              status: "uploaded",
-              metadata: {
-                label,
-                auto_generated: true,
-                ...(isBrandKit ? { brand_kit_doc: true } : { brand_asset: true }),
-              },
-              created_by: project.owner_clerk_id ?? "system",
-            })
-            .select("id")
-            .single(),
-        );
-        if (brandAsset) assetIds.push(brandAsset.id);
+    const briefHtml = renderBrandBriefHtml(project, packet, imageUrls);
+    const briefHtmlPath = `${project.id}/brand/brand-brief.html`;
+    await withRetry(() =>
+      db.storage.from("project-assets").upload(briefHtmlPath, new TextEncoder().encode(briefHtml), {
+        contentType: "text/html; charset=utf-8",
+        upsert: true,
       }),
     );
+    const { data: briefHtmlAsset } = await withRetry(() =>
+      db
+        .from("project_assets")
+        .insert({
+          project_id: project.id,
+          phase: 1,
+          kind: "upload",
+          storage_bucket: "project-assets",
+          storage_path: briefHtmlPath,
+          filename: "brand-brief.html",
+          mime_type: "text/html",
+          size_bytes: Buffer.byteLength(briefHtml, "utf8"),
+          status: "uploaded",
+          metadata: { label: "Brand Brief (Presentation)", auto_generated: true, brand_brief: true },
+          created_by: project.owner_clerk_id ?? "system",
+        })
+        .select("id")
+        .single(),
+    );
+    if (briefHtmlAsset) assetIds.push(briefHtmlAsset.id);
 
-    await log_task(project.id, "brand_agent", "phase1_brand_assets", "completed", `Generated ${uploads.length} brand assets`);
+    await log_task(project.id, "brand_agent", "phase1_brand_pptx", "running", "Generating PowerPoint brand brief");
+    const pptxBuffer = await generateBrandBriefPptx(project, packet, brandImages);
+    const pptxPath = `${project.id}/brand/brand-brief.pptx`;
+    await withRetry(() =>
+      db.storage.from("project-assets").upload(pptxPath, pptxBuffer, {
+        contentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        upsert: true,
+      }),
+    );
+    const { data: pptxAsset } = await withRetry(() =>
+      db
+        .from("project_assets")
+        .insert({
+          project_id: project.id,
+          phase: 1,
+          kind: "upload",
+          storage_bucket: "project-assets",
+          storage_path: pptxPath,
+          filename: "brand-brief.pptx",
+          mime_type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+          size_bytes: pptxBuffer.length,
+          status: "uploaded",
+          metadata: { label: "Brand Brief (PowerPoint)", auto_generated: true, brand_brief_pptx: true },
+          created_by: project.owner_clerk_id ?? "system",
+        })
+        .select("id")
+        .single(),
+    );
+    if (pptxAsset) assetIds.push(pptxAsset.id);
+
+    const totalAssets = brandImages.length + 2;
+    await log_task(project.id, "brand_agent", "phase1_brand_assets", "completed", `Generated ${totalAssets} brand assets (${brandImages.length} images + HTML brief + PPTX)`);
   };
 
   const results = await Promise.allSettled([landingTrack(), brandTrack()]);
@@ -761,8 +802,11 @@ export async function generatePhase1Deliverables(
         .update({
           deliverables: [
             { kind: "landing_html", label: "Landing Page", url: landingUrl, status: "deployed", generated_at: new Date().toISOString() },
-            { kind: "brand_kit_doc", label: "Brand Kit Document", status: "generated", generated_at: new Date().toISOString() },
-            { kind: "brand_assets", label: "Brand Assets", status: "generated", generated_at: new Date().toISOString() },
+            { kind: "brand_brief_html", label: "Brand Brief (Presentation)", status: "generated", generated_at: new Date().toISOString() },
+            { kind: "brand_brief_pptx", label: "Brand Brief (PowerPoint)", status: "generated", generated_at: new Date().toISOString() },
+            { kind: "brand_logo", label: "AI Logo", status: "generated", generated_at: new Date().toISOString() },
+            { kind: "brand_hero", label: "Hero Image", status: "generated", generated_at: new Date().toISOString() },
+            { kind: "brand_assets", label: "Brand Kit Document", status: "generated", generated_at: new Date().toISOString() },
           ],
         })
         .eq("project_id", project.id)

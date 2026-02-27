@@ -183,7 +183,8 @@ export default async function ProjectPhaseWorkspacePage({
   const brandAssets = assets.filter((a) => a.metadata?.brand_asset === true);
   const brandKitDoc = assets.find((a) => a.metadata?.brand_kit_doc === true);
   const landingAsset = assets.find((a) => a.kind === "landing_html");
-  const liveUrl = project.live_url ?? (deployment ? `/launch/${projectId}` : null);
+  const previewUrl = deployment ? `/launch/${projectId}` : null;
+  const liveUrl = project.live_url ?? previewUrl;
 
   const currentPhaseDefinition = PHASES.find((entry) => entry.id === phase) ?? PHASES[0];
   const status = phaseStatus(project.phase, phase);
@@ -296,10 +297,10 @@ export default async function ProjectPhaseWorkspacePage({
                   )}
                 </div>
               </div>
-              {liveUrl ? (
+              {previewUrl ? (
                 <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)", background: "#000" }}>
                   <iframe
-                    src={liveUrl}
+                    src={previewUrl}
                     title="Landing Page Preview"
                     style={{ width: "100%", height: 480, border: "none", display: "block" }}
                     sandbox="allow-scripts allow-forms allow-same-origin"

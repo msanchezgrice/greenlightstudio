@@ -128,7 +128,7 @@ async function runPhase0Inner({ projectId, userId, revisionGuidance, forceNewApp
 
     await logPhaseTask(projectId, "research_agent", "phase0_research", "running", "Researching competitors and market");
     researchRunning = true;
-    const packet = await generatePhase0Packet(input, trimmedGuidance, priorPacket, projectAssets);
+    const packet = await generatePhase0Packet(input, trimmedGuidance, priorPacket, projectAssets, projectId);
     const confidence = packet.reasoning_synopsis.confidence;
     await logPhaseTask(projectId, "research_agent", "phase0_research", "completed", `Research complete (${confidence}/100 confidence)`);
     researchRunning = false;

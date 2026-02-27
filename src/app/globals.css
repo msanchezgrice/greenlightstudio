@@ -5625,6 +5625,15 @@ a {
   overflow-y: auto;
   animation: fadeInUp 0.3s ease both;
 }
+.agent-live-trace-log.collapsed {
+  max-height: 60px;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, black 40%, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, black 40%, transparent);
+}
+.agent-live-trace-log.expanded {
+  max-height: 300px;
+}
 
 .agent-live-trace-entry {
   display: flex;

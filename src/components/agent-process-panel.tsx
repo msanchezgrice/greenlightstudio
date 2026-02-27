@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useLayoutEffect } from "react";
 import { AGENT_PROFILES } from "@/lib/phases";
 
 type LiveTask = {
@@ -75,6 +75,30 @@ function parseTraceDetails(detail: string | null): string[] {
   return detail.split("||").map((s) => s.trim()).filter(Boolean);
 }
 
+function truncate(s: string, max: number) {
+  return s.length > max ? s.slice(0, max - 1) + "…" : s;
+}
+
+function TraceLog({ traces, expanded, color }: { traces: string[]; expanded: boolean; color: string }) {
+  const endRef = useRef<HTMLDivElement>(null);
+  const shown = expanded ? traces.slice(-20) : traces.slice(-3);
+  useLayoutEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [shown.length]);
+
+  return (
+    <div className={`agent-live-trace-log ${expanded ? "expanded" : "collapsed"}`}>
+      {shown.map((trace, i) => (
+        <div key={i} className="agent-live-trace-entry" style={{ opacity: expanded ? 1 : 0.5 + (i / shown.length) * 0.5 }}>
+          <span className="agent-live-trace-marker" style={{ color }}>▸</span>
+          <span className="agent-live-trace-text">{trace}</span>
+        </div>
+      ))}
+      <div ref={endRef} />
+    </div>
+  );
+}
+
 export function AgentProcessPanel({ projectId }: { projectId: string }) {
   const [data, setData] = useState<LivePayload | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -101,11 +125,13 @@ export function AgentProcessPanel({ projectId }: { projectId: string }) {
     }
   }, [projectId]);
 
+  const hasRunning = (data?.running_agents.length ?? 0) > 0;
   useEffect(() => {
     poll();
-    const id = setInterval(poll, 4000);
+    const interval = hasRunning ? 1500 : 4000;
+    const id = setInterval(poll, interval);
     return () => clearInterval(id);
-  }, [poll]);
+  }, [poll, hasRunning]);
 
   if (!data) return null;
 
@@ -133,7 +159,8 @@ export function AgentProcessPanel({ projectId }: { projectId: string }) {
             const isExpanded = expanded === ra.agent;
             const taskDetails = ra.tasks.map((t) => parseTraceDetails(t.detail)).flat();
             const agentTraces = traces.filter((t) => t.agent === ra.agent).flatMap((t) => parseTraceDetails(t.detail));
-            const allTraces = [...taskDetails, ...agentTraces].filter(Boolean);
+            const allTraces = [...agentTraces, ...taskDetails].filter(Boolean);
+            const latestTrace = allTraces.length > 0 ? allTraces[allTraces.length - 1] : null;
 
             return (
               <div
@@ -150,7 +177,7 @@ export function AgentProcessPanel({ projectId }: { projectId: string }) {
                   <div className="agent-live-tile-info">
                     <div className="agent-panel-name" style={{ color: profile.color }}>{profile.name}</div>
                     <div className="agent-panel-status" style={{ color: "var(--green)" }}>
-                      {profile.statusPhrase}
+                      {latestTrace ? truncate(latestTrace, 60) : profile.statusPhrase}
                     </div>
                   </div>
                   <ElapsedTimer since={ra.started_at} />
@@ -171,15 +198,8 @@ export function AgentProcessPanel({ projectId }: { projectId: string }) {
                   </div>
                 )}
 
-                {isExpanded && allTraces.length > 0 && (
-                  <div className="agent-live-trace-log">
-                    {allTraces.slice(0, 12).map((trace, i) => (
-                      <div key={i} className="agent-live-trace-entry">
-                        <span className="agent-live-trace-marker">▸</span>
-                        <span className="agent-live-trace-text">{trace}</span>
-                      </div>
-                    ))}
-                  </div>
+                {allTraces.length > 0 && (
+                  <TraceLog traces={allTraces} expanded={isExpanded} color={profile.color} />
                 )}
               </div>
             );

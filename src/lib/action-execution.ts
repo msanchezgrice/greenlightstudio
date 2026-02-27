@@ -285,7 +285,9 @@ export async function executeApprovedAction(input: {
       );
       if (assetError) throw new Error(assetError.message);
 
-      const liveUrl = `${input.appBaseUrl}/launch/${input.project.id}`;
+      const { data: publicUrlData } = db.storage.from("project-assets").getPublicUrl(deploymentPath);
+      const storageUrl = publicUrlData?.publicUrl;
+      const liveUrl = storageUrl || `${input.appBaseUrl}/launch/${input.project.id}`;
       await withRetry(() =>
         db
           .from("project_deployments")

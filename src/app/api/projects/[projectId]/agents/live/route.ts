@@ -47,18 +47,20 @@ export async function GET(_: Request, context: { params: Promise<{ projectId: st
   }
 
   const traceRows = rows
-    .filter((t) => t.description.includes("_traces") && t.status === "completed")
-    .slice(0, 10);
+    .filter((t) => t.description.includes("_trace"))
+    .slice(0, 20);
 
   const agents = Array.from(agentMap.values()).map((entry) => ({
     agent: entry.agent,
     started_at: entry.started_at,
-    tasks: entry.tasks.map((t) => ({
-      id: t.id,
-      description: t.description,
-      detail: t.detail,
-      created_at: t.created_at,
-    })),
+    tasks: entry.tasks
+      .filter((t) => !t.description.includes("_trace"))
+      .map((t) => ({
+        id: t.id,
+        description: t.description,
+        detail: t.detail,
+        created_at: t.created_at,
+      })),
   }));
 
   const recent = rows

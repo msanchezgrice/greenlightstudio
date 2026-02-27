@@ -30,11 +30,16 @@ export async function GET(
 
   const buffer = Buffer.from(await file.arrayBuffer());
   const mime = asset.mime_type ?? "application/octet-stream";
+  const filename = asset.storage_path.split("/").pop() ?? "file";
+  const isDownload = mime.includes("officedocument") || mime.includes("zip") || mime.includes("pdf");
 
-  return new NextResponse(buffer, {
-    headers: {
-      "Content-Type": mime,
-      "Cache-Control": "public, max-age=86400, immutable",
-    },
-  });
+  const headers: Record<string, string> = {
+    "Content-Type": mime,
+    "Cache-Control": "public, max-age=86400, immutable",
+  };
+  if (isDownload) {
+    headers["Content-Disposition"] = `attachment; filename="${filename}"`;
+  }
+
+  return new NextResponse(buffer, { headers });
 }

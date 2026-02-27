@@ -145,6 +145,7 @@ function riskFromConfidence(confidence: number): "high" | "medium" | "low" {
 
 async function generatePacketForPhase(project: ProjectRow, phase: 1 | 2 | 3, revisionGuidance?: string | null) {
   const input = {
+    project_id: project.id,
     project_name: project.name,
     domain: project.domain,
     idea_description: project.idea_description,
