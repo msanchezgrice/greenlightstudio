@@ -13,6 +13,11 @@ const isPublicRoute = createRouteMatcher([
   "/api/nightshift/run",
   "/api/cron/drip-emails",
   "/api/projects/(.*)/launch",
+  // These APIs enforce auth/ownership in-route; keep middleware from rewriting signed-out calls to /404.
+  "/api/projects/(.*)/chat",
+  "/api/projects/(.*)/events",
+  "/api/projects/(.*)/agents/live",
+  "/api/projects/(.*)/assets/(.*)/preview",
   "/api/inbox/(.*)/decision",
   "/sign-in(.*)",
   "/sign-up(.*)",
