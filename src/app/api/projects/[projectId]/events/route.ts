@@ -45,9 +45,25 @@ export async function GET(
 
       let cursor = after ?? new Date(Date.now() - 60_000).toISOString();
       let lastEventId: string | null = null;
+      const startedAt = Date.now();
+      const MAX_STREAM_MS = 25_000;
+      let lastPing = Date.now();
 
       const poll = async () => {
         while (!cancelled) {
+          if (Date.now() - startedAt > MAX_STREAM_MS) {
+            send({ type: "reconnect", message: "stream timeout" });
+            controller.close();
+            return;
+          }
+
+          if (Date.now() - lastPing > 5_000) {
+            try {
+              controller.enqueue(encoder.encode(": ping\n\n"));
+            } catch {}
+            lastPing = Date.now();
+          }
+
           try {
             let query = db
               .from("agent_job_events")

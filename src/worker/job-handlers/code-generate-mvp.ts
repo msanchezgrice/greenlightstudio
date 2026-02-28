@@ -129,14 +129,19 @@ export async function handleCodeGenerateMvp(
     },
   };
 
-  await executeAgentQuery(
-    projectId,
-    ownerClerkId,
-    prompt,
-    CODE_GEN_PROFILE,
-    "phase0",
-    hooks
-  );
+  try {
+    await executeAgentQuery(
+      projectId,
+      ownerClerkId,
+      prompt,
+      CODE_GEN_PROFILE,
+      "phase0",
+      hooks
+    );
+  } catch (agentErr) {
+    try { await fs.rm(workDir, { recursive: true, force: true }); } catch {}
+    throw agentErr;
+  }
 
   const generatedFiles: string[] = [];
   async function collectFiles(dir: string, prefix: string) {

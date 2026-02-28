@@ -396,24 +396,27 @@ export async function executeAgentQuery(
     stream.close();
   }, effectiveTimeoutMs);
 
+  let hasStreamEventHooks = Boolean(hooks?.onStreamEvent);
+
   try {
     for await (const message of stream) {
+      if (message.type === "stream_event" && hasStreamEventHooks) {
+        const delta = extractDeltaText(message.event);
+        if (delta) {
+          await hooks!.onStreamEvent!({ type: "text_delta", text: delta });
+        }
+      }
+
       if (message.type === "assistant") {
         for (const block of message.message.content) {
           if (block.type === "text") {
             resultText += block.text;
-            if (hooks?.onStreamEvent) {
-              await hooks.onStreamEvent({
-                type: "text_delta",
-                text: block.text,
-              });
+            if (!hasStreamEventHooks && hooks?.onStreamEvent) {
+              await hooks.onStreamEvent({ type: "text_delta", text: block.text });
             }
           }
           if (block.type === "tool_use" && hooks?.onStreamEvent) {
-            await hooks.onStreamEvent({
-              type: "tool_use",
-              tool: block.name,
-            });
+            await hooks.onStreamEvent({ type: "tool_use", tool: block.name });
           }
         }
       }

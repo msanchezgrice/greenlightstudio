@@ -70,26 +70,34 @@ export async function handleApprovalExecute(
   const appBaseUrl =
     process.env.APP_BASE_URL ?? "https://greenlightstudio.vercel.app";
 
-  await executeApprovedAction({
-    approval: {
-      id: approval.data.id,
-      project_id: approval.data.project_id,
-      action_type: approval.data.action_type,
-      payload: (approval.data.payload as Record<string, unknown>) ?? null,
-    },
-    project: {
-      id: project.data.id,
-      name: project.data.name,
-      domain: project.data.domain,
-      repo_url: project.data.repo_url,
-      owner_clerk_id: project.data.owner_clerk_id,
-      runtime_mode: project.data.runtime_mode,
-      phase: project.data.phase,
-      permissions: (project.data.permissions as Record<string, unknown>) ?? null,
-    },
-    ownerEmail: (owner.data?.email as string | null) ?? null,
-    appBaseUrl,
-  });
+  try {
+    await executeApprovedAction({
+      approval: {
+        id: approval.data.id,
+        project_id: approval.data.project_id,
+        action_type: approval.data.action_type,
+        payload: (approval.data.payload as Record<string, unknown>) ?? null,
+      },
+      project: {
+        id: project.data.id,
+        name: project.data.name,
+        domain: project.data.domain,
+        repo_url: project.data.repo_url,
+        owner_clerk_id: project.data.owner_clerk_id,
+        runtime_mode: project.data.runtime_mode,
+        phase: project.data.phase,
+        permissions: (project.data.permissions as Record<string, unknown>) ?? null,
+      },
+      ownerEmail: (owner.data?.email as string | null) ?? null,
+      appBaseUrl,
+    });
+  } catch (err) {
+    await db
+      .from("approval_queue")
+      .update({ execution_status: "failed" })
+      .eq("id", approvalId);
+    throw err;
+  }
 
   await db
     .from("approval_queue")

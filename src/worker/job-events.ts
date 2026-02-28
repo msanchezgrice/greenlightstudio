@@ -19,11 +19,14 @@ export async function emitJobEvent(
     data?: Record<string, unknown>;
   }
 ) {
-  await db.from("agent_job_events").insert({
+  const { error } = await db.from("agent_job_events").insert({
     project_id: input.projectId,
     job_id: input.jobId,
     type: input.type,
     message: input.message ?? null,
     data: input.data ?? {},
   });
+  if (error) {
+    console.error(`[job-events] failed to emit ${input.type} for job ${input.jobId}:`, error.message);
+  }
 }

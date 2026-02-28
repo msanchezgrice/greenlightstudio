@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { emitJobEvent } from "../job-events";
-import { writeMemory } from "../memory";
+import { loadMemory, writeMemory } from "../memory";
 import { enqueueNextPhaseArtifacts } from "@/lib/phase-orchestrator";
 
 export async function handlePhaseGenerate(
@@ -13,11 +13,13 @@ export async function handlePhaseGenerate(
   const forceRegenerate = Boolean(payload.forceRegenerate);
   const revisionGuidance = (payload.revisionGuidance as string) ?? null;
 
+  const memories = await loadMemory(db, projectId);
+
   await emitJobEvent(db, {
     projectId,
     jobId: job.id,
     type: "log",
-    message: `Phase ${phase}: generating artifacts`,
+    message: `Phase ${phase}: generating artifacts (${memories.length} memories loaded)`,
   });
 
   await enqueueNextPhaseArtifacts(projectId, phase as 1 | 2 | 3, {

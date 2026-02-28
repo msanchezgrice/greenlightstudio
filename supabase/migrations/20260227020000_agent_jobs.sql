@@ -161,7 +161,9 @@ language plpgsql
 as $$
 declare
   reclaimed int;
+  failed_count int;
 begin
+  -- Reclaim retriable stale jobs
   with stale as (
     select id
     from public.agent_jobs
@@ -179,7 +181,27 @@ begin
   where j.id = stale.id;
 
   get diagnostics reclaimed = row_count;
-  return reclaimed;
+
+  -- Mark exhausted-retry jobs as permanently failed
+  with exhausted as (
+    select id
+    from public.agent_jobs
+    where status = 'running'
+      and locked_at < now() - p_stale_threshold
+      and attempts >= max_attempts
+    for update skip locked
+  )
+  update public.agent_jobs j
+  set status = 'failed',
+      locked_at = null,
+      locked_by = null,
+      last_error = coalesce(last_error, '') || ' [exhausted retries, marked failed by reaper]',
+      completed_at = now()
+  from exhausted
+  where j.id = exhausted.id;
+
+  get diagnostics failed_count = row_count;
+  return reclaimed + failed_count;
 end;
 $$;
 

@@ -1,4 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
+import { after } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
@@ -6,9 +7,11 @@ import { update_phase, log_task, upsertUser } from "@/lib/supabase-mcp";
 import { withRetry } from "@/lib/retry";
 import { enqueueJob } from "@/lib/jobs/enqueue";
 import { JOB_TYPES, AGENT_KEYS, PRIORITY } from "@/lib/jobs/constants";
+import { executeApprovedAction } from "@/lib/action-execution";
+import { enqueueNextPhaseArtifacts } from "@/lib/phase-orchestrator";
 
 export const runtime = "nodejs";
-export const maxDuration = 30;
+export const maxDuration = 800;
 
 const decisionSchema = z.object({
   decision: z.enum(["approved", "denied", "revised"]),
@@ -73,17 +76,48 @@ export async function POST(req: Request, context: { params: Promise<{ approvalId
       ]);
 
       if (executableActions.has(row.action_type)) {
-        await enqueueJob({
-          projectId: row.project_id,
-          jobType: JOB_TYPES.APPROVAL_EXEC,
-          agentKey: AGENT_KEYS.ENGINEERING,
-          payload: {
-            approvalId: row.id,
+        try {
+          await enqueueJob({
             projectId: row.project_id,
-            actionType: row.action_type,
-          },
-          idempotencyKey: `approval:${row.id}`,
-          priority: PRIORITY.USER_BLOCKING,
+            jobType: JOB_TYPES.APPROVAL_EXEC,
+            agentKey: AGENT_KEYS.ENGINEERING,
+            payload: {
+              approvalId: row.id,
+              projectId: row.project_id,
+              actionType: row.action_type,
+            },
+            idempotencyKey: `approval:${row.id}`,
+            priority: PRIORITY.USER_BLOCKING,
+          });
+        } catch {}
+
+        after(async () => {
+          try {
+            const ownerRow = await db.from("users").select("email").eq("clerk_id", project!.owner_clerk_id).maybeSingle();
+            const appBaseUrl = process.env.APP_BASE_URL ?? "https://greenlightstudio.vercel.app";
+            await executeApprovedAction({
+              approval: {
+                id: row.id,
+                project_id: row.project_id,
+                action_type: row.action_type,
+                payload: (row.payload as Record<string, unknown>) ?? null,
+              },
+              project: {
+                id: project!.id,
+                name: project!.name,
+                domain: project!.domain,
+                repo_url: project!.repo_url,
+                owner_clerk_id: project!.owner_clerk_id,
+                runtime_mode: project!.runtime_mode,
+                phase: project!.phase,
+                permissions: (project!.permissions as Record<string, unknown>) ?? null,
+              },
+              ownerEmail: (ownerRow.data?.email as string | null) ?? null,
+              appBaseUrl,
+            });
+          } catch (err) {
+            console.error("[decision] direct action execution failed:", err);
+          }
         });
       }
     }
@@ -121,17 +155,24 @@ export async function POST(req: Request, context: { params: Promise<{ approvalId
             idempotencyKey: `phasegen:${row.project_id}:${nextPhase}`,
             priority: PRIORITY.USER_BLOCKING,
           });
-        } catch (phaseError) {
-          await withRetry(() =>
-            log_task(
-              row.project_id,
-              "ceo_agent",
-              "phase_artifacts_failed",
-              "failed",
-              phaseError instanceof Error ? phaseError.message : "Failed to enqueue phase artifacts",
-            ),
-          );
-        }
+        } catch {}
+
+        after(async () => {
+          try {
+            await enqueueNextPhaseArtifacts(row.project_id, nextPhase as 1 | 2 | 3, {});
+          } catch (err) {
+            console.error("[decision] direct phase artifacts failed:", err);
+            await withRetry(() =>
+              log_task(
+                row.project_id,
+                "ceo_agent",
+                "phase_artifacts_failed",
+                "failed",
+                err instanceof Error ? err.message : "Failed to generate phase artifacts",
+              ),
+            ).catch(() => {});
+          }
+        });
       }
     }
 
@@ -161,19 +202,27 @@ export async function POST(req: Request, context: { params: Promise<{ approvalId
             idempotencyKey: `phasegen:${row.project_id}:${row.phase}:revised`,
             priority: PRIORITY.USER_BLOCKING,
           });
-        } catch (phaseError) {
-          const message = phaseError instanceof Error ? phaseError.message : "Failed to re-run phase with guidance";
-          await withRetry(() =>
-            log_task(
-              row.project_id,
-              "ceo_agent",
-              `phase${row.phase}_revision_failed`,
-              "failed",
-              message,
-            ),
-          );
-          return NextResponse.json({ error: message }, { status: 500 });
-        }
+        } catch {}
+
+        after(async () => {
+          try {
+            await enqueueNextPhaseArtifacts(row.project_id, row.phase as 1 | 2 | 3, {
+              forceRegenerate: true,
+              revisionGuidance,
+            });
+          } catch (err) {
+            console.error("[decision] direct phase revision failed:", err);
+            await withRetry(() =>
+              log_task(
+                row.project_id,
+                "ceo_agent",
+                `phase${row.phase}_revision_failed`,
+                "failed",
+                err instanceof Error ? err.message : "Failed to re-run phase with guidance",
+              ),
+            ).catch(() => {});
+          }
+        });
       }
     }
 

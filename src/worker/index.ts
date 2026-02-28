@@ -73,20 +73,27 @@ async function runOnce() {
           data: { error: msg },
         });
 
-        await db.rpc("complete_agent_job", {
-          p_job_id: job.id,
-          p_status: "failed",
-          p_error: msg,
-        });
-
         const retriable = job.attempts < job.max_attempts;
         if (retriable) {
           const backoffMs = 30_000 * Math.max(1, job.attempts);
           const runAfter = new Date(Date.now() + backoffMs).toISOString();
           await db
             .from("agent_jobs")
-            .update({ status: "queued", run_after: runAfter, completed_at: null })
+            .update({
+              status: "queued",
+              run_after: runAfter,
+              locked_at: null,
+              locked_by: null,
+              last_error: msg,
+              completed_at: null,
+            })
             .eq("id", job.id);
+        } else {
+          await db.rpc("complete_agent_job", {
+            p_job_id: job.id,
+            p_status: "failed",
+            p_error: msg,
+          });
         }
       }
     }
