@@ -299,8 +299,8 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     name: 'design_agent',
     tools: [],
     allowedTools: [],
-    maxTurns: 8,
-    timeoutMs: 600_000,
+    maxTurns: 1,
+    timeoutMs: 180_000,
     permissionMode: 'dontAsk',
   },
   synthesizer: {
@@ -1545,7 +1545,7 @@ Do NOT include commentary, explanations, or JSON. Just the HTML.`;
   const traceTarget = input.project_id
     ? { projectId: input.project_id, agent: "design_agent", taskPrefix: "phase1_landing_html" } satisfies TraceTarget
     : undefined;
-  const result = await runRawQuery(prompt, AGENT_PROFILES.designer_full, traceTarget);
+  const result = await runRawQuery(prompt, AGENT_PROFILES.designer_frontend, traceTarget);
   let html = result.text;
 
   // Strip markdown code fences that some models wrap around HTML
