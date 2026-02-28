@@ -104,6 +104,9 @@ async function runOnce() {
 }
 
 async function main() {
+  // Fail fast on configuration issues so process managers restart visibly.
+  createAdminSupabase();
+
   const cfg = getWorkerConfig();
   console.log(
     `[worker] starting id=${cfg.workerId} concurrency=${cfg.concurrency} pollMs=${cfg.pollMs}`
