@@ -78,11 +78,11 @@ function detectTech(html: string, headers: Headers): string[] {
   return [...tech];
 }
 
-async function fetchText(url: string, timeoutMs: number) {
+async function fetchText(url: string, timeoutMs: number, init: RequestInit = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { method: "GET", redirect: "follow", signal: controller.signal });
+    const response = await fetch(url, { method: "GET", redirect: "follow", ...init, signal: controller.signal });
     const text = await response.text();
     return { response, text };
   } finally {
@@ -150,31 +150,128 @@ function decodeDuckDuckGoUrl(raw: string) {
   }
 }
 
-async function findCompetitors(query: string, excludedHost: string | null) {
+function decodeHtmlEntities(input: string) {
+  return input
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/gi, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+function stripTags(input: string) {
+  return decodeHtmlEntities(input.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+}
+
+function normalizeQueryText(input: string | null | undefined) {
+  if (!input) return "";
+  return input
+    .replace(/\s*\|\s*/g, " ")
+    .replace(/[^\p{L}\p{N}\s\-]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildCompetitorQueries(primary: string, domain: string | null, fallbackText: string[]) {
+  const domainStem = domain?.split(".")[0]?.replace(/[-_]+/g, " ") ?? "";
+  const candidates = [primary, domainStem, ...fallbackText]
+    .map((value) => normalizeQueryText(value))
+    .filter((value) => value.length >= 3);
+  const uniqueCandidates = [...new Set(candidates)];
+
+  const queries: string[] = [];
+  for (const candidate of uniqueCandidates) {
+    queries.push(`${candidate} competitors alternatives`);
+    queries.push(`${candidate} similar products`);
+    if (queries.length >= 6) break;
+  }
+  return queries.slice(0, 6);
+}
+
+function isLikelySearchBlockPage(html: string) {
+  const lower = html.toLowerCase();
+  return (
+    lower.includes("unusual traffic") ||
+    lower.includes("bot") && lower.includes("duckduckgo") ||
+    lower.includes("anomaly") ||
+    lower.includes("captcha")
+  );
+}
+
+function extractDuckDuckGoResults(html: string) {
+  const snippetByUrl = new Map<string, string>();
+  const snippetMatches = [
+    ...html.matchAll(/<a(?=[^>]*\bclass=["'][^"']*result__snippet[^"']*["'])(?=[^>]*\bhref=["']([^"']+)["'])[^>]*>([\s\S]*?)<\/a>/gi),
+  ];
+  for (const match of snippetMatches) {
+    const url = decodeDuckDuckGoUrl(match[1]);
+    if (!url) continue;
+    const snippet = stripTags(match[2]);
+    if (snippet) snippetByUrl.set(url, snippet);
+  }
+
+  const anchors = [
+    ...html.matchAll(/<a(?=[^>]*\bclass=["'][^"']*(?:result__a|result-link)[^"']*["'])(?=[^>]*\bhref=["']([^"']+)["'])[^>]*>([\s\S]*?)<\/a>/gi),
+  ];
+
+  return anchors.map((match) => {
+    const url = decodeDuckDuckGoUrl(match[1]);
+    return {
+      name: stripTags(match[2]),
+      url,
+      snippet: snippetByUrl.get(url),
+    };
+  });
+}
+
+async function fetchDuckDuckGoSearch(query: string) {
+  const headers = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+  };
+  const searchUrl = `https://duckduckgo.com/html/?q=${encodeURIComponent(query)}&kl=us-en`;
+  const { text } = await fetchText(searchUrl, 10000, { headers });
+  return text;
+}
+
+async function findCompetitors(query: string, excludedHost: string | null, fallbackQueries: string[]) {
   if (!query.trim()) return [];
 
-  const searchUrl = `https://duckduckgo.com/html/?q=${encodeURIComponent(`${query} competitors alternatives`)}`;
-  const { text } = await fetchText(searchUrl, 12000);
-
-  const matches = [...text.matchAll(/<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/g)];
   const competitors: Array<{ name: string; url?: string; snippet?: string }> = [];
   const seenHosts = new Set<string>();
+  let sawBlockedResponse = false;
 
-  for (const match of matches) {
-    const href = decodeDuckDuckGoUrl(match[1]);
-    const host = toHost(href);
-    if (!host) continue;
-    if (excludedHost && host.includes(excludedHost)) continue;
-    if (host.includes("duckduckgo.com")) continue;
-    if (host.includes("github.com") || host.includes("gitlab.com")) continue;
-    if (seenHosts.has(host)) continue;
+  for (const searchQuery of buildCompetitorQueries(query, excludedHost, fallbackQueries)) {
+    const html = await fetchDuckDuckGoSearch(searchQuery);
+    sawBlockedResponse = sawBlockedResponse || isLikelySearchBlockPage(html);
+    const matches = extractDuckDuckGoResults(html);
 
-    const name = match[2].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
-    if (!name) continue;
+    for (const match of matches) {
+      const host = toHost(match.url);
+      if (!host) continue;
+      if (excludedHost && (host === excludedHost || host.endsWith(`.${excludedHost}`))) continue;
+      if (host.includes("duckduckgo.com")) continue;
+      if (host.includes("github.com") || host.includes("gitlab.com")) continue;
+      if (seenHosts.has(host)) continue;
+      if (!match.name) continue;
 
-    seenHosts.add(host);
-    competitors.push({ name, url: href });
-    if (competitors.length >= 5) break;
+      seenHosts.add(host);
+      competitors.push({
+        name: match.name,
+        url: match.url,
+        snippet: match.snippet,
+      });
+      if (competitors.length >= 5) {
+        return competitors.map((entry) => competitorSchema.parse(entry));
+      }
+    }
+  }
+
+  if (competitors.length === 0 && sawBlockedResponse) {
+    throw new Error("Search provider blocked automated query");
   }
 
   return competitors.map((entry) => competitorSchema.parse(entry));
@@ -350,9 +447,14 @@ export async function scanDomain(input: ScanInput): Promise<ScanResult> {
   }
 
   const competitorQuery = meta?.title || parseText(ideaDescription).slice(0, 80) || domain || "";
+  const competitorFallbackQueries = [
+    meta?.desc ?? "",
+    parseText(ideaDescription).slice(0, 140),
+    domain ?? "",
+  ];
   let competitorsFound: Array<{ name: string; url?: string; snippet?: string }> = [];
   try {
-    competitorsFound = await findCompetitors(competitorQuery, domain);
+    competitorsFound = await findCompetitors(competitorQuery, domain, competitorFallbackQueries);
   } catch (error) {
     errors.push(error instanceof Error ? `Competitor scan failed: ${error.message}` : "Competitor scan failed");
   }

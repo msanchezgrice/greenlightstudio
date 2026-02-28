@@ -8,6 +8,12 @@ import { scanResultSchema } from "@/types/domain";
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
+function shouldCacheScanResult(result: z.infer<typeof scanResultSchema>) {
+  if (result.error?.includes("Competitor scan failed")) return false;
+  if (result.existing_content === "site" && result.competitors_found.length === 0) return false;
+  return true;
+}
+
 const bodySchema = z
   .object({
     domain: z.string().min(3).optional().nullable(),
@@ -36,7 +42,7 @@ export async function POST(req: Request) {
     const result = await scanDomain({ domain, repoUrl, ideaDescription });
     const parsed = scanResultSchema.parse(result);
 
-    if (domain && !repoUrl) {
+    if (domain && !repoUrl && shouldCacheScanResult(parsed)) {
       await withRetry(() => set_scan_cache(domain, parsed));
     }
 

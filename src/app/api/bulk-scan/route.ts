@@ -31,6 +31,12 @@ type BulkScanResult = {
   error?: string;
 };
 
+function shouldCacheScanResult(result: ScanResult) {
+  if (result.error?.includes("Competitor scan failed")) return false;
+  if (result.existing_content === "site" && result.competitors_found.length === 0) return false;
+  return true;
+}
+
 function normalizeDomain(raw: string) {
   return raw
     .replace(/^https?:\/\//i, "")
@@ -48,9 +54,11 @@ async function scanWithCache(domain: string): Promise<ScanResult> {
   const result = await scanDomain({ domain });
   const parsed = scanResultSchema.parse(result);
 
-  await withRetry(() => set_scan_cache(domain, parsed)).catch(() => {
-    // Cache write failure is non-critical; continue.
-  });
+  if (shouldCacheScanResult(parsed)) {
+    await withRetry(() => set_scan_cache(domain, parsed)).catch(() => {
+      // Cache write failure is non-critical; continue.
+    });
+  }
 
   return parsed;
 }
