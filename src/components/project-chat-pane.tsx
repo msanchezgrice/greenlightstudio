@@ -45,53 +45,32 @@ function useJobStream(
   useEffect(() => {
     if (!jobId) return;
 
-    let cancelled = false;
-    const abortController = new AbortController();
+    const source = new EventSource(`/api/projects/${projectId}/events?jobId=${jobId}`);
 
-    async function connect() {
+    source.onmessage = (rawEvent) => {
+      if (!rawEvent.data) return;
       try {
-        const response = await fetch(
-          `/api/projects/${projectId}/events?jobId=${jobId}`,
-          { signal: abortController.signal }
-        );
-        if (!response.ok || !response.body) return;
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-
-        while (!cancelled) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-
-          const lines = buffer.split("\n\n");
-          buffer = lines.pop() ?? "";
-
-          for (const chunk of lines) {
-            const dataLine = chunk.replace(/^data: /, "").trim();
-            if (!dataLine) continue;
-            try {
-              const event = JSON.parse(dataLine) as SSEEvent;
-              if (event.type === "delta" && event.message) {
-                onDelta(event.message);
-              } else if (event.type === "done") {
-                onDone();
-                return;
-              }
-            } catch {}
-          }
+        const event = JSON.parse(rawEvent.data) as SSEEvent;
+        if (event.type === "delta" && event.message) {
+          onDelta(event.message);
+          return;
+        }
+        if (event.type === "done") {
+          onDone();
+          source.close();
         }
       } catch {
-        if (!cancelled) onDone();
+        // Ignore malformed events and keep stream open.
       }
-    }
+    };
 
-    connect();
+    source.onerror = () => {
+      source.close();
+      onDone();
+    };
 
     return () => {
-      cancelled = true;
-      abortController.abort();
+      source.close();
     };
   }, [projectId, jobId, onDelta, onDone]);
 }
@@ -265,13 +244,15 @@ export function ProjectChatPane({ projectId, title = "Project Chat", deliverable
                 <div className="chat-message-body">{message.content}</div>
               </article>
             ))}
-            {streamBuffer && (
+            {(sending || streamBuffer) && (
               <article className="chat-message assistant streaming">
                 <div className="chat-message-meta">
                   <span>CEO Agent</span>
-                  <span className="streaming-indicator">typing…</span>
+                  <span className="streaming-indicator">{streamBuffer ? "typing…" : "thinking…"}</span>
                 </div>
-                <div className="chat-message-body">{streamBuffer}</div>
+                <div className="chat-message-body">
+                  {streamBuffer || <span className="streaming-placeholder">Analyzing project context…</span>}
+                </div>
               </article>
             )}
           </>
