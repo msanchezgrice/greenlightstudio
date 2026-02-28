@@ -18,10 +18,19 @@ export type BrandImage = {
   label: string;
 };
 
-const NANOBANANA_MODEL =
-  process.env.NANOBANANA_MODEL?.trim() ||
-  process.env.GEMINI_IMAGE_MODEL?.trim() ||
-  "nanobanana-pro-2";
+const NANOBANANA_MODEL = "nanobanana-pro-2";
+
+function validateModelOverride(): void {
+  const requested =
+    process.env.NANOBANANA_MODEL?.trim() ||
+    process.env.GEMINI_IMAGE_MODEL?.trim() ||
+    NANOBANANA_MODEL;
+  if (requested !== NANOBANANA_MODEL) {
+    throw new Error(
+      `Brand image generation is locked to ${NANOBANANA_MODEL}; requested model "${requested}" is not allowed`,
+    );
+  }
+}
 
 function getGeminiClient(): GoogleGenAI {
   const key = process.env.GEMINI_API_KEY?.trim() || process.env.NANOBANANA_GEMINI_API_KEY?.trim();
@@ -63,6 +72,7 @@ export async function generateBrandImages(
   projectName: string,
   brandKit: BrandKit,
 ): Promise<BrandImage[]> {
+  validateModelOverride();
   const ai = getGeminiClient();
 
   await log_task(
