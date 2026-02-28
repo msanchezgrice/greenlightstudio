@@ -316,7 +316,7 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     tools: [],
     allowedTools: [],
     maxTurns: 8,
-    timeoutMs: 600_000,
+    timeoutMs: 180_000,
     permissionMode: 'dontAsk',
   },
   researcher_quick: {
@@ -348,7 +348,7 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     tools: [],
     allowedTools: [],
     maxTurns: 6,
-    timeoutMs: 600_000,
+    timeoutMs: 240_000,
     permissionMode: 'dontAsk',
   },
   ceo_phase0: {
@@ -1351,7 +1351,6 @@ export async function generatePhase1Packet(input: PhaseGenerationInput): Promise
   const [landing, brand, waitlistAnalytics, email, social] = await Promise.all([
     runJsonQuery(
       `You are Design Agent for "${input.project_name}". Generate a landing page content strategy.
-Use web search to research high-converting landing pages in the ${input.focus_areas[0] ?? "SaaS"} space.
 
 Input:\n${ctx}${guidance}
 
@@ -1361,12 +1360,11 @@ Return STRICT JSON only:
 Rules: no markdown, no commentary, be specific to this project.`,
       phase1PacketSchema.shape.landing_page,
       undefined,
-      AGENT_PROFILES.researcher_quick,
+      AGENT_PROFILES.strategist,
       tt?.("design_agent", "phase1_landing"),
     ),
     runJsonQuery(
       `You are Brand Agent for "${input.project_name}". Generate a brand identity kit.
-Use web search to research current design trends and color palettes for ${input.focus_areas[0] ?? "tech"} brands.
 
 Input:\n${ctx}${guidance}
 
@@ -1376,7 +1374,7 @@ Return STRICT JSON only:
 Rules: use real hex codes, no markdown, be specific to this project.`,
       phase1PacketSchema.shape.brand_kit,
       undefined,
-      AGENT_PROFILES.researcher_quick,
+      AGENT_PROFILES.strategist,
       tt?.("brand_agent", "phase1_brand"),
     ),
     runJsonQuery(
@@ -1410,7 +1408,6 @@ Rules: make subjects compelling, goals actionable, no markdown.`,
     ),
     runJsonQuery(
       `You are Growth Agent for "${input.project_name}". Generate a social media launch strategy.
-Use web search for current platform trends and best practices.
 
 Input:\n${ctx}${guidance}
 
@@ -1420,7 +1417,7 @@ Return STRICT JSON only:
 Rules: no markdown, be specific to this project and audience.`,
       phase1PacketSchema.shape.social_strategy,
       undefined,
-      AGENT_PROFILES.researcher_quick,
+      AGENT_PROFILES.strategist,
     ),
   ]);
 
