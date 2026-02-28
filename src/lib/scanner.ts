@@ -1,4 +1,5 @@
 import { resolveAny } from "node:dns/promises";
+import Anthropic from "@anthropic-ai/sdk";
 import { competitorSchema, repoSummarySchema, scanResultSchema, type RepoSummary, type ScanResult } from "@/types/domain";
 
 type ScanInput = {
@@ -6,6 +7,8 @@ type ScanInput = {
   repoUrl?: string | null;
   ideaDescription?: string | null;
 };
+
+const COMPETITOR_LLM_MODEL = process.env.SCAN_COMPETITOR_MODEL?.trim() || "claude-sonnet-4-20250514";
 
 const parkedSignals = [
   "domain for sale",
@@ -277,6 +280,82 @@ async function findCompetitors(query: string, excludedHost: string | null, fallb
   return competitors.map((entry) => competitorSchema.parse(entry));
 }
 
+function extractJsonObject(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fenceMatch) {
+      try {
+        return JSON.parse(fenceMatch[1]) as unknown;
+      } catch {
+        // no-op
+      }
+    }
+
+    const first = trimmed.indexOf("{");
+    const last = trimmed.lastIndexOf("}");
+    if (first >= 0 && last > first) {
+      try {
+        return JSON.parse(trimmed.slice(first, last + 1)) as unknown;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+}
+
+async function findCompetitorsWithLlm(input: { query: string; domain: string | null; title: string | null; description: string | null }) {
+  if (!process.env.ANTHROPIC_API_KEY) return [];
+
+  const client = new Anthropic();
+  const prompt = `Identify direct competitors for this product.
+
+Domain: ${input.domain ?? "unknown"}
+Title: ${input.title ?? "unknown"}
+Description: ${input.description ?? "unknown"}
+Context query: ${input.query}
+
+Return JSON only:
+{"competitors":[{"name":"", "url":"https://...", "snippet":"why this is a competitor"}]}
+
+Rules:
+- Return 3 to 5 competitors.
+- Use real products/companies.
+- If exact competitors are unclear, return closest alternatives in the same problem space.
+- Include URLs when known.
+- Do not include markdown.`;
+
+  const response = await client.messages.create({
+    model: COMPETITOR_LLM_MODEL,
+    max_tokens: 500,
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const text = response.content
+    .filter((block): block is Anthropic.TextBlock => block.type === "text")
+    .map((block) => block.text)
+    .join("")
+    .trim();
+
+  const parsed = extractJsonObject(text) as { competitors?: Array<{ name?: string; url?: string; snippet?: string }> } | null;
+  const competitors: Array<{ name: string; url?: string; snippet?: string }> = [];
+  for (const entry of (parsed?.competitors ?? []).slice(0, 5)) {
+    const candidate = competitorSchema.safeParse({
+      name: entry.name ?? "",
+      url: entry.url,
+      snippet: entry.snippet,
+    });
+    if (candidate.success) competitors.push(candidate.data);
+  }
+
+  return competitors;
+}
+
 async function scanGitHub(repoUrl: string): Promise<RepoSummary> {
   const parsed = parseGitHubRepo(repoUrl);
   if (!parsed) throw new Error("Invalid GitHub repository URL");
@@ -457,6 +536,18 @@ export async function scanDomain(input: ScanInput): Promise<ScanResult> {
     competitorsFound = await findCompetitors(competitorQuery, domain, competitorFallbackQueries);
   } catch (error) {
     errors.push(error instanceof Error ? `Competitor scan failed: ${error.message}` : "Competitor scan failed");
+  }
+  if (competitorsFound.length === 0) {
+    try {
+      competitorsFound = await findCompetitorsWithLlm({
+        query: competitorQuery,
+        domain,
+        title: meta?.title ?? null,
+        description: meta?.desc ?? null,
+      });
+    } catch (error) {
+      errors.push(error instanceof Error ? `Competitor scan failed: ${error.message}` : "Competitor scan failed");
+    }
   }
 
   return scanResultSchema.parse({
