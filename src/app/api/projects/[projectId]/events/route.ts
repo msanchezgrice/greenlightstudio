@@ -55,6 +55,7 @@ export async function GET(
       const startedAt = Date.now();
       const MAX_STREAM_MS = 25_000;
       let lastPing = Date.now();
+      const jobAgentCache = new Map<string, string>();
 
       const poll = async () => {
         while (!cancelled) {
@@ -96,10 +97,41 @@ export async function GET(
             });
 
             if (filteredEvents.length) {
+              const missingJobIds = Array.from(
+                new Set(
+                  filteredEvents
+                    .map((event) => String(event.job_id ?? ""))
+                    .filter((id) => id && !jobAgentCache.has(id)),
+                ),
+              );
+
+              if (missingJobIds.length > 0) {
+                const { data: jobRows } = await db
+                  .from("agent_jobs")
+                  .select("id,agent_key")
+                  .in("id", missingJobIds);
+                for (const row of jobRows ?? []) {
+                  const jobIdValue = String(row.id ?? "");
+                  const agentKeyValue = String(row.agent_key ?? "");
+                  if (jobIdValue && agentKeyValue) {
+                    jobAgentCache.set(jobIdValue, agentKeyValue);
+                  }
+                }
+              }
+
               for (const event of filteredEvents) {
+                const eventData = (event.data ?? {}) as Record<string, unknown>;
+                const jobIdValue = String(event.job_id ?? "");
+                const agentFromData =
+                  typeof eventData.agent_key === "string"
+                    ? eventData.agent_key
+                    : typeof eventData.agent === "string"
+                      ? eventData.agent
+                      : null;
                 send({
                   id: event.id,
                   jobId: event.job_id,
+                  agent: agentFromData ?? (jobIdValue ? jobAgentCache.get(jobIdValue) ?? null : null),
                   type: event.type,
                   message: event.message,
                   data: event.data,

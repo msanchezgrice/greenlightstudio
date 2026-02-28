@@ -19,7 +19,7 @@ const AGENT_QUERY_MAX_TURNS = 12;
 const AGENT_RUNTIME_TMP_DIR = process.env.CLAUDE_SDK_TMPDIR?.trim() || "/tmp";
 const IS_SERVERLESS_RUNTIME = Boolean(process.env.VERCEL || process.env.LAMBDA_TASK_ROOT);
 const AGENT_DEBUG_TASKS_ENABLED = process.env.AGENT_DEBUG_TASKS === "true";
-const AGENT_TRACE_TASKS_ENABLED = process.env.AGENT_TRACE_TASKS === "true";
+const AGENT_TRACE_TASKS_ENABLED = process.env.AGENT_TRACE_TASKS !== "false";
 
 const competitorSchema = z.object({
   competitors: z.array(

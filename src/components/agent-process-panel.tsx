@@ -36,6 +36,16 @@ type LivePayload = {
   polled_at: string;
 };
 
+type AgentStreamEvent = {
+  id?: string;
+  jobId?: string;
+  agent?: string | null;
+  type: string;
+  message?: string | null;
+  data?: Record<string, unknown> | null;
+  createdAt?: string;
+};
+
 function ElapsedTimer({ since }: { since: string }) {
   const [elapsed, setElapsed] = useState("");
 
@@ -79,6 +89,21 @@ function truncate(s: string, max: number) {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
 }
 
+function normalizeAgentKey(agent: string | null | undefined) {
+  if (!agent) return "system";
+  const key = agent.trim();
+  const aliases: Record<string, string> = {
+    ceo: "ceo_agent",
+    research: "research_agent",
+    design: "design_agent",
+    engineering: "engineering",
+    night_shift: "night_shift",
+    outreach: "outreach_agent",
+    system: "system",
+  };
+  return aliases[key] ?? key;
+}
+
 function TraceLog({ traces, expanded, color }: { traces: string[]; expanded: boolean; color: string }) {
   const endRef = useRef<HTMLDivElement>(null);
   const shown = expanded ? traces.slice(-20) : traces.slice(-3);
@@ -104,6 +129,9 @@ export function AgentProcessPanel({ projectId }: { projectId: string }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const prevRunningRef = useRef<string[]>([]);
   const [completedFlash, setCompletedFlash] = useState<Set<string>>(new Set());
+  const [liveTracesByAgent, setLiveTracesByAgent] = useState<Record<string, string[]>>({});
+  const deltaBufferRef = useRef<Record<string, string>>({});
+  const lastDeltaFlushAtRef = useRef<Record<string, number>>({});
 
   const poll = useCallback(async () => {
     try {
@@ -125,6 +153,113 @@ export function AgentProcessPanel({ projectId }: { projectId: string }) {
     }
   }, [projectId]);
 
+  const pushLiveTrace = useCallback(
+    (agentKey: string, line: string, options?: { replaceThinking?: boolean }) => {
+      const cleaned = line.replace(/\s+/g, " ").trim();
+      if (!cleaned) return;
+      const normalizedAgent = normalizeAgentKey(agentKey);
+
+      setLiveTracesByAgent((prev) => {
+        const next = { ...prev };
+        const traces = [...(next[normalizedAgent] ?? [])];
+        const previous = traces[traces.length - 1];
+
+        if (options?.replaceThinking && previous?.startsWith("Thinking:")) {
+          traces[traces.length - 1] = cleaned;
+        } else if (previous !== cleaned) {
+          traces.push(cleaned);
+        }
+
+        next[normalizedAgent] = traces.slice(-40);
+        return next;
+      });
+    },
+    [],
+  );
+
+  const handleStreamEvent = useCallback(
+    (event: AgentStreamEvent) => {
+      if (!event || typeof event.type !== "string") return;
+      if (event.type === "reconnect" || event.type === "error") return;
+
+      const eventData = (event.data ?? {}) as Record<string, unknown>;
+      const agentRaw =
+        typeof event.agent === "string"
+          ? event.agent
+          : typeof eventData.agent_key === "string"
+            ? eventData.agent_key
+            : typeof eventData.agent === "string"
+              ? eventData.agent
+              : null;
+      if (!agentRaw) return;
+
+      const agentKey = normalizeAgentKey(agentRaw);
+
+      if (event.type === "delta") {
+        const chunk = typeof event.message === "string" ? event.message : "";
+        const cleanedChunk = chunk.replace(/\s+/g, " ").trim();
+        if (!cleanedChunk) return;
+
+        const previous = deltaBufferRef.current[agentKey] ?? "";
+        const merged = `${previous}${cleanedChunk}`.slice(-220);
+        deltaBufferRef.current[agentKey] = merged;
+
+        const now = Date.now();
+        const lastFlush = lastDeltaFlushAtRef.current[agentKey] ?? 0;
+        if (now - lastFlush >= 350) {
+          lastDeltaFlushAtRef.current[agentKey] = now;
+          pushLiveTrace(agentKey, `Thinking: ${truncate(merged, 180)}`, {
+            replaceThinking: true,
+          });
+        }
+        return;
+      }
+
+      if (event.type === "tool_call") {
+        const tool =
+          typeof eventData.tool === "string" && eventData.tool.trim()
+            ? eventData.tool.trim()
+            : typeof event.message === "string"
+              ? event.message.replace(/^Using\s+/i, "").trim()
+              : "unknown";
+        delete deltaBufferRef.current[agentKey];
+        pushLiveTrace(agentKey, `Tool: ${tool || "unknown"}`);
+        return;
+      }
+
+      if (event.type === "status") {
+        delete deltaBufferRef.current[agentKey];
+        pushLiveTrace(agentKey, `Status: ${event.message ?? "updated"}`);
+        if (
+          event.message === "running" ||
+          event.message === "completed" ||
+          event.message === "failed"
+        ) {
+          poll().catch(() => {});
+        }
+        return;
+      }
+
+      if (event.type === "artifact") {
+        delete deltaBufferRef.current[agentKey];
+        pushLiveTrace(agentKey, `Artifact: ${event.message ?? "generated"}`);
+        return;
+      }
+
+      if (event.type === "log") {
+        pushLiveTrace(agentKey, event.message ?? "");
+        return;
+      }
+
+      if (event.type === "done") {
+        delete deltaBufferRef.current[agentKey];
+        pushLiveTrace(agentKey, "Done");
+        poll().catch(() => {});
+      }
+    },
+    [poll, pushLiveTrace],
+  );
+
   const hasRunning = (data?.running_agents.length ?? 0) > 0;
   useEffect(() => {
     poll();
@@ -132,6 +267,27 @@ export function AgentProcessPanel({ projectId }: { projectId: string }) {
     const id = setInterval(poll, interval);
     return () => clearInterval(id);
   }, [poll, hasRunning]);
+
+  useEffect(() => {
+    const source = new EventSource(`/api/projects/${projectId}/events`);
+
+    source.onmessage = (rawEvent) => {
+      if (!rawEvent.data) return;
+      try {
+        handleStreamEvent(JSON.parse(rawEvent.data) as AgentStreamEvent);
+      } catch {
+        // ignore malformed events
+      }
+    };
+
+    source.onerror = () => {
+      // Browser EventSource reconnect handles transient network/server resets.
+    };
+
+    return () => {
+      source.close();
+    };
+  }, [projectId, handleStreamEvent]);
 
   if (!data) return null;
 
@@ -159,8 +315,10 @@ export function AgentProcessPanel({ projectId }: { projectId: string }) {
             const isExpanded = expanded === ra.agent;
             const taskDetails = ra.tasks.map((t) => parseTraceDetails(t.detail)).flat();
             const agentTraces = traces.filter((t) => t.agent === ra.agent).flatMap((t) => parseTraceDetails(t.detail));
-            const allTraces = [...agentTraces, ...taskDetails].filter(Boolean);
-            const latestTrace = allTraces.length > 0 ? allTraces[allTraces.length - 1] : null;
+            const streamTraces = liveTracesByAgent[ra.agent] ?? [];
+            const allTraces = [...agentTraces, ...taskDetails, ...streamTraces].filter(Boolean);
+            const dedupedTraces = allTraces.filter((trace, idx) => idx === 0 || trace !== allTraces[idx - 1]).slice(-40);
+            const latestTrace = dedupedTraces.length > 0 ? dedupedTraces[dedupedTraces.length - 1] : null;
 
             return (
               <div
@@ -198,8 +356,8 @@ export function AgentProcessPanel({ projectId }: { projectId: string }) {
                   </div>
                 )}
 
-                {allTraces.length > 0 && (
-                  <TraceLog traces={allTraces} expanded={isExpanded} color={profile.color} />
+                {dedupedTraces.length > 0 && (
+                  <TraceLog traces={dedupedTraces} expanded={isExpanded} color={profile.color} />
                 )}
               </div>
             );
