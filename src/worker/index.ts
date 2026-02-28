@@ -9,6 +9,25 @@ function sleep(ms: number) {
 
 let shuttingDown = false;
 
+async function finalizeJob(
+  db: ReturnType<typeof createAdminSupabase>,
+  jobId: string,
+  status: "completed" | "failed" | "canceled",
+  error: string | null,
+) {
+  const payload: Record<string, unknown> = {
+    status,
+    last_error: error,
+    locked_at: null,
+    locked_by: null,
+    completed_at: new Date().toISOString(),
+  };
+  const result = await db.from("agent_jobs").update(payload).eq("id", jobId);
+  if (result.error) {
+    throw new Error(`finalize job failed: ${result.error.message}`);
+  }
+}
+
 async function runOnce() {
   const db = createAdminSupabase();
   const cfg = getWorkerConfig();
@@ -38,11 +57,7 @@ async function runOnce() {
           type: "status",
           message: `failed: unknown job_type ${job.job_type}`,
         });
-        await db.rpc("complete_agent_job", {
-          p_job_id: job.id,
-          p_status: "failed",
-          p_error: `Unknown job_type ${job.job_type}`,
-        });
+        await finalizeJob(db, job.id, "failed", `Unknown job_type ${job.job_type}`);
         continue;
       }
 
@@ -60,11 +75,7 @@ async function runOnce() {
           type: "status",
           message: "completed",
         });
-        await db.rpc("complete_agent_job", {
-          p_job_id: job.id,
-          p_status: "completed",
-          p_error: null,
-        });
+        await finalizeJob(db, job.id, "completed", null);
       } catch (err: unknown) {
         const msg =
           err instanceof Error ? err.message : "Job failed with unknown error";
@@ -92,11 +103,7 @@ async function runOnce() {
             })
             .eq("id", job.id);
         } else {
-          await db.rpc("complete_agent_job", {
-            p_job_id: job.id,
-            p_status: "failed",
-            p_error: msg,
-          });
+          await finalizeJob(db, job.id, "failed", msg);
         }
       }
     }
