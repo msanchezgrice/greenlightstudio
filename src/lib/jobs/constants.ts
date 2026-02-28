@@ -27,6 +27,7 @@ export const AGENT_KEYS = {
 } as const;
 
 export const PRIORITY = {
+  REALTIME: 120,
   USER_BLOCKING: 100,
   USER_INTERACTIVE: 80,
   DEFAULT: 50,

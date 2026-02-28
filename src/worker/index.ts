@@ -17,6 +17,14 @@ class JobTimeoutError extends Error {
   }
 }
 
+const HEAVY_JOB_TYPES = new Set([
+  "phase0.generate_packet",
+  "phase.generate_packet",
+  "code.generate_mvp",
+  "research.generate_report",
+  "browser.check_page",
+]);
+
 async function finalizeJob(
   db: ReturnType<typeof createAdminSupabase>,
   jobId: string,
@@ -63,26 +71,49 @@ async function runOnce(cfg: ReturnType<typeof getWorkerConfig>) {
   const jobs = (claim.data ?? []) as JobRow[];
   if (!jobs.length) return { ran: 0 };
 
-  let idx = 0;
+  const pendingJobs = [...jobs];
+  let heavyInFlight = 0;
+
+  const takeNextJob = async (): Promise<{ job: JobRow; isHeavy: boolean } | null> => {
+    while (!shuttingDown) {
+      if (!pendingJobs.length) return null;
+      const selectableIndex = pendingJobs.findIndex((candidate) => {
+        const isHeavy = HEAVY_JOB_TYPES.has(candidate.job_type);
+        if (!isHeavy) return true;
+        return heavyInFlight < cfg.heavyConcurrency;
+      });
+      if (selectableIndex < 0) {
+        await sleep(75);
+        continue;
+      }
+      const [job] = pendingJobs.splice(selectableIndex, 1);
+      const isHeavy = HEAVY_JOB_TYPES.has(job.job_type);
+      if (isHeavy) heavyInFlight += 1;
+      return { job, isHeavy };
+    }
+    return null;
+  };
+
   const workers = Array.from({ length: cfg.concurrency }).map(async () => {
-    while (idx < jobs.length && !shuttingDown) {
-      const job = jobs[idx++];
-      if (!job) break;
+    while (!shuttingDown) {
+      const next = await takeNextJob();
+      if (!next) break;
+      const { job, isHeavy } = next;
 
       const handler = getHandler(job.job_type);
 
-      if (!handler) {
-        await emitJobEvent(db, {
-          projectId: job.project_id,
-          jobId: job.id,
-          type: "status",
-          message: `failed: unknown job_type ${job.job_type}`,
-        });
-        await finalizeJob(db, job.id, "failed", `Unknown job_type ${job.job_type}`);
-        continue;
-      }
-
       try {
+        if (!handler) {
+          await emitJobEvent(db, {
+            projectId: job.project_id,
+            jobId: job.id,
+            type: "status",
+            message: `failed: unknown job_type ${job.job_type}`,
+          });
+          await finalizeJob(db, job.id, "failed", `Unknown job_type ${job.job_type}`);
+          continue;
+        }
+
         await emitJobEvent(db, {
           projectId: job.project_id,
           jobId: job.id,
@@ -147,6 +178,10 @@ async function runOnce(cfg: ReturnType<typeof getWorkerConfig>) {
             `[worker] timed out job ${job.id}; forcing recycle to clear lingering resources`,
           );
         }
+      } finally {
+        if (isHeavy) {
+          heavyInFlight = Math.max(0, heavyInFlight - 1);
+        }
       }
     }
   });
@@ -161,7 +196,7 @@ async function main() {
 
   const cfg = getWorkerConfig();
   console.log(
-    `[worker] starting id=${cfg.workerId} concurrency=${cfg.concurrency} pollMs=${cfg.pollMs} timeoutMs=${cfg.jobTimeoutMs} maxJobs=${cfg.maxJobsPerProcess} maxRssMb=${cfg.maxRssMb}`
+    `[worker] starting id=${cfg.workerId} concurrency=${cfg.concurrency} heavyConcurrency=${cfg.heavyConcurrency} pollMs=${cfg.pollMs} timeoutMs=${cfg.jobTimeoutMs} maxJobs=${cfg.maxJobsPerProcess} maxRssMb=${cfg.maxRssMb}`
   );
 
   process.on("SIGTERM", () => {

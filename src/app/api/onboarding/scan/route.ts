@@ -9,12 +9,16 @@ export const runtime = "nodejs";
 export const maxDuration = 120;
 
 function shouldCacheScanResult(result: z.infer<typeof scanResultSchema>) {
+  if (result.error?.includes("Domain scan failed")) return false;
   if (result.error?.includes("Competitor scan failed")) return false;
+  if (result.existing_content === "site" && !result.meta?.title && !result.meta?.desc) return false;
   if (result.existing_content === "site" && result.competitors_found.length === 0) return false;
   return true;
 }
 
 function shouldUseCachedResult(result: z.infer<typeof scanResultSchema>) {
+  if (result.error?.includes("Domain scan failed")) return false;
+  if (result.existing_content === "site" && !result.meta?.title && !result.meta?.desc) return false;
   if (result.existing_content === "site" && result.competitors_found.length === 0) return false;
   return true;
 }

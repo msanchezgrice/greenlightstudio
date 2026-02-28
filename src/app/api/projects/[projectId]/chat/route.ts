@@ -138,7 +138,7 @@ export async function POST(req: Request, context: { params: Promise<{ projectId:
         message: body.message,
       },
       idempotencyKey: `chat:${projectId}:${userMessageId}`,
-      priority: PRIORITY.USER_INTERACTIVE,
+      priority: PRIORITY.REALTIME,
     });
 
     return NextResponse.json({

@@ -32,12 +32,16 @@ type BulkScanResult = {
 };
 
 function shouldCacheScanResult(result: ScanResult) {
+  if (result.error?.includes("Domain scan failed")) return false;
   if (result.error?.includes("Competitor scan failed")) return false;
+  if (result.existing_content === "site" && !result.meta?.title && !result.meta?.desc) return false;
   if (result.existing_content === "site" && result.competitors_found.length === 0) return false;
   return true;
 }
 
 function shouldUseCachedResult(result: ScanResult) {
+  if (result.error?.includes("Domain scan failed")) return false;
+  if (result.existing_content === "site" && !result.meta?.title && !result.meta?.desc) return false;
   if (result.existing_content === "site" && result.competitors_found.length === 0) return false;
   return true;
 }

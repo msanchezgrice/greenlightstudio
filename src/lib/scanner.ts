@@ -9,6 +9,14 @@ type ScanInput = {
 };
 
 const COMPETITOR_LLM_MODEL = process.env.SCAN_COMPETITOR_MODEL?.trim() || "claude-sonnet-4-20250514";
+const DOMAIN_FETCH_RETRY_ROUNDS = 2;
+const DOMAIN_FETCH_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (compatible; StartupMachineScanner/1.0; +https://startupmachine.ai)",
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Cache-Control": "no-cache",
+  Pragma: "no-cache",
+};
 
 const parkedSignals = [
   "domain for sale",
@@ -45,10 +53,41 @@ function classifyContent(html: string): "site" | "parked" | "none" {
   return "site";
 }
 
+function parseTagAttributes(tag: string) {
+  const attrs: Record<string, string> = {};
+  for (const match of tag.matchAll(/([^\s=/>]+)\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g)) {
+    const key = match[1]?.toLowerCase();
+    const value = match[3] ?? match[4] ?? match[5] ?? "";
+    if (key) attrs[key] = decodeHtmlEntities(value.trim());
+  }
+  return attrs;
+}
+
+function extractMetaContent(
+  html: string,
+  predicate: (attrs: Record<string, string>) => boolean,
+) {
+  for (const match of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const tag = match[0];
+    const attrs = parseTagAttributes(tag);
+    if (!predicate(attrs)) continue;
+    const content = attrs.content?.trim();
+    if (content) return content;
+  }
+  return null;
+}
+
 function parseMeta(html: string) {
-  const title = html.match(/<title>([\s\S]*?)<\/title>/i)?.[1]?.trim() ?? null;
-  const desc = html.match(/<meta[^>]*name=["']description["'][^>]*content=["']([^"']*)["']/i)?.[1]?.trim() ?? null;
-  const og = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']*)["']/i)?.[1]?.trim() ?? null;
+  const titleTag = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.trim() ?? null;
+  const titleMeta =
+    extractMetaContent(html, (attrs) => attrs.property === "og:title") ??
+    extractMetaContent(html, (attrs) => attrs.name === "twitter:title");
+  const desc =
+    extractMetaContent(html, (attrs) => attrs.name === "description") ??
+    extractMetaContent(html, (attrs) => attrs.property === "og:description") ??
+    extractMetaContent(html, (attrs) => attrs.name === "twitter:description");
+  const og = extractMetaContent(html, (attrs) => attrs.property === "og:image");
+  const title = decodeHtmlEntities((titleTag ?? titleMeta ?? "").replace(/\s+/g, " ").trim()) || null;
   return { title, desc, og_image: og };
 }
 
@@ -61,7 +100,7 @@ function parseText(html: string) {
     .trim();
 }
 
-function detectTech(html: string, headers: Headers): string[] {
+function detectTech(html: string, headers: Headers, finalUrl?: string): string[] {
   const lower = html.toLowerCase();
   const server = headers.get("server")?.toLowerCase() ?? "";
   const poweredBy = headers.get("x-powered-by")?.toLowerCase() ?? "";
@@ -69,28 +108,105 @@ function detectTech(html: string, headers: Headers): string[] {
 
   if (lower.includes("__next") || lower.includes("_next/")) tech.add("Next.js");
   if (lower.includes("react")) tech.add("React");
+  if (lower.includes("__nuxt") || lower.includes("/_nuxt/")) tech.add("Nuxt");
+  if (lower.includes("window.__remixcontext")) tech.add("Remix");
+  if (lower.includes("gatsby")) tech.add("Gatsby");
   if (lower.includes("wp-content")) tech.add("WordPress");
   if (lower.includes("shopify")) tech.add("Shopify");
   if (lower.includes("tailwind")) tech.add("Tailwind CSS");
   if (lower.includes("supabase")) tech.add("Supabase");
   if (lower.includes("clerk")) tech.add("Clerk");
+  if (lower.includes("cloudflare")) tech.add("Cloudflare");
   if (server.includes("vercel")) tech.add("Vercel");
+  if (headers.get("x-vercel-id") || headers.get("x-vercel-cache")) tech.add("Vercel");
   if (server.includes("cloudflare")) tech.add("Cloudflare");
+  if (headers.get("cf-ray")) tech.add("Cloudflare");
   if (poweredBy.includes("next")) tech.add("Next.js");
+  if (poweredBy.includes("express")) tech.add("Express");
+  if (finalUrl?.includes("vercel.app")) tech.add("Vercel");
 
   return [...tech];
 }
 
 async function fetchText(url: string, timeoutMs: number, init: RequestInit = {}) {
+  const headers = new Headers(DOMAIN_FETCH_HEADERS);
+  if (init.headers) {
+    const override = new Headers(init.headers);
+    override.forEach((value, key) => {
+      headers.set(key, value);
+    });
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { method: "GET", redirect: "follow", ...init, signal: controller.signal });
+    const response = await fetch(url, {
+      method: "GET",
+      redirect: "follow",
+      ...init,
+      headers,
+      signal: controller.signal,
+    });
     const text = await response.text();
     return { response, text };
   } finally {
     clearTimeout(timer);
   }
+}
+
+function buildDomainFetchCandidates(domain: string) {
+  const normalized = domain.trim().toLowerCase();
+  const withWww = normalized.startsWith("www.") ? normalized : `www.${normalized}`;
+  return [
+    `https://${normalized}`,
+    `https://${withWww}`,
+    `http://${normalized}`,
+    `http://${withWww}`,
+  ];
+}
+
+function isHtmlLikePayload(response: Response, text: string) {
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+  if (contentType.includes("text/html") || contentType.includes("application/xhtml+xml")) return true;
+  const snippet = text.slice(0, 1200).toLowerCase();
+  return snippet.includes("<html") || snippet.includes("<!doctype html");
+}
+
+async function fetchDomainPage(domain: string, timeoutMs: number) {
+  const candidates = buildDomainFetchCandidates(domain);
+  const attemptErrors: string[] = [];
+
+  for (let round = 0; round < DOMAIN_FETCH_RETRY_ROUNDS; round += 1) {
+    for (const candidate of candidates) {
+      try {
+        const { response, text } = await fetchText(candidate, timeoutMs);
+        if (!text.trim()) {
+          attemptErrors.push(`${candidate} => empty response (${response.status})`);
+          continue;
+        }
+        if (!isHtmlLikePayload(response, text) && response.status >= 500) {
+          attemptErrors.push(`${candidate} => non-html (${response.status})`);
+          continue;
+        }
+        return { response, text };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "fetch error";
+        attemptErrors.push(`${candidate} => ${message}`);
+      }
+    }
+  }
+
+  throw new Error(`fetch failed (${attemptErrors.slice(0, 4).join("; ")})`);
+}
+
+function summarizeVisibleText(text: string) {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) return null;
+  if (normalized.length <= 220) return normalized;
+  const sentenceBreak = normalized.indexOf(". ");
+  if (sentenceBreak >= 80 && sentenceBreak <= 220) {
+    return normalized.slice(0, sentenceBreak + 1).trim();
+  }
+  return `${normalized.slice(0, 217).trimEnd()}...`;
 }
 
 function parseGitHubRepo(repoUrl: string) {
@@ -492,11 +608,14 @@ export async function scanDomain(input: ScanInput): Promise<ScanResult> {
     }
 
     try {
-      const { response, text } = await fetchText(`https://${domain}`, 12000);
+      const { response, text } = await fetchDomainPage(domain, 12000);
       httpStatus = response.status;
       existingContent = classifyContent(text);
       meta = parseMeta(text);
-      techStack = detectTech(text, response.headers);
+      if (!meta.desc) {
+        meta.desc = summarizeVisibleText(parseText(text));
+      }
+      techStack = detectTech(text, response.headers, response.url);
 
       if (existingContent === "parked") dns = "parked";
       else if (hasDnsRecord || (httpStatus >= 200 && httpStatus < 500)) dns = "live";
