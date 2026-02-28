@@ -302,7 +302,7 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     tools: [],
     allowedTools: [],
     maxTurns: 2,
-    timeoutMs: 600_000,
+    timeoutMs: 300_000,
     permissionMode: 'dontAsk',
   },
   synthesizer: {
@@ -1616,7 +1616,8 @@ Do NOT include commentary, explanations, or JSON. Just the HTML.`;
     ? { projectId: input.project_id, agent: "design_agent", taskPrefix: "phase1_landing_html" } satisfies TraceTarget
     : undefined;
 
-  const maxAttempts = 3;
+  // Queue-level retries already exist; avoid long duplicate in-job retries.
+  const maxAttempts = 1;
   const allTraces: ToolTrace[] = [];
   let lastError: Error | null = null;
 

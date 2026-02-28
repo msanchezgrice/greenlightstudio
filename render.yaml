@@ -31,6 +31,8 @@ services:
       - key: WORKER_ID
         value: render-worker-1
       - key: WORKER_CONCURRENCY
-        value: "3"
+        value: "1"
+      - key: WORKER_CLAIM_BATCH
+        value: "1"
       - key: WORKER_POLL_MS
         value: "1000"
