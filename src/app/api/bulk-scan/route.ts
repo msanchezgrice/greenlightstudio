@@ -37,6 +37,11 @@ function shouldCacheScanResult(result: ScanResult) {
   return true;
 }
 
+function shouldUseCachedResult(result: ScanResult) {
+  if (result.existing_content === "site" && result.competitors_found.length === 0) return false;
+  return true;
+}
+
 function normalizeDomain(raw: string) {
   return raw
     .replace(/^https?:\/\//i, "")
@@ -48,7 +53,8 @@ function normalizeDomain(raw: string) {
 async function scanWithCache(domain: string): Promise<ScanResult> {
   const cached = await withRetry(() => get_scan_cache(domain));
   if (cached) {
-    return scanResultSchema.parse(cached);
+    const parsedCached = scanResultSchema.parse(cached);
+    if (shouldUseCachedResult(parsedCached)) return parsedCached;
   }
 
   const result = await scanDomain({ domain });

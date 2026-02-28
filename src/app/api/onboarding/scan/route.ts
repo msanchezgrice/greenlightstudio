@@ -14,6 +14,11 @@ function shouldCacheScanResult(result: z.infer<typeof scanResultSchema>) {
   return true;
 }
 
+function shouldUseCachedResult(result: z.infer<typeof scanResultSchema>) {
+  if (result.existing_content === "site" && result.competitors_found.length === 0) return false;
+  return true;
+}
+
 const bodySchema = z
   .object({
     domain: z.string().min(3).optional().nullable(),
@@ -35,7 +40,10 @@ export async function POST(req: Request) {
     if (domain && !repoUrl) {
       const cached = await withRetry(() => get_scan_cache(domain));
       if (cached) {
-        return NextResponse.json({ ...cached, cache_hit: true });
+        const parsedCached = scanResultSchema.parse(cached);
+        if (shouldUseCachedResult(parsedCached)) {
+          return NextResponse.json({ ...parsedCached, cache_hit: true });
+        }
       }
     }
 
