@@ -1,7 +1,260 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { emitJobEvent } from "../job-events";
-import { loadMemory, writeMemory, formatMemoryForPrompt } from "../memory";
-import { executeAgentQuery, type StreamEvent } from "@/lib/agent";
+import { loadMemory, writeMemory, formatMemoryForPrompt, type MemoryEntry } from "../memory";
+import {
+  detectChatExecutionIntent,
+  executeAgentQuery,
+  type ChatExecutionActionType,
+  type StreamEvent,
+} from "@/lib/agent";
+
+type ActionRule = {
+  requiredPhase: 1 | 2 | 3;
+  title: string;
+  risk: "high" | "medium" | "low";
+};
+
+type ChatAutomationOutcome = {
+  status: "none" | "ignored" | "blocked" | "existing" | "queued";
+  actionType: ChatExecutionActionType | null;
+  summary: string;
+  approvalId?: string;
+};
+
+const ACTION_RULES: Record<ChatExecutionActionType, ActionRule> = {
+  deploy_landing_page: {
+    requiredPhase: 1,
+    title: "Deploy Shared Runtime Landing Page",
+    risk: "medium",
+  },
+  send_welcome_email_sequence: {
+    requiredPhase: 1,
+    title: "Send Welcome Email Sequence",
+    risk: "low",
+  },
+  send_phase2_lifecycle_email: {
+    requiredPhase: 2,
+    title: "Send Phase 2 Lifecycle Email",
+    risk: "low",
+  },
+  activate_meta_ads_campaign: {
+    requiredPhase: 2,
+    title: "Activate Meta Ads Campaign",
+    risk: "high",
+  },
+  trigger_phase3_repo_workflow: {
+    requiredPhase: 3,
+    title: "Trigger Phase 3 Repo Workflow",
+    risk: "high",
+  },
+  trigger_phase3_deploy: {
+    requiredPhase: 3,
+    title: "Trigger Phase 3 Deploy",
+    risk: "high",
+  },
+};
+
+function isTruthyFlag(value: unknown) {
+  return value === true;
+}
+
+function isPositiveNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function preconditionFailure(
+  actionType: ChatExecutionActionType,
+  project: {
+    runtime_mode: "shared" | "attached";
+    repo_url: string | null;
+    permissions: Record<string, unknown> | null;
+  },
+) {
+  const permissions = project.permissions ?? {};
+
+  if (actionType === "deploy_landing_page" && project.runtime_mode !== "shared") {
+    return "Landing deploy action requires shared runtime mode.";
+  }
+  if (
+    actionType === "send_welcome_email_sequence" ||
+    actionType === "send_phase2_lifecycle_email"
+  ) {
+    if (!isTruthyFlag(permissions.email_send)) {
+      return "Email sending is disabled in project permissions.";
+    }
+  }
+  if (actionType === "activate_meta_ads_campaign") {
+    if (!isTruthyFlag(permissions.ads_enabled)) {
+      return "Ads are disabled in project permissions.";
+    }
+    if (!isPositiveNumber(permissions.ads_budget_cap)) {
+      return "Ads budget cap must be greater than 0.";
+    }
+  }
+  if (actionType === "trigger_phase3_repo_workflow") {
+    if (!project.repo_url) {
+      return "Repository workflow trigger requires an attached repository URL.";
+    }
+    if (!isTruthyFlag(permissions.repo_write)) {
+      return "Repo write permission is disabled.";
+    }
+  }
+  if (actionType === "trigger_phase3_deploy" && !isTruthyFlag(permissions.deploy)) {
+    return "Deploy permission is disabled.";
+  }
+
+  return null;
+}
+
+function automationSystemMessage(outcome: ChatAutomationOutcome) {
+  if (outcome.status === "queued") {
+    return `Action request queued for approval: ${outcome.actionType}. Check Inbox to approve execution.`;
+  }
+  if (outcome.status === "existing") {
+    return `Action request already pending: ${outcome.actionType}. Existing approval remains in Inbox.`;
+  }
+  if (outcome.status === "blocked") {
+    return `Action request not queued: ${outcome.summary}`;
+  }
+  return null;
+}
+
+async function evaluateAndQueueChatAction(params: {
+  db: SupabaseClient;
+  projectId: string;
+  ownerClerkId: string;
+  message: string;
+  project: {
+    id: string;
+    name: string;
+    phase: number;
+    runtime_mode: "shared" | "attached";
+    repo_url: string | null;
+    permissions: Record<string, unknown> | null;
+  };
+  latestPacketPhase: number | null;
+}) {
+  const intent = await detectChatExecutionIntent({
+    project_id: params.projectId,
+    project_name: params.project.name,
+    phase: params.project.phase,
+    runtime_mode: params.project.runtime_mode,
+    repo_url: params.project.repo_url,
+    permissions: (params.project.permissions ?? {}) as {
+      repo_write?: boolean;
+      deploy?: boolean;
+      ads_enabled?: boolean;
+      ads_budget_cap?: number;
+      email_send?: boolean;
+    },
+    latest_packet_phase: params.latestPacketPhase,
+    user_message: params.message,
+  });
+
+  if (intent.decision !== "queue_execution_approval" || !intent.action_type) {
+    return {
+      status: "none",
+      actionType: null,
+      summary: "No execution action requested.",
+    } as ChatAutomationOutcome;
+  }
+
+  if (intent.confidence < 70) {
+    return {
+      status: "ignored",
+      actionType: intent.action_type,
+      summary: `Skipped due to low intent confidence (${intent.confidence}).`,
+    } as ChatAutomationOutcome;
+  }
+
+  const actionType = intent.action_type;
+  const rule = ACTION_RULES[actionType];
+  const blockReason = preconditionFailure(actionType, params.project);
+  if (blockReason) {
+    return {
+      status: "blocked",
+      actionType,
+      summary: blockReason,
+    } as ChatAutomationOutcome;
+  }
+
+  const existingApproval = await params.db
+    .from("approval_queue")
+    .select("id")
+    .eq("project_id", params.projectId)
+    .eq("action_type", actionType)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (existingApproval.error) {
+    throw new Error(existingApproval.error.message);
+  }
+  if (existingApproval.data?.id) {
+    return {
+      status: "existing",
+      actionType,
+      approvalId: existingApproval.data.id as string,
+      summary: "A pending approval for this action already exists.",
+    } as ChatAutomationOutcome;
+  }
+
+  const packetLookup = await params.db
+    .from("phase_packets")
+    .select("id,phase,packet,packet_data")
+    .eq("project_id", params.projectId)
+    .eq("phase", rule.requiredPhase)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (packetLookup.error) {
+    throw new Error(packetLookup.error.message);
+  }
+  if (!packetLookup.data) {
+    return {
+      status: "blocked",
+      actionType,
+      summary: `No Phase ${rule.requiredPhase} packet found. Generate Phase ${rule.requiredPhase} first.`,
+    } as ChatAutomationOutcome;
+  }
+
+  const packetPayload = (packetLookup.data.packet_data ?? packetLookup.data.packet) as unknown;
+  const { data: inserted, error: insertError } = await params.db
+    .from("approval_queue")
+    .insert({
+      project_id: params.projectId,
+      packet_id: packetLookup.data.id,
+      phase: rule.requiredPhase,
+      type: "execution",
+      title: intent.title ?? rule.title,
+      description: intent.description ?? `Requested via chat: ${params.message.slice(0, 180)}`,
+      risk: rule.risk,
+      risk_level: rule.risk,
+      action_type: actionType,
+      agent_source: "ceo_chat",
+      payload: {
+        phase_packet: packetPayload,
+        source: "chat",
+        requested_by: params.ownerClerkId,
+        requested_at: new Date().toISOString(),
+        user_message: params.message.slice(0, 1200),
+        rationale: intent.rationale,
+      },
+      status: "pending",
+    })
+    .select("id")
+    .single();
+  if (insertError) {
+    throw new Error(insertError.message);
+  }
+
+  return {
+    status: "queued",
+    actionType,
+    approvalId: inserted.id as string,
+    summary: "Execution approval queued from chat request.",
+  } as ChatAutomationOutcome;
+}
 
 export async function handleChatReply(
   db: SupabaseClient,
@@ -17,7 +270,7 @@ export async function handleChatReply(
 
   const project = await db
     .from("projects")
-    .select("id,name,domain,phase,idea_description,repo_url,runtime_mode,focus_areas")
+    .select("id,name,domain,phase,idea_description,repo_url,runtime_mode,focus_areas,permissions")
     .eq("id", projectId)
     .single();
   if (project.error || !project.data) throw new Error("Project not found");
@@ -32,7 +285,7 @@ export async function handleChatReply(
       .limit(24),
     db
       .from("phase_packets")
-      .select("phase,confidence,packet")
+      .select("id,phase,confidence,packet,packet_data")
       .eq("project_id", projectId)
       .order("phase", { ascending: false })
       .order("created_at", { ascending: false })
@@ -53,7 +306,7 @@ export async function handleChatReply(
   ]);
 
   type ChatRow = { role: string; content: string };
-  type PacketRow = { phase: number; confidence: number; packet: unknown };
+  type PacketRow = { id: string; phase: number; confidence: number; packet: unknown; packet_data: unknown };
 
   const messages = ((messagesQuery.data ?? []) as ChatRow[])
     .slice()
@@ -75,6 +328,70 @@ export async function handleChatReply(
     projectId,
     jobId: job.id,
     type: "log",
+    message: "Evaluating execution intent",
+  });
+
+  let automationOutcome: ChatAutomationOutcome = {
+    status: "none",
+    actionType: null,
+    summary: "No execution action requested.",
+  };
+
+  try {
+    automationOutcome = await evaluateAndQueueChatAction({
+      db,
+      projectId,
+      ownerClerkId,
+      message,
+      project: {
+        id: project.data.id as string,
+        name: project.data.name as string,
+        phase: project.data.phase as number,
+        runtime_mode: project.data.runtime_mode as "shared" | "attached",
+        repo_url: (project.data.repo_url as string | null) ?? null,
+        permissions: (project.data.permissions as Record<string, unknown> | null) ?? null,
+      },
+      latestPacketPhase: latestPacketRow?.phase ?? null,
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "Intent evaluation failed";
+    automationOutcome = {
+      status: "ignored",
+      actionType: null,
+      summary: detail,
+    };
+    await emitJobEvent(db, {
+      projectId,
+      jobId: job.id,
+      type: "log",
+      message: `Execution intent check failed: ${detail.slice(0, 180)}`,
+    });
+  }
+
+  if (automationOutcome.status === "queued") {
+    await emitJobEvent(db, {
+      projectId,
+      jobId: job.id,
+      type: "artifact",
+      message: `Approval queued: ${automationOutcome.actionType}`,
+      data: { approval_id: automationOutcome.approvalId, action_type: automationOutcome.actionType },
+    });
+  }
+
+  if (automationOutcome.status === "existing" || automationOutcome.status === "blocked") {
+    await emitJobEvent(db, {
+      projectId,
+      jobId: job.id,
+      type: "log",
+      message: automationOutcome.summary,
+      data: { action_type: automationOutcome.actionType, status: automationOutcome.status },
+    });
+  }
+
+  await emitJobEvent(db, {
+    projectId,
+    jobId: job.id,
+    type: "log",
     message: "Generating reply",
   });
 
@@ -91,10 +408,10 @@ export async function handleChatReply(
     },
     latestPacket: latestPacketRow
       ? {
-          phase: latestPacketRow.phase,
-          confidence: latestPacketRow.confidence,
-          packet_excerpt: JSON.stringify(latestPacketRow.packet).slice(0, 3000),
-        }
+        phase: latestPacketRow.phase,
+        confidence: latestPacketRow.confidence,
+        packet_excerpt: JSON.stringify(latestPacketRow.packet_data ?? latestPacketRow.packet).slice(0, 3000),
+      }
       : null,
     recentTasks: (tasksQuery.data ?? []) as Array<{
       agent: string;
@@ -109,6 +426,7 @@ export async function handleChatReply(
       risk: string;
       created_at: string;
     }>,
+    chatAutomation: automationOutcome,
     messages: messages.slice(-12),
   };
 
@@ -120,6 +438,8 @@ Behavior rules:
 - Ground every answer in this project's real context (packet, tasks, approvals, and prior messages).
 - Keep tone concise and operational.
 - If information is missing, say exactly what is missing and how to get it.
+- If chatAutomation.status is "queued" or "existing", acknowledge it clearly in the first sentence and tell user to use Inbox.
+- If chatAutomation.status is "blocked", explain the exact blocker and the concrete prerequisite.
 - Reply in <= 200 words unless the user explicitly asks for more.
 - No markdown code fences.
 
@@ -202,6 +522,20 @@ ${JSON.stringify(promptContext, null, 2)}`;
   });
   if (insertErr) throw new Error(insertErr.message);
 
+  const systemMessage = automationSystemMessage(automationOutcome);
+  if (systemMessage) {
+    try {
+      await db.from("project_chat_messages").insert({
+        project_id: projectId,
+        owner_clerk_id: ownerClerkId,
+        role: "system",
+        content: systemMessage,
+      });
+    } catch {
+      // Non-fatal: chat reply should still complete even if system note insert fails.
+    }
+  }
+
   await emitJobEvent(db, {
     projectId,
     jobId: job.id,
@@ -216,12 +550,21 @@ ${JSON.stringify(promptContext, null, 2)}`;
     message: "complete",
   });
 
-  await writeMemory(db, projectId, job.id, [
+  const memoryRows: MemoryEntry[] = [
     {
       category: "context",
       key: "last_chat_topic",
       value: message.slice(0, 200),
       agentKey: "ceo",
     },
-  ]);
+  ];
+  if (automationOutcome.status === "queued" || automationOutcome.status === "existing") {
+    memoryRows.push({
+      category: "learning",
+      key: `chat_action_${automationOutcome.actionType ?? "unknown"}`,
+      value: `${automationOutcome.status} at ${new Date().toISOString()}`,
+      agentKey: "ceo",
+    });
+  }
+  await writeMemory(db, projectId, job.id, memoryRows);
 }

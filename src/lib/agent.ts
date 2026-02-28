@@ -39,6 +39,27 @@ const projectChatReplySchema = z.object({
   reply: z.string().min(1).max(4000),
 });
 
+const chatExecutionActionTypeSchema = z.enum([
+  "deploy_landing_page",
+  "send_welcome_email_sequence",
+  "send_phase2_lifecycle_email",
+  "activate_meta_ads_campaign",
+  "trigger_phase3_repo_workflow",
+  "trigger_phase3_deploy",
+]);
+
+const chatExecutionIntentSchema = z.object({
+  decision: z.enum(["none", "queue_execution_approval"]),
+  action_type: chatExecutionActionTypeSchema.nullable().optional(),
+  confidence: z.number().int().min(0).max(100),
+  rationale: z.string().trim().min(8).max(320),
+  title: z.string().trim().min(8).max(120).nullable().optional(),
+  description: z.string().trim().min(8).max(260).nullable().optional(),
+});
+
+export type ChatExecutionActionType = z.infer<typeof chatExecutionActionTypeSchema>;
+export type ChatExecutionIntent = z.infer<typeof chatExecutionIntentSchema>;
+
 function repairChatReply(value: unknown): unknown {
   if (typeof value === "string" && value.trim().length > 0) {
     return { reply: value.trim().slice(0, 4000) };
@@ -1327,6 +1348,75 @@ Behavior rules:
     throw new Error("Chat reply was empty");
   }
   return reply;
+}
+
+export async function detectChatExecutionIntent(input: {
+  project_id?: string;
+  project_name: string;
+  phase: number;
+  runtime_mode: "shared" | "attached";
+  repo_url: string | null;
+  permissions: {
+    repo_write?: boolean;
+    deploy?: boolean;
+    ads_enabled?: boolean;
+    ads_budget_cap?: number;
+    email_send?: boolean;
+  };
+  latest_packet_phase: number | null;
+  user_message: string;
+}): Promise<ChatExecutionIntent> {
+  const prompt = `You are CEO Agent routing chat requests into execution approvals for Startup Machine.
+
+Return STRICT JSON only:
+{
+  "decision": "none|queue_execution_approval",
+  "action_type": "deploy_landing_page|send_welcome_email_sequence|send_phase2_lifecycle_email|activate_meta_ads_campaign|trigger_phase3_repo_workflow|trigger_phase3_deploy|null",
+  "confidence": 0,
+  "rationale": "short explanation",
+  "title": "approval title or null",
+  "description": "approval description or null"
+}
+
+Project context:
+${JSON.stringify(
+    {
+      project_name: input.project_name,
+      phase: input.phase,
+      runtime_mode: input.runtime_mode,
+      repo_url: input.repo_url,
+      permissions: input.permissions,
+      latest_packet_phase: input.latest_packet_phase,
+    },
+    null,
+    2,
+  )}
+
+Latest user chat message:
+${JSON.stringify(input.user_message)}
+
+Routing rules:
+- Choose "queue_execution_approval" only when the user is explicitly requesting execution (not just asking a question).
+- Map intents:
+  - "remake/rebuild/redeploy landing page" -> deploy_landing_page
+  - "send/resend welcome sequence" -> send_welcome_email_sequence
+  - "send lifecycle email" -> send_phase2_lifecycle_email
+  - "activate/run ads" -> activate_meta_ads_campaign
+  - "trigger repo workflow" -> trigger_phase3_repo_workflow
+  - "trigger deploy" -> trigger_phase3_deploy
+- If request is ambiguous, informational, or missing prerequisites, return decision "none".
+- Confidence must reflect certainty of explicit user intent (0-100).
+- Keep title/description concise and execution-oriented when queuing.
+- No markdown. JSON only.`;
+
+  return runJsonQuery(
+    prompt,
+    chatExecutionIntentSchema,
+    undefined,
+    AGENT_PROFILES.chat,
+    undefined,
+    input.project_id,
+  );
 }
 
 type PhaseGenerationInput = {
