@@ -397,15 +397,12 @@ export async function executeAgentQuery(
   let resultText = "";
   const effectiveTimeoutMs = agentProfile.timeoutMs || AGENT_QUERY_TIMEOUT_MS;
   let timedOut = false;
-
-  const timeout = setTimeout(() => {
-    timedOut = true;
-    stream.close();
-  }, effectiveTimeoutMs);
+  let streamError: unknown = null;
+  let timeout: ReturnType<typeof setTimeout> | null = null;
 
   const hasStreamEventHooks = Boolean(hooks?.onStreamEvent);
 
-  try {
+  const consumeStream = (async () => {
     for await (const message of stream) {
       if (message.type === "stream_event" && hasStreamEventHooks) {
         const delta = extractDeltaText(message.event);
@@ -428,8 +425,29 @@ export async function executeAgentQuery(
         }
       }
     }
-  } finally {
+  })().catch((error) => {
+    streamError = error;
+  });
+
+  const race = await Promise.race<"done" | "timeout">([
+    consumeStream.then(() => "done"),
+    new Promise<"timeout">((resolve) => {
+      timeout = setTimeout(() => {
+        timedOut = true;
+        try {
+          stream.close();
+        } catch {
+          // ignore close errors when timing out
+        }
+        resolve("timeout");
+      }, effectiveTimeoutMs);
+    }),
+  ]);
+  if (timeout) {
     clearTimeout(timeout);
+  }
+  if (race === "done" && streamError) {
+    throw streamError;
   }
 
   if (timedOut) {
@@ -594,12 +612,10 @@ async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptio
   };
 
   const effectiveTimeoutMs = agentProfile.timeoutMs || AGENT_QUERY_TIMEOUT_MS;
-  const timeout = setTimeout(() => {
-    timedOut = true;
-    stream.close();
-  }, effectiveTimeoutMs);
+  let streamError: unknown = null;
+  let timeout: ReturnType<typeof setTimeout> | null = null;
 
-  try {
+  const consumeStream = (async () => {
     for await (const message of stream) {
       bumpCount(state.messageCounts, message.type);
 
@@ -645,8 +661,29 @@ async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptio
         }
       }
     }
-  } finally {
+  })().catch((error) => {
+    streamError = error;
+  });
+
+  const race = await Promise.race<"done" | "timeout">([
+    consumeStream.then(() => "done"),
+    new Promise<"timeout">((resolve) => {
+      timeout = setTimeout(() => {
+        timedOut = true;
+        try {
+          stream.close();
+        } catch {
+          // ignore close errors when timing out
+        }
+        resolve("timeout");
+      }, effectiveTimeoutMs);
+    }),
+  ]);
+  if (timeout) {
     clearTimeout(timeout);
+  }
+  if (race === "done" && streamError) {
+    throw streamError;
   }
 
   const finalText = resultText.trim() || raw.trim() || streamedRaw.trim() || streamedJsonRaw.trim();
@@ -772,10 +809,11 @@ async function runRawQuery(prompt: string, agentProfile: AgentProfile = AGENT_PR
   let streamedRaw = "";
   let resultText = "";
   let timedOut = false;
+  let streamError: unknown = null;
   const effectiveTimeoutMs = agentProfile.timeoutMs || AGENT_QUERY_TIMEOUT_MS;
-  const timeout = setTimeout(() => { timedOut = true; stream.close(); }, effectiveTimeoutMs);
+  let timeout: ReturnType<typeof setTimeout> | null = null;
 
-  try {
+  const consumeStream = (async () => {
     for await (const message of stream) {
       if (message.type === "assistant") {
         for (const block of message.message.content) {
@@ -798,8 +836,29 @@ async function runRawQuery(prompt: string, agentProfile: AgentProfile = AGENT_PR
         resultText += message.result;
       }
     }
-  } finally {
+  })().catch((error) => {
+    streamError = error;
+  });
+
+  const race = await Promise.race<"done" | "timeout">([
+    consumeStream.then(() => "done"),
+    new Promise<"timeout">((resolve) => {
+      timeout = setTimeout(() => {
+        timedOut = true;
+        try {
+          stream.close();
+        } catch {
+          // ignore close errors when timing out
+        }
+        resolve("timeout");
+      }, effectiveTimeoutMs);
+    }),
+  ]);
+  if (timeout) {
     clearTimeout(timeout);
+  }
+  if (race === "done" && streamError) {
+    throw streamError;
   }
 
   const finalText = raw.trim() || streamedRaw.trim() || resultText.trim();
