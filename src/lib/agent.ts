@@ -1545,6 +1545,9 @@ Output ONLY the complete HTML from <!DOCTYPE html> to </html>. No JSON, no markd
   const result = await runRawQuery(prompt, AGENT_PROFILES.designer_frontend, traceTarget);
   let html = result.text;
 
+  // Strip markdown code fences that some models wrap around HTML
+  html = html.replace(/^```(?:html)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
+
   const docTypeMatch = html.match(/<!DOCTYPE\s+html[^>]*>/i);
   if (docTypeMatch) {
     const startIdx = html.indexOf(docTypeMatch[0]);
@@ -1554,7 +1557,19 @@ Output ONLY the complete HTML from <!DOCTYPE html> to </html>. No JSON, no markd
     }
   }
 
+  // Fallback: look for <html> tag even without DOCTYPE
   if (!html.includes("<!DOCTYPE") && !html.includes("<!doctype")) {
+    const htmlTagMatch = html.match(/<html[\s>]/i);
+    if (htmlTagMatch) {
+      const startIdx = html.indexOf(htmlTagMatch[0]);
+      const endIdx = html.lastIndexOf("</html>");
+      if (startIdx >= 0 && endIdx > startIdx) {
+        html = "<!DOCTYPE html>\n" + html.slice(startIdx, endIdx + "</html>".length);
+      }
+    }
+  }
+
+  if (!html.includes("<!DOCTYPE") && !html.includes("<!doctype") && !html.includes("<html")) {
     throw new Error("Agent did not produce a valid HTML document");
   }
 

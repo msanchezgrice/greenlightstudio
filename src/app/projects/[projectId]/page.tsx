@@ -376,32 +376,84 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
           {!projectAssets.length ? (
             <p className="meta-line">No assets generated yet for this project.</p>
           ) : (
-            <div className="table-shell">
-              <table className="studio-table compact">
-                <thead>
-                  <tr>
-                    <th>Asset</th>
-                    <th>Type</th>
-                    <th>Phase</th>
-                    <th>Size</th>
-                    <th>Status</th>
-                    <th>Created</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {projectAssets.map((asset) => (
-                    <tr key={asset.id}>
-                      <td>{asset.filename}</td>
-                      <td>{assetKindLabel(asset.kind)}</td>
-                      <td>{asset.phase !== null ? phaseLabel(asset.phase) : "--"}</td>
-                      <td>{formatBytes(asset.size_bytes)}</td>
-                      <td className={statusClass(asset.status)}>{asset.status}</td>
-                      <td>{new Date(asset.created_at).toLocaleString()}</td>
+            <>
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+                {project.live_url && (
+                  <a
+                    href={project.live_url as string}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-approve"
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                  >
+                    🌐 Landing Page
+                  </a>
+                )}
+                {projectAssets.filter(a => a.filename === "brand-brief.html").map(a => (
+                  <a
+                    key={a.id}
+                    href={`/api/projects/${projectId}/assets/${a.id}/preview`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-details"
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                  >
+                    📄 Brand Brief
+                  </a>
+                ))}
+                {projectAssets.filter(a => a.filename === "brand-brief.pptx").map(a => (
+                  <a
+                    key={a.id}
+                    href={`/api/projects/${projectId}/assets/${a.id}/preview`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-details"
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                  >
+                    📊 Brand Deck (PPTX)
+                  </a>
+                ))}
+              </div>
+              <div className="table-shell">
+                <table className="studio-table compact">
+                  <thead>
+                    <tr>
+                      <th>Asset</th>
+                      <th>Type</th>
+                      <th>Phase</th>
+                      <th>Size</th>
+                      <th>Status</th>
+                      <th>Created</th>
+                      <th></th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {projectAssets.map((asset) => (
+                      <tr key={asset.id}>
+                        <td>{asset.filename}</td>
+                        <td>{assetKindLabel(asset.kind)}</td>
+                        <td>{asset.phase !== null ? phaseLabel(asset.phase) : "--"}</td>
+                        <td>{formatBytes(asset.size_bytes)}</td>
+                        <td className={statusClass(asset.status)}>{asset.status}</td>
+                        <td>{new Date(asset.created_at).toLocaleString()}</td>
+                        <td>
+                          {asset.status === "uploaded" && (
+                            <a
+                              href={`/api/projects/${projectId}/assets/${asset.id}/preview`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="btn btn-details btn-sm"
+                            >
+                              View
+                            </a>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </section>
 
