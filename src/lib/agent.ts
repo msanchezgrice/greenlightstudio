@@ -1154,7 +1154,17 @@ Rules:
 
   const tt = projectId ? (agent: string, prefix: string): TraceTarget => ({ projectId, agent, taskPrefix: prefix }) : undefined;
 
-  const settledResults = await Promise.allSettled([
+  async function settle<T>(work: () => Promise<T>): Promise<PromiseSettledResult<T>> {
+    try {
+      return { status: "fulfilled", value: await work() };
+    } catch (reason) {
+      return { status: "rejected", reason };
+    }
+  }
+
+  // Run Phase 0 agent calls sequentially to avoid memory spikes from multiple
+  // concurrent Claude SDK processes on small worker instances.
+  const compSettled = await settle(() =>
     runJsonQuery(
       `You are Competitor Research Agent. Return STRICT JSON only.\nInput:\n${ctx}\n${guidanceBlock}${attachedFilesBlock}\n\nRequired JSON shape:\n{"competitors":[{"name":"","positioning":"","gap":"","pricing":""}]}\n\nRules:\n- find exactly 6 competitors with real names and pricing\n- use web search to find real competitors and their actual pricing\n- no markdown fences, no commentary, raw JSON only`,
       competitorSchema,
@@ -1163,6 +1173,9 @@ Rules:
       tt?.("research_agent", "phase0_comp"),
       projectId,
     ),
+  );
+
+  const mktSettled = await settle(() =>
     runJsonQuery(
       `You are Market Research Agent. Return STRICT JSON only.\nInput:\n${ctx}\n${guidanceBlock}${attachedFilesBlock}\n\nRequired JSON shape:\n{"market_sizing":{"tam":"","sam":"","som":""},"notes":["",""]}\n\nRules:\n- use web search to find real market data and TAM/SAM/SOM estimates\n- notes should capture key market insights\n- no markdown fences, no commentary, raw JSON only`,
       marketSchema,
@@ -1171,6 +1184,9 @@ Rules:
       tt?.("research_agent", "phase0_mkt"),
       projectId,
     ),
+  );
+
+  const ceoSettled = await settle(() =>
     runJsonQuery(
       ceoPrompt,
       packetSchema,
@@ -1179,9 +1195,7 @@ Rules:
       tt?.("ceo_agent", "phase0_ceo"),
       projectId,
     ),
-  ]);
-
-  const [compSettled, mktSettled, ceoSettled] = settledResults;
+  );
 
   if (ceoSettled.status === "fulfilled") {
     const packet = ceoSettled.value;

@@ -4,13 +4,17 @@ services:
     runtime: node
     region: oregon
     plan: starter
-    buildCommand: npm install && npm run worker:build && npx playwright install chromium --with-deps
+    buildCommand: npm install && npm run worker:build && npx playwright install chromium
     startCommand: npm run worker:start
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
         value: "20"
+      - key: NODE_OPTIONS
+        value: "--max-old-space-size=512"
       - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
@@ -36,3 +40,11 @@ services:
         value: "1"
       - key: WORKER_POLL_MS
         value: "1000"
+      - key: WORKER_JOB_TIMEOUT_MS
+        value: "900000"
+      - key: WORKER_MAX_JOBS_PER_PROCESS
+        value: "12"
+      - key: WORKER_MAX_RSS_MB
+        value: "700"
+      - key: WORKER_MEMORY_LOG_INTERVAL_MS
+        value: "60000"

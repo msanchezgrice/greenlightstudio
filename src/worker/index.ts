@@ -9,6 +9,14 @@ function sleep(ms: number) {
 
 let shuttingDown = false;
 
+class FatalWorkerError extends Error {}
+class JobTimeoutError extends Error {
+  constructor(jobId: string, timeoutMs: number) {
+    super(`Job ${jobId} timed out after ${Math.round(timeoutMs / 1000)}s`);
+    this.name = "JobTimeoutError";
+  }
+}
+
 async function finalizeJob(
   db: ReturnType<typeof createAdminSupabase>,
   jobId: string,
@@ -28,9 +36,22 @@ async function finalizeJob(
   }
 }
 
-async function runOnce() {
+function formatMemorySnapshot() {
+  const usage = process.memoryUsage();
+  const rssMb = usage.rss / 1024 / 1024;
+  const heapUsedMb = usage.heapUsed / 1024 / 1024;
+  const heapTotalMb = usage.heapTotal / 1024 / 1024;
+  const externalMb = usage.external / 1024 / 1024;
+  return {
+    rssMb,
+    heapUsedMb,
+    heapTotalMb,
+    externalMb,
+  };
+}
+
+async function runOnce(cfg: ReturnType<typeof getWorkerConfig>) {
   const db = createAdminSupabase();
-  const cfg = getWorkerConfig();
 
   const claim = await db.rpc("claim_agent_jobs", {
     p_worker_id: cfg.workerId,
@@ -68,7 +89,21 @@ async function runOnce() {
           type: "status",
           message: "running",
         });
-        await handler(db, job);
+
+        let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+        try {
+          await Promise.race([
+            handler(db, job),
+            new Promise<never>((_, reject) => {
+              timeoutHandle = setTimeout(() => {
+                reject(new JobTimeoutError(job.id, cfg.jobTimeoutMs));
+              }, cfg.jobTimeoutMs);
+            }),
+          ]);
+        } finally {
+          if (timeoutHandle) clearTimeout(timeoutHandle);
+        }
+
         await emitJobEvent(db, {
           projectId: job.project_id,
           jobId: job.id,
@@ -79,6 +114,7 @@ async function runOnce() {
       } catch (err: unknown) {
         const msg =
           err instanceof Error ? err.message : "Job failed with unknown error";
+
         await emitJobEvent(db, {
           projectId: job.project_id,
           jobId: job.id,
@@ -105,6 +141,12 @@ async function runOnce() {
         } else {
           await finalizeJob(db, job.id, "failed", msg);
         }
+
+        if (err instanceof JobTimeoutError) {
+          throw new FatalWorkerError(
+            `[worker] timed out job ${job.id}; forcing recycle to clear lingering resources`,
+          );
+        }
       }
     }
   });
@@ -119,7 +161,7 @@ async function main() {
 
   const cfg = getWorkerConfig();
   console.log(
-    `[worker] starting id=${cfg.workerId} concurrency=${cfg.concurrency} pollMs=${cfg.pollMs}`
+    `[worker] starting id=${cfg.workerId} concurrency=${cfg.concurrency} pollMs=${cfg.pollMs} timeoutMs=${cfg.jobTimeoutMs} maxJobs=${cfg.maxJobsPerProcess} maxRssMb=${cfg.maxRssMb}`
   );
 
   process.on("SIGTERM", () => {
@@ -133,9 +175,25 @@ async function main() {
 
   let lastReclaim = 0;
   let consecutivePollErrors = 0;
+  let processedJobs = 0;
+  let lastMemoryLogAt = 0;
 
   while (!shuttingDown) {
     const now = Date.now();
+
+    const memory = formatMemorySnapshot();
+    if (now - lastMemoryLogAt >= cfg.memoryLogIntervalMs) {
+      console.log(
+        `[worker] health rss=${memory.rssMb.toFixed(1)}MB heap=${memory.heapUsedMb.toFixed(1)}/${memory.heapTotalMb.toFixed(1)}MB ext=${memory.externalMb.toFixed(1)}MB`,
+      );
+      lastMemoryLogAt = now;
+    }
+    if (cfg.maxRssMb > 0 && memory.rssMb >= cfg.maxRssMb) {
+      throw new FatalWorkerError(
+        `[worker] rss ${memory.rssMb.toFixed(1)}MB exceeded limit ${cfg.maxRssMb}MB`,
+      );
+    }
+
     if (now - lastReclaim > cfg.reclaimIntervalMs) {
       try {
         const db = createAdminSupabase();
@@ -153,12 +211,21 @@ async function main() {
     }
 
     try {
-      const { ran } = await runOnce();
+      const { ran } = await runOnce(cfg);
       consecutivePollErrors = 0;
       if (ran > 0) {
+        processedJobs += ran;
         console.log(`[worker] processed ${ran} jobs`);
       }
+      if (cfg.maxJobsPerProcess > 0 && processedJobs >= cfg.maxJobsPerProcess) {
+        throw new FatalWorkerError(
+          `[worker] recycling process after ${processedJobs} jobs`,
+        );
+      }
     } catch (e) {
+      if (e instanceof FatalWorkerError) {
+        throw e;
+      }
       consecutivePollErrors += 1;
       console.error("[worker] poll error:", e);
       if (consecutivePollErrors >= 10) {
