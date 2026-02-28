@@ -292,7 +292,7 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     tools: ['WebSearch', 'WebFetch'],
     allowedTools: ['WebSearch', 'WebFetch'],
     maxTurns: 10,
-    timeoutMs: 600_000,
+    timeoutMs: 900_000,
     permissionMode: 'dontAsk',
   },
   designer_frontend: {
@@ -1537,7 +1537,10 @@ Waitlist form:
 - Show success state after submission
 - Include form submission JS that POSTs as JSON
 
-Output ONLY the complete HTML from <!DOCTYPE html> to </html>. No JSON, no markdown fences, no commentary.`;
+CRITICAL OUTPUT FORMAT:
+Your final response must be ONLY the raw HTML document starting with <!DOCTYPE html> and ending with </html>.
+Do NOT wrap it in markdown code fences. Do NOT include any text before <!DOCTYPE html> or after </html>.
+Do NOT include commentary, explanations, or JSON. Just the HTML.`;
 
   const traceTarget = input.project_id
     ? { projectId: input.project_id, agent: "design_agent", taskPrefix: "phase1_landing_html" } satisfies TraceTarget
