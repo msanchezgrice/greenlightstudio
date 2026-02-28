@@ -1,6 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
 import { requireEnv } from "@/lib/env";
 
 export function createServiceSupabase() {
@@ -8,6 +7,7 @@ export function createServiceSupabase() {
 }
 
 export async function createAuthedSupabase() {
+  const { cookies } = await import("next/headers.js");
   const cookieStore = await cookies();
   return createServerClient(
     requireEnv("NEXT_PUBLIC_SUPABASE_URL"),
