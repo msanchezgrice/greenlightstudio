@@ -1542,7 +1542,7 @@ Output ONLY the complete HTML from <!DOCTYPE html> to </html>. No JSON, no markd
   const traceTarget = input.project_id
     ? { projectId: input.project_id, agent: "design_agent", taskPrefix: "phase1_landing_html" } satisfies TraceTarget
     : undefined;
-  const result = await runRawQuery(prompt, AGENT_PROFILES.designer_frontend, traceTarget);
+  const result = await runRawQuery(prompt, AGENT_PROFILES.designer_full, traceTarget);
   let html = result.text;
 
   // Strip markdown code fences that some models wrap around HTML
