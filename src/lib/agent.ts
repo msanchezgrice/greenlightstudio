@@ -18,6 +18,8 @@ const AGENT_QUERY_TIMEOUT_MS = Math.max(30_000, Number(process.env.CLAUDE_AGENT_
 const AGENT_QUERY_MAX_TURNS = 12;
 const AGENT_RUNTIME_TMP_DIR = process.env.CLAUDE_SDK_TMPDIR?.trim() || "/tmp";
 const IS_SERVERLESS_RUNTIME = Boolean(process.env.VERCEL || process.env.LAMBDA_TASK_ROOT);
+const AGENT_DEBUG_TASKS_ENABLED = process.env.AGENT_DEBUG_TASKS === "true";
+const AGENT_TRACE_TASKS_ENABLED = process.env.AGENT_TRACE_TASKS === "true";
 
 const competitorSchema = z.object({
   competitors: z.array(
@@ -299,8 +301,8 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     name: 'design_agent',
     tools: [],
     allowedTools: [],
-    maxTurns: 1,
-    timeoutMs: 180_000,
+    maxTurns: 2,
+    timeoutMs: 600_000,
     permissionMode: 'dontAsk',
   },
   synthesizer: {
@@ -495,7 +497,7 @@ function parseSchemaWithRepair<T>(input: unknown, options: QueryAttemptOptions<T
   if (!options.repair) throw direct.error;
 
   // #region agent log
-  if (debugProjectId) {
+  if (debugProjectId && AGENT_DEBUG_TASKS_ENABLED) {
     const synopsis = isRecord(input) && isRecord((input as Record<string, unknown>).reasoning_synopsis)
       ? (input as Record<string, unknown>).reasoning_synopsis as Record<string, unknown> : null;
     const rec = isRecord(input) ? (input as Record<string, unknown>).recommendation : undefined;
@@ -509,7 +511,7 @@ function parseSchemaWithRepair<T>(input: unknown, options: QueryAttemptOptions<T
   const repairedResult = options.schema.safeParse(repaired);
   if (repairedResult.success) {
     // #region agent log
-    if (debugProjectId) {
+    if (debugProjectId && AGENT_DEBUG_TASKS_ENABLED) {
       const rs = isRecord(repaired) && isRecord((repaired as Record<string, unknown>).reasoning_synopsis)
         ? (repaired as Record<string, unknown>).reasoning_synopsis as Record<string, unknown> : null;
       log_task(debugProjectId, "debug", "_debug_repair_ok", "completed",
@@ -520,7 +522,7 @@ function parseSchemaWithRepair<T>(input: unknown, options: QueryAttemptOptions<T
   }
 
   // #region agent log
-  if (debugProjectId) {
+  if (debugProjectId && AGENT_DEBUG_TASKS_ENABLED) {
     log_task(debugProjectId, "debug", "_debug_repair_fail", "failed",
       JSON.stringify(repairedResult.error.issues?.slice(0, 3)).slice(0, 320)).catch(() => {});
   }
@@ -652,7 +654,7 @@ async function executeQueryAttempt<T>(prompt: string, options: QueryAttemptOptio
   const parseFinalText = () => parseSchemaWithRepair(parseAgentJson<T>(finalText), options, debugProjectId);
 
   // #region agent log
-  if (debugProjectId) {
+  if (debugProjectId && AGENT_DEBUG_TASKS_ENABLED) {
     log_task(debugProjectId, "debug", `_debug_attempt_${profile.name}`, timedOut ? "failed" : "running",
       `timeout=${timedOut}|t=${Math.round(effectiveTimeoutMs / 1000)}s|saw=${state.sawResult}|struct=${typeof structuredOutput !== "undefined"}|text=${finalText.length}|profile=${agentProfile.name}`.slice(0, 320)).catch(() => {});
   }
@@ -716,6 +718,7 @@ let _traceFlushTimer: ReturnType<typeof setTimeout> | null = null;
 const _traceFlushBuffer: { target: TraceTarget; traces: ToolTrace[] }[] = [];
 
 function scheduleTraceFlush(target: TraceTarget, trace: ToolTrace) {
+  if (!AGENT_TRACE_TASKS_ENABLED) return;
   let entry = _traceFlushBuffer.find(
     (b) => b.target.projectId === target.projectId && b.target.agent === target.agent,
   );
@@ -1553,38 +1556,55 @@ Do NOT include commentary, explanations, or JSON. Just the HTML.`;
   const traceTarget = input.project_id
     ? { projectId: input.project_id, agent: "design_agent", taskPrefix: "phase1_landing_html" } satisfies TraceTarget
     : undefined;
-  const result = await runRawQuery(prompt, AGENT_PROFILES.designer_frontend, traceTarget);
-  let html = result.text;
 
-  // Strip markdown code fences that some models wrap around HTML
-  html = html.replace(/^```(?:html)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
+  const maxAttempts = 3;
+  const allTraces: ToolTrace[] = [];
+  let lastError: Error | null = null;
 
-  const docTypeMatch = html.match(/<!DOCTYPE\s+html[^>]*>/i);
-  if (docTypeMatch) {
-    const startIdx = html.indexOf(docTypeMatch[0]);
-    const endIdx = html.lastIndexOf("</html>");
-    if (startIdx >= 0 && endIdx > startIdx) {
-      html = html.slice(startIdx, endIdx + "</html>".length);
-    }
-  }
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const result = await runRawQuery(prompt, AGENT_PROFILES.designer_frontend, traceTarget);
+      allTraces.push(...result.traces);
+      let html = result.text;
 
-  // Fallback: look for <html> tag even without DOCTYPE
-  if (!html.includes("<!DOCTYPE") && !html.includes("<!doctype")) {
-    const htmlTagMatch = html.match(/<html[\s>]/i);
-    if (htmlTagMatch) {
-      const startIdx = html.indexOf(htmlTagMatch[0]);
-      const endIdx = html.lastIndexOf("</html>");
-      if (startIdx >= 0 && endIdx > startIdx) {
-        html = "<!DOCTYPE html>\n" + html.slice(startIdx, endIdx + "</html>".length);
+      // Strip markdown code fences that some models wrap around HTML
+      html = html.replace(/^```(?:html)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
+
+      const docTypeMatch = html.match(/<!DOCTYPE\s+html[^>]*>/i);
+      if (docTypeMatch) {
+        const startIdx = html.indexOf(docTypeMatch[0]);
+        const endIdx = html.lastIndexOf("</html>");
+        if (startIdx >= 0 && endIdx > startIdx) {
+          html = html.slice(startIdx, endIdx + "</html>".length);
+        }
       }
+
+      // Fallback: look for <html> tag even without DOCTYPE
+      if (!html.includes("<!DOCTYPE") && !html.includes("<!doctype")) {
+        const htmlTagMatch = html.match(/<html[\s>]/i);
+        if (htmlTagMatch) {
+          const startIdx = html.indexOf(htmlTagMatch[0]);
+          const endIdx = html.lastIndexOf("</html>");
+          if (startIdx >= 0 && endIdx > startIdx) {
+            html = "<!DOCTYPE html>\n" + html.slice(startIdx, endIdx + "</html>".length);
+          }
+        }
+      }
+
+      if (!html.includes("<!DOCTYPE") && !html.includes("<!doctype") && !html.includes("<html")) {
+        throw new Error("Agent did not produce a valid HTML document");
+      }
+
+      return { html, traces: allTraces };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error("Landing HTML generation failed");
+      const retryable = /timed out|empty response|valid html document/i.test(lastError.message);
+      if (!retryable || attempt >= maxAttempts) break;
+      await new Promise((resolve) => setTimeout(resolve, attempt * 800));
     }
   }
 
-  if (!html.includes("<!DOCTYPE") && !html.includes("<!doctype") && !html.includes("<html")) {
-    throw new Error("Agent did not produce a valid HTML document");
-  }
-
-  return { html, traces: result.traces };
+  throw lastError ?? new Error("Landing HTML generation failed");
 }
 
 export async function verifyLandingDesign(

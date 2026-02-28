@@ -1,11 +1,8 @@
-import { after } from "next/server";
 import { NextResponse } from "next/server";
 import { createServiceSupabase } from "@/lib/supabase";
 import { withRetry } from "@/lib/retry";
 import { enqueueJob } from "@/lib/jobs/enqueue";
 import { JOB_TYPES, AGENT_KEYS, PRIORITY, SYSTEM_PROJECT_ID } from "@/lib/jobs/constants";
-import { processDueEmailJobs } from "@/lib/action-execution";
-import { processWeeklyDigests, processNudgeEmails } from "@/lib/drip-emails";
 
 export const runtime = "nodejs";
 export const maxDuration = 800;
@@ -96,12 +93,6 @@ async function nightShiftHandler(req: Request) {
       priority: PRIORITY.BACKGROUND,
     });
   } catch {}
-
-  after(async () => {
-    try { await processDueEmailJobs(100); } catch (e) { console.error("[nightshift] email processing failed:", e); }
-    try { await processWeeklyDigests(); } catch (e) { console.error("[nightshift] weekly digests failed:", e); }
-    try { await processNudgeEmails(); } catch (e) { console.error("[nightshift] nudge emails failed:", e); }
-  });
 
   return NextResponse.json({
     ran_at: new Date().toISOString(),

@@ -347,6 +347,19 @@ export async function enqueueNextPhaseArtifacts(projectId: string, phase: number
     log_task(projectId, "ceo_agent", `phase${plan.phase}_init`, "completed", `Phase ${plan.phase} initialization complete`),
   );
 
+  if (plan.phase === 1) {
+    await generatePhase1Deliverables(
+      {
+        id: projectId,
+        name: (project as ProjectRow).name,
+        domain: (project as ProjectRow).domain,
+        idea_description: (project as ProjectRow).idea_description,
+        owner_clerk_id: undefined,
+      },
+      packet as Phase1Packet,
+    );
+  }
+
   await withRetry(() =>
     log_task(
       projectId,
@@ -356,23 +369,6 @@ export async function enqueueNextPhaseArtifacts(projectId: string, phase: number
       `Phase ${plan.phase} artifacts generated (${confidence}/100 confidence)`,
     ),
   );
-
-  if (plan.phase === 1) {
-    try {
-      await generatePhase1Deliverables(
-        {
-          id: projectId,
-          name: (project as ProjectRow).name,
-          domain: (project as ProjectRow).domain,
-          idea_description: (project as ProjectRow).idea_description,
-          owner_clerk_id: undefined,
-        },
-        packet as Phase1Packet,
-      );
-    } catch {
-      // Deliverable generation failures are non-fatal — tasks are already individually logged
-    }
-  }
 
   if (forceRegenerate) {
     await withRetry(() =>

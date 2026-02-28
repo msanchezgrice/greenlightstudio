@@ -19,6 +19,12 @@ function escapeHtml(value: string) {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
 }
 
+function buildLaunchUrl(projectId: string, appBaseUrl?: string) {
+  const rawBase = (appBaseUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? "").trim();
+  const normalizedBase = rawBase.replace(/\/+$/, "");
+  return normalizedBase ? `${normalizedBase}/launch/${projectId}` : `/launch/${projectId}`;
+}
+
 function generateBrandLogoSvg(name: string, palette: string[]): string {
   const primary = palette[0] ?? "#6EE7B7";
   const secondary = palette[1] ?? "#3B82F6";
@@ -260,10 +266,7 @@ export async function generatePhase1Deliverables(
     );
     if (asset) assetIds.push(asset.id);
 
-    const { data: publicUrlData } = db.storage.from("project-assets").getPublicUrl(deploymentPath);
-    const storageUrl = publicUrlData?.publicUrl;
-    const baseUrl = appBaseUrl ?? process.env.NEXT_PUBLIC_APP_URL;
-    landingUrl = storageUrl || (baseUrl ? `${baseUrl}/launch/${project.id}` : `/launch/${project.id}`);
+    landingUrl = buildLaunchUrl(project.id, appBaseUrl);
 
     await Promise.all([
       withRetry(() =>
@@ -369,12 +372,20 @@ export async function generatePhase1Deliverables(
     await log_task(project.id, "brand_agent", "phase1_brand_assets", "completed", `Generated ${totalAssets} brand assets (${brandImages.length} images + HTML brief + PPTX)`);
   };
 
-  const results = await Promise.allSettled([landingTrack(), brandTrack()]);
-  for (const result of results) {
-    if (result.status === "rejected") {
-      const msg = result.reason instanceof Error ? result.reason.message : "Deliverable generation failed";
-      await log_task(project.id, "ceo_agent", "phase1_complete", "failed", msg).catch(() => {});
-    }
+  try {
+    await landingTrack();
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "Landing generation failed";
+    await log_task(project.id, "design_agent", "phase1_landing_deploy", "failed", msg).catch(() => {});
+    throw error;
+  }
+
+  try {
+    await brandTrack();
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "Brand asset generation failed";
+    await log_task(project.id, "brand_agent", "phase1_brand_assets", "failed", msg).catch(() => {});
+    throw error;
   }
 
   if (landingUrl) {

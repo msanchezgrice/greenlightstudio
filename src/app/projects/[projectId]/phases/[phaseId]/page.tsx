@@ -181,7 +181,8 @@ export default async function ProjectPhaseWorkspacePage({
     created_at: string;
   }>;
   const brandAssets = assets.filter((a) => a.metadata?.brand_asset === true);
-  const brandKitDoc = assets.find((a) => a.metadata?.brand_kit_doc === true);
+  const brandBriefHtmlAsset = assets.find((a) => a.filename === "brand-brief.html" || a.metadata?.brand_brief === true);
+  const brandBriefPptxAsset = assets.find((a) => a.filename === "brand-brief.pptx" || a.metadata?.brand_brief_pptx === true);
   const landingAsset = assets.find((a) => a.kind === "landing_html");
   const previewUrl = deployment ? `/launch/${projectId}` : (landingAsset ? `/launch/${projectId}` : null);
   const rawLiveUrl = project.live_url;
@@ -334,16 +335,28 @@ export default async function ProjectPhaseWorkspacePage({
             <section className="studio-card">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                 <h2 style={{ margin: 0 }}>Brand Kit</h2>
-                {brandKitDoc && (
-                  <a
-                    href={`/api/projects/${projectId}/assets/${brandKitDoc.id}/preview`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="btn btn-details btn-sm"
-                  >
-                    Open Brand Kit Document
-                  </a>
-                )}
+                <div className="table-actions">
+                  {brandBriefHtmlAsset && (
+                    <a
+                      href={`/api/projects/${projectId}/assets/${brandBriefHtmlAsset.id}/preview`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn-details btn-sm"
+                    >
+                      Open Brand Brief
+                    </a>
+                  )}
+                  {brandBriefPptxAsset && (
+                    <a
+                      href={`/api/projects/${projectId}/assets/${brandBriefPptxAsset.id}/preview`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn-details btn-sm"
+                    >
+                      Download Brand Deck (PPTX)
+                    </a>
+                  )}
+                </div>
               </div>
               {brandAssets.length > 0 && (
                 <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginBottom: 20 }}>
@@ -676,7 +689,8 @@ export default async function ProjectPhaseWorkspacePage({
           title="CEO Chat Pane"
           deliverableLinks={phase === 1 ? [
             ...(liveUrl ? [{ label: "Landing Page", href: liveUrl, external: true }] : []),
-            ...(brandKitDoc ? [{ label: "Brand Kit", href: `/api/projects/${projectId}/assets/${brandKitDoc.id}/preview`, external: true }] : []),
+            ...(brandBriefHtmlAsset ? [{ label: "Brand Brief", href: `/api/projects/${projectId}/assets/${brandBriefHtmlAsset.id}/preview`, external: true }] : []),
+            ...(brandBriefPptxAsset ? [{ label: "Brand Deck (PPTX)", href: `/api/projects/${projectId}/assets/${brandBriefPptxAsset.id}/preview`, external: true }] : []),
             { label: "Phase 1 Workspace", href: `/projects/${projectId}/phases/1` },
           ] : undefined}
         />

@@ -1,5 +1,4 @@
 import { auth } from "@clerk/nextjs/server";
-import { after } from "next/server";
 import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -7,7 +6,6 @@ import { withRetry } from "@/lib/retry";
 import { createServiceSupabase } from "@/lib/supabase";
 import { enqueueJob } from "@/lib/jobs/enqueue";
 import { JOB_TYPES, AGENT_KEYS, PRIORITY } from "@/lib/jobs/constants";
-import { runPhase0 } from "@/lib/phase0";
 
 export const runtime = "nodejs";
 export const maxDuration = 800;
@@ -129,37 +127,21 @@ export async function POST(req: Request, context: { params: Promise<{ projectId:
       }
     }
 
-    let jobId: string | null = null;
-    try {
-      jobId = await enqueueJob({
+    const jobId = await enqueueJob({
+      projectId,
+      jobType: JOB_TYPES.PHASE0,
+      agentKey: AGENT_KEYS.CEO,
+      payload: {
         projectId,
-        jobType: JOB_TYPES.PHASE0,
-        agentKey: AGENT_KEYS.CEO,
-        payload: {
-          projectId,
-          ownerClerkId: runAsUserId,
-          revisionGuidance,
-          forceNewApproval,
-        },
-        idempotencyKey: phase0IdempotencyKey(projectId, revisionGuidance, forceNewApproval),
-        priority: PRIORITY.USER_BLOCKING,
-      });
-    } catch {}
-
-    after(async () => {
-      try {
-        await runPhase0({
-          projectId,
-          userId: runAsUserId!,
-          revisionGuidance: revisionGuidance ?? undefined,
-          forceNewApproval,
-        });
-      } catch (err) {
-        console.error("[launch] direct phase0 failed:", err);
-      }
+        ownerClerkId: runAsUserId,
+        revisionGuidance,
+        forceNewApproval,
+      },
+      idempotencyKey: phase0IdempotencyKey(projectId, revisionGuidance, forceNewApproval),
+      priority: PRIORITY.USER_BLOCKING,
     });
 
-    return NextResponse.json({ ok: true, started: true, ...(jobId ? { jobId } : {}) });
+    return NextResponse.json({ ok: true, started: true, jobId });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Failed generating Phase 0 packet";
     const statusCode = errorMessage === "Project not found" ? 404 : 500;
