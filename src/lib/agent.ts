@@ -346,13 +346,18 @@ export type AgentQueryHooks = {
   onStreamEvent?: (event: StreamEvent) => Promise<void> | void;
 };
 
+export type AgentQueryOptions = {
+  cwd?: string;
+};
+
 export async function executeAgentQuery(
   projectId: string,
   ownerClerkId: string,
   prompt: string,
   agentProfileInput: AgentProfile | string,
   traceKey: string,
-  hooks?: AgentQueryHooks
+  hooks?: AgentQueryHooks,
+  options?: AgentQueryOptions
 ): Promise<string> {
   const agentProfile =
     typeof agentProfileInput === "string"
@@ -360,7 +365,7 @@ export async function executeAgentQuery(
       : agentProfileInput;
 
   const executablePath = resolveClaudeCodeExecutablePath();
-  const cwd = IS_SERVERLESS_RUNTIME ? AGENT_RUNTIME_TMP_DIR : process.cwd();
+  const cwd = options?.cwd ? path.resolve(options.cwd) : IS_SERVERLESS_RUNTIME ? AGENT_RUNTIME_TMP_DIR : process.cwd();
 
   const stream = query({
     prompt,
@@ -396,7 +401,7 @@ export async function executeAgentQuery(
     stream.close();
   }, effectiveTimeoutMs);
 
-  let hasStreamEventHooks = Boolean(hooks?.onStreamEvent);
+  const hasStreamEventHooks = Boolean(hooks?.onStreamEvent);
 
   try {
     for await (const message of stream) {

@@ -29,7 +29,9 @@ export async function GET(
 
   const url = new URL(req.url);
   const after = url.searchParams.get("after");
+  const afterId = url.searchParams.get("afterId");
   const jobId = url.searchParams.get("jobId");
+  const lastEventIdHeader = req.headers.get("last-event-id");
 
   const encoder = new TextEncoder();
   let cancelled = false;
@@ -39,12 +41,17 @@ export async function GET(
       const send = (data: Record<string, unknown>) => {
         if (cancelled) return;
         try {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+          const lines: string[] = [];
+          if (typeof data.id === "string") {
+            lines.push(`id: ${data.id}`);
+          }
+          lines.push(`data: ${JSON.stringify(data)}`, "");
+          controller.enqueue(encoder.encode(lines.join("\n")));
         } catch {}
       };
 
-      let cursor = after ?? new Date(Date.now() - 60_000).toISOString();
-      let lastEventId: string | null = null;
+      let cursorCreatedAt = after ?? new Date(Date.now() - 60_000).toISOString();
+      let cursorId: string | null = afterId ?? lastEventIdHeader ?? null;
       const startedAt = Date.now();
       const MAX_STREAM_MS = 25_000;
       let lastPing = Date.now();
@@ -73,20 +80,23 @@ export async function GET(
               .order("id", { ascending: true })
               .limit(50);
 
-            if (lastEventId) {
-              query = query.gt("id", lastEventId);
-            } else {
-              query = query.gt("created_at", cursor);
-            }
+            query = query.gte("created_at", cursorCreatedAt);
 
             if (jobId) {
               query = query.eq("job_id", jobId);
             }
 
             const { data: events } = await query;
+            const filteredEvents = (events ?? []).filter((event) => {
+              const eventCreatedAt = String(event.created_at ?? "");
+              if (eventCreatedAt > cursorCreatedAt) return true;
+              if (eventCreatedAt < cursorCreatedAt) return false;
+              if (!cursorId) return true;
+              return String(event.id) > cursorId;
+            });
 
-            if (events?.length) {
-              for (const event of events) {
+            if (filteredEvents.length) {
+              for (const event of filteredEvents) {
                 send({
                   id: event.id,
                   jobId: event.job_id,
@@ -95,11 +105,11 @@ export async function GET(
                   data: event.data,
                   createdAt: event.created_at,
                 });
-                lastEventId = event.id as string;
-                cursor = event.created_at as string;
+                cursorId = event.id as string;
+                cursorCreatedAt = event.created_at as string;
               }
 
-              const lastEvent = events[events.length - 1];
+              const lastEvent = filteredEvents[filteredEvents.length - 1];
               if (
                 lastEvent?.type === "status" &&
                 (lastEvent.message === "completed" ||

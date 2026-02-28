@@ -54,19 +54,19 @@ export async function handleBrowserCheckPage(
       });
 
       const screenshot = await page.screenshot({ fullPage: true });
-      const screenshotPath = `project-assets/${projectId}/qa/desktop-${Date.now()}.png`;
+      const screenshotPath = `${projectId}/qa/desktop-${Date.now()}.png`;
 
       const { error: uploadError } = await db.storage
-        .from("greenlight-assets")
+        .from("project-assets")
         .upload(screenshotPath, screenshot, {
           contentType: "image/png",
           upsert: true,
         });
 
-      const screenshotUrl = uploadError
-        ? undefined
-        : db.storage.from("greenlight-assets").getPublicUrl(screenshotPath)
-            .data.publicUrl;
+      const signed = uploadError
+        ? null
+        : await db.storage.from("project-assets").createSignedUrl(screenshotPath, 60 * 60 * 24);
+      const screenshotUrl = signed?.error ? undefined : signed?.data.signedUrl;
 
       results.push({
         check: "screenshot",
@@ -93,18 +93,19 @@ export async function handleBrowserCheckPage(
       await mobilePage.waitForTimeout(1000);
 
       const mobileScreenshot = await mobilePage.screenshot({ fullPage: true });
-      const mobilePath = `project-assets/${projectId}/qa/mobile-${Date.now()}.png`;
+      const mobilePath = `${projectId}/qa/mobile-${Date.now()}.png`;
 
-      await db.storage
-        .from("greenlight-assets")
+      const mobileUpload = await db.storage
+        .from("project-assets")
         .upload(mobilePath, mobileScreenshot, {
           contentType: "image/png",
           upsert: true,
         });
 
-      const mobileUrl = db.storage
-        .from("greenlight-assets")
-        .getPublicUrl(mobilePath).data.publicUrl;
+      const mobileSigned = mobileUpload.error
+        ? null
+        : await db.storage.from("project-assets").createSignedUrl(mobilePath, 60 * 60 * 24);
+      const mobileUrl = mobileSigned?.error ? undefined : mobileSigned?.data.signedUrl;
 
       const hasViewportMeta = await mobilePage.evaluate(
         () =>

@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { after } from "next/server";
 import { NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { withRetry } from "@/lib/retry";
 import { createServiceSupabase } from "@/lib/supabase";
@@ -72,6 +73,11 @@ async function parseLaunchBody(req: Request) {
   return parsed.data;
 }
 
+function phase0IdempotencyKey(projectId: string, revisionGuidance: string | null, forceNewApproval: boolean) {
+  const guidanceHash = createHash("sha1").update(revisionGuidance ?? "").digest("hex");
+  return `phase0:${projectId}:${guidanceHash}:${forceNewApproval ? "1" : "0"}`;
+}
+
 export async function POST(req: Request, context: { params: Promise<{ projectId: string }> }) {
   const authState = await auth();
   const externalUserId = authState.userId;
@@ -135,7 +141,7 @@ export async function POST(req: Request, context: { params: Promise<{ projectId:
           revisionGuidance,
           forceNewApproval,
         },
-        idempotencyKey: `phase0:${projectId}`,
+        idempotencyKey: phase0IdempotencyKey(projectId, revisionGuidance, forceNewApproval),
         priority: PRIORITY.USER_BLOCKING,
       });
     } catch {}

@@ -150,7 +150,7 @@ export async function POST(req: Request, context: { params: Promise<{ projectId:
       try {
         const db2 = createServiceSupabase();
         const [packetRes, tasksRes, approvalsRes, messagesRes] = await Promise.all([
-          db2.from("phase_packets").select("packet_json").eq("project_id", projectId)
+          db2.from("phase_packets").select("phase,confidence,packet,packet_data").eq("project_id", projectId)
             .order("created_at", { ascending: false }).limit(1).maybeSingle(),
           db2.from("tasks").select("agent,description,status,detail,created_at").eq("project_id", projectId)
             .order("created_at", { ascending: false }).limit(10),
@@ -160,9 +160,27 @@ export async function POST(req: Request, context: { params: Promise<{ projectId:
             .eq("owner_clerk_id", userId).order("created_at", { ascending: true }).limit(50),
         ]);
 
+        const packetPayload = packetRes.data
+          ? ((packetRes.data.packet_data ?? packetRes.data.packet) as Record<string, unknown> | null)
+          : null;
+
         const reply = await generateProjectChatReply({
           project: { ...project!, focus_areas: project!.focus_areas ?? [] },
-          latestPacket: packetRes.data?.packet_json ?? null,
+          latestPacket: packetPayload
+            ? {
+                phase: Number(packetRes.data?.phase ?? project!.phase),
+                confidence: Number(packetRes.data?.confidence ?? 0),
+                recommendation:
+                  typeof packetPayload.recommendation === "string" ? packetPayload.recommendation : null,
+                summary: typeof packetPayload.summary === "string" ? packetPayload.summary : null,
+                tagline: typeof packetPayload.tagline === "string" ? packetPayload.tagline : null,
+                competitor_analysis: packetPayload.competitor_analysis ?? null,
+                market_sizing: packetPayload.market_sizing ?? null,
+                target_persona: packetPayload.target_persona ?? null,
+                mvp_scope: packetPayload.mvp_scope ?? null,
+                reasoning_synopsis: packetPayload.reasoning_synopsis ?? null,
+              }
+            : null,
           recentTasks: (tasksRes.data ?? []) as { agent: string; description: string; status: string; detail: string | null; created_at: string }[],
           recentApprovals: (approvalsRes.data ?? []) as { title: string; status: string; risk: string; created_at: string }[],
           messages: ((messagesRes.data ?? []) as { id: string; role: string; content: string; created_at: string }[]).map(m => ({

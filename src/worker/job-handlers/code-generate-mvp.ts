@@ -15,6 +15,23 @@ const CODE_GEN_PROFILE = {
   permissionMode: "dontAsk" as const,
 };
 
+function githubAuthUrl(repoUrl: string, token: string) {
+  const cleanToken = token.trim();
+  if (!cleanToken) return null;
+  const encodedToken = encodeURIComponent(cleanToken);
+
+  if (repoUrl.startsWith("https://github.com/")) {
+    return repoUrl.replace("https://github.com/", `https://x-access-token:${encodedToken}@github.com/`);
+  }
+
+  const sshMatch = repoUrl.match(/^git@github\.com:(.+)$/);
+  if (sshMatch) {
+    return `https://x-access-token:${encodedToken}@github.com/${sshMatch[1]}`;
+  }
+
+  return null;
+}
+
 export async function handleCodeGenerateMvp(
   db: SupabaseClient,
   job: { id: string; project_id: string; payload: Record<string, unknown> }
@@ -33,13 +50,27 @@ export async function handleCodeGenerateMvp(
     .single();
   if (project.error || !project.data) throw new Error("Project not found");
 
+  let latestPacketPayload: unknown = null;
   const latestPacket = await db
     .from("phase_packets")
-    .select("packet_json")
+    .select("packet_data,packet")
     .eq("project_id", projectId)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+  if (latestPacket.error) {
+    const fallback = await db
+      .from("phase_packets")
+      .select("packet")
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (fallback.error) throw new Error(fallback.error.message);
+    latestPacketPayload = fallback.data?.packet ?? null;
+  } else {
+    latestPacketPayload = latestPacket.data?.packet_data ?? latestPacket.data?.packet ?? null;
+  }
 
   const memories = await loadMemory(db, projectId);
   const memoryContext = formatMemoryForPrompt(memories);
@@ -58,9 +89,11 @@ export async function handleCodeGenerateMvp(
   const targetRepo = repoUrl ?? project.data.repo_url;
   if (targetRepo) {
     const { execSync } = await import("node:child_process");
+    const githubToken = process.env.GITHUB_TOKEN?.trim();
+    const cloneRepoUrl = githubToken ? githubAuthUrl(targetRepo, githubToken) ?? targetRepo : targetRepo;
     try {
       execSync(
-        `git clone --depth 1 "${targetRepo}" "${workDir}" 2>&1`,
+        `git clone --depth 1 "${cloneRepoUrl}" "${workDir}" 2>&1`,
         { timeout: 60_000, env: { ...process.env } }
       );
       execSync(`git checkout -b "${branch}"`, { cwd: workDir, timeout: 10_000 });
@@ -74,8 +107,8 @@ export async function handleCodeGenerateMvp(
     }
   }
 
-  const packetSummary = latestPacket?.data?.packet_json
-    ? JSON.stringify(latestPacket.data.packet_json).slice(0, 3000)
+  const packetSummary = latestPacketPayload
+    ? JSON.stringify(latestPacketPayload).slice(0, 3000)
     : "No phase packet available";
 
   const prompt = [
@@ -136,7 +169,8 @@ export async function handleCodeGenerateMvp(
       prompt,
       CODE_GEN_PROFILE,
       "phase0",
-      hooks
+      hooks,
+      { cwd: workDir }
     );
   } catch (agentErr) {
     try { await fs.rm(workDir, { recursive: true, force: true }); } catch {}
@@ -169,11 +203,33 @@ export async function handleCodeGenerateMvp(
   if (targetRepo && process.env.GITHUB_TOKEN) {
     try {
       const { execSync } = await import("node:child_process");
-      execSync("git add -A && git commit -m 'Greenlight MVP generation'", {
+      const authRemote = githubAuthUrl(targetRepo, process.env.GITHUB_TOKEN);
+      if (authRemote) {
+        execSync(`git remote set-url origin "${authRemote}"`, {
+          cwd: workDir,
+          timeout: 10_000,
+          env: { ...process.env },
+        });
+      }
+
+      execSync("git add -A", {
         cwd: workDir,
-        timeout: 30_000,
+        timeout: 15_000,
         env: { ...process.env },
       });
+      try {
+        execSync("git commit -m 'Greenlight MVP generation'", {
+          cwd: workDir,
+          timeout: 30_000,
+          env: { ...process.env },
+        });
+      } catch (commitErr) {
+        const commitMessage = commitErr instanceof Error ? commitErr.message : "";
+        if (!commitMessage.toLowerCase().includes("nothing to commit")) {
+          throw commitErr;
+        }
+      }
+
       execSync(`git push origin "${branch}" --force`, {
         cwd: workDir,
         timeout: 60_000,

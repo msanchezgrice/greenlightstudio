@@ -263,10 +263,10 @@ export async function handleResearchGenerateReport(
   }
 
   const fileName = `${research.title.replace(/[^a-zA-Z0-9-_]/g, "_").slice(0, 60)}.${fileExt}`;
-  const storagePath = `project-assets/${projectId}/reports/${fileName}`;
+  const storagePath = `${projectId}/reports/${fileName}`;
 
   const { error: uploadError } = await db.storage
-    .from("greenlight-assets")
+    .from("project-assets")
     .upload(storagePath, fileBuffer, {
       contentType: mimeType,
       upsert: true,
@@ -274,9 +274,10 @@ export async function handleResearchGenerateReport(
 
   if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
 
-  const { data: urlData } = db.storage
-    .from("greenlight-assets")
-    .getPublicUrl(storagePath);
+  const signed = await db.storage
+    .from("project-assets")
+    .createSignedUrl(storagePath, 60 * 60 * 24);
+  const downloadUrl = signed.error ? null : signed.data.signedUrl;
 
   await emitJobEvent(db, {
     projectId,
@@ -284,7 +285,9 @@ export async function handleResearchGenerateReport(
     type: "artifact",
     message: `Report generated: ${fileName}`,
     data: {
-      downloadUrl: urlData.publicUrl,
+      downloadUrl,
+      storageBucket: "project-assets",
+      storagePath,
       format: fileExt,
       fileName,
       slideCount: research.slides.length,

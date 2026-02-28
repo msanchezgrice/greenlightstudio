@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { emitJobEvent } from "../job-events";
 import { writeMemory } from "../memory";
-import { deriveNightShiftActions } from "@/lib/nightshift";
+import { deriveNightShiftActions, type NightShiftDerivedAction } from "@/lib/nightshift";
 import { parsePhasePacket } from "@/types/phase-packets";
 
 export async function handleNightshiftCycleProject(
@@ -37,7 +37,7 @@ export async function handleNightshiftCycleProject(
 
   const latest = await db
     .from("phase_packets")
-    .select("id,phase,packet")
+    .select("id,phase,packet,packet_data")
     .eq("project_id", projectId)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -61,7 +61,8 @@ export async function handleNightshiftCycleProject(
   });
 
   const packetPhase = Number(latest.data.phase);
-  const parsedPacket = parsePhasePacket(packetPhase, latest.data.packet);
+  const rawPacket = (latest.data.packet_data ?? latest.data.packet) as unknown;
+  const parsedPacket = parsePhasePacket(packetPhase, rawPacket);
 
   const actions = deriveNightShiftActions({
     phase: packetPhase,
@@ -71,11 +72,58 @@ export async function handleNightshiftCycleProject(
     permissions: (project.data.permissions as Record<string, unknown>) ?? {},
   });
 
+  const actionable = actions.filter(
+    (
+      action,
+    ): action is NightShiftDerivedAction & { approval: NonNullable<NightShiftDerivedAction["approval"]> } =>
+      Boolean(action.approval),
+  );
+  let enqueuedApprovals = 0;
+
+  if (actionable.length) {
+    const actionTypes = Array.from(new Set(actionable.map((action) => action.approval.action_type)));
+    const existing = await db
+      .from("approval_queue")
+      .select("action_type")
+      .eq("project_id", projectId)
+      .eq("status", "pending")
+      .in("action_type", actionTypes);
+    if (existing.error) throw new Error(existing.error.message);
+
+    const existingActionTypes = new Set((existing.data ?? []).map((row) => String(row.action_type)));
+    for (const action of actionable) {
+      if (existingActionTypes.has(action.approval.action_type)) continue;
+
+      const { error: insertError } = await db.from("approval_queue").insert({
+        project_id: projectId,
+        packet_id: latest.data.id,
+        phase: packetPhase,
+        type: "execution",
+        title: action.approval.title,
+        description: action.description,
+        risk: action.approval.risk,
+        risk_level: action.approval.risk,
+        action_type: action.approval.action_type,
+        agent_source: "night_shift",
+        payload: {
+          source: "nightshift",
+          phase: packetPhase,
+          derived_action: action.description,
+        },
+        status: "pending",
+      });
+      if (insertError) throw new Error(insertError.message);
+
+      existingActionTypes.add(action.approval.action_type);
+      enqueuedApprovals += 1;
+    }
+  }
+
   await emitJobEvent(db, {
     projectId,
     jobId: job.id,
     type: "artifact",
-    message: `Nightshift cycle complete: ${actions?.length ?? 0} actions derived`,
+    message: `Nightshift cycle complete: ${actions?.length ?? 0} actions derived, ${enqueuedApprovals} approvals queued`,
   });
 
   if (actions?.length) {
@@ -83,7 +131,7 @@ export async function handleNightshiftCycleProject(
       {
         category: "context",
         key: "last_nightshift",
-        value: `Nightshift ran at ${new Date().toISOString()}: ${actions.length} actions`,
+        value: `Nightshift ran at ${new Date().toISOString()}: ${actions.length} actions, ${enqueuedApprovals} approvals queued`,
         agentKey: "night_shift",
       },
     ]);

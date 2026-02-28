@@ -26,6 +26,15 @@ const phaseAdvanceActions = new Set([
   "phase3_golive_review",
 ]);
 
+const executableActions = new Set([
+  "deploy_landing_page",
+  "send_welcome_email_sequence",
+  "send_phase2_lifecycle_email",
+  "activate_meta_ads_campaign",
+  "trigger_phase3_repo_workflow",
+  "trigger_phase3_deploy",
+]);
+
 export async function POST(req: Request, context: { params: Promise<{ approvalId: string }> }) {
   try {
     const { userId } = await auth();
@@ -60,24 +69,16 @@ export async function POST(req: Request, context: { params: Promise<{ approvalId
     const isPhaseRevisionRequest = body.decision === "revised" && phaseAdvanceActions.has(row.action_type);
     const revisionGuidance = body.guidance?.trim() || null;
     const phase0RelaunchRequired = isPhaseRevisionRequest && row.phase === 0 && Boolean(revisionGuidance);
+    let executionJobId: string | null = null;
 
     if (isPhaseRevisionRequest && !revisionGuidance) {
       return NextResponse.json({ error: "Revision guidance is required when requesting packet revisions." }, { status: 400 });
     }
 
     if (body.decision === "approved") {
-      const executableActions = new Set([
-        "deploy_landing_page",
-        "send_welcome_email_sequence",
-        "send_phase2_lifecycle_email",
-        "activate_meta_ads_campaign",
-        "trigger_phase3_repo_workflow",
-        "trigger_phase3_deploy",
-      ]);
-
       if (executableActions.has(row.action_type)) {
         try {
-          await enqueueJob({
+          executionJobId = await enqueueJob({
             projectId: row.project_id,
             jobType: JOB_TYPES.APPROVAL_EXEC,
             agentKey: AGENT_KEYS.ENGINEERING,
@@ -122,16 +123,22 @@ export async function POST(req: Request, context: { params: Promise<{ approvalId
       }
     }
 
+    const approvalUpdate: Record<string, unknown> = {
+      status: body.decision,
+      decided_by: userId,
+      decided_at: new Date().toISOString(),
+      resolved_at: new Date().toISOString(),
+      resolved_by: resolvedBy,
+      version: row.version + 1,
+    };
+    if (body.decision === "approved" && executableActions.has(row.action_type) && executionJobId) {
+      approvalUpdate.execution_status = "queued";
+      approvalUpdate.execution_job_id = executionJobId;
+    }
+
     const { error } = await db
       .from("approval_queue")
-      .update({
-        status: body.decision,
-        decided_by: userId,
-        decided_at: new Date().toISOString(),
-        resolved_at: new Date().toISOString(),
-        resolved_by: resolvedBy,
-        version: row.version + 1,
-      })
+      .update(approvalUpdate)
       .eq("id", approvalId)
       .eq("version", body.version);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });

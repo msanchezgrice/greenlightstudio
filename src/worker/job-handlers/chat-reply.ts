@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { emitJobEvent } from "../job-events";
 import { loadMemory, writeMemory, formatMemoryForPrompt } from "../memory";
-import { generateProjectChatReply } from "@/lib/agent";
+import { executeAgentQuery, type StreamEvent } from "@/lib/agent";
 
 export async function handleChatReply(
   db: SupabaseClient,
@@ -78,13 +78,13 @@ export async function handleChatReply(
     message: "Generating reply",
   });
 
-  const reply = await generateProjectChatReply({
+  const promptContext = {
     project: {
       id: project.data.id as string,
       name: project.data.name as string,
       domain: (project.data.domain as string | null) ?? null,
       phase: project.data.phase as number,
-      idea_description: project.data.idea_description as string,
+      idea_description: (project.data.idea_description as string).slice(0, 800),
       repo_url: (project.data.repo_url as string | null) ?? null,
       runtime_mode: project.data.runtime_mode as "shared" | "attached",
       focus_areas: (project.data.focus_areas as string[]) ?? [],
@@ -93,8 +93,7 @@ export async function handleChatReply(
       ? {
           phase: latestPacketRow.phase,
           confidence: latestPacketRow.confidence,
-          recommendation: null,
-          summary: null,
+          packet_excerpt: JSON.stringify(latestPacketRow.packet).slice(0, 3000),
         }
       : null,
     recentTasks: (tasksQuery.data ?? []) as Array<{
@@ -110,21 +109,96 @@ export async function handleChatReply(
       risk: string;
       created_at: string;
     }>,
-    messages,
-  });
+    messages: messages.slice(-12),
+  };
 
-  await emitJobEvent(db, {
+  const prompt = `You are the Startup Machine CEO chat assistant.
+
+Return ONLY the assistant's plain-text reply to the latest user message.
+
+Behavior rules:
+- Ground every answer in this project's real context (packet, tasks, approvals, and prior messages).
+- Keep tone concise and operational.
+- If information is missing, say exactly what is missing and how to get it.
+- Reply in <= 200 words unless the user explicitly asks for more.
+- No markdown code fences.
+
+Project context:
+${JSON.stringify(promptContext, null, 2)}`;
+
+  let reply = "";
+  let pendingDelta = "";
+  let lastDeltaFlushMs = Date.now();
+  const flushDelta = async (force = false) => {
+    if (!pendingDelta) return;
+    const now = Date.now();
+    if (!force && pendingDelta.length < 80 && now - lastDeltaFlushMs < 200) return;
+    const chunk = pendingDelta;
+    pendingDelta = "";
+    lastDeltaFlushMs = now;
+    await emitJobEvent(db, {
+      projectId,
+      jobId: job.id,
+      type: "delta",
+      message: chunk,
+    });
+  };
+
+  const hooks = {
+    onStreamEvent: async (event: StreamEvent) => {
+      if (event.type === "text_delta") {
+        reply += event.text;
+        pendingDelta += event.text;
+        await flushDelta(false);
+        return;
+      }
+      if (event.type === "tool_use") {
+        await flushDelta(true);
+        await emitJobEvent(db, {
+          projectId,
+          jobId: job.id,
+          type: "tool_call",
+          message: `Using ${event.tool}`,
+          data: { tool: event.tool },
+        });
+        return;
+      }
+      if (event.type === "done") {
+        await flushDelta(true);
+      }
+    },
+  };
+
+  const fullReply = await executeAgentQuery(
     projectId,
-    jobId: job.id,
-    type: "delta",
-    message: reply,
-  });
+    ownerClerkId,
+    prompt,
+    "chat",
+    "chat",
+    hooks
+  );
+
+  await flushDelta(true);
+  if (!reply.trim()) {
+    reply = fullReply.trim();
+    if (reply) {
+      await emitJobEvent(db, {
+        projectId,
+        jobId: job.id,
+        type: "delta",
+        message: reply,
+      });
+    }
+  }
+  if (!reply.trim()) {
+    throw new Error("Chat reply was empty");
+  }
 
   const { error: insertErr } = await db.from("project_chat_messages").insert({
     project_id: projectId,
     owner_clerk_id: ownerClerkId,
     role: "assistant",
-    content: reply,
+    content: reply.trim(),
   });
   if (insertErr) throw new Error(insertErr.message);
 
