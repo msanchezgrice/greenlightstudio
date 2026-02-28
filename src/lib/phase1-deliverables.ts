@@ -367,6 +367,7 @@ export async function generatePhase1Deliverables(
         .single(),
     );
     if (pptxAsset) assetIds.push(pptxAsset.id);
+    await log_task(project.id, "brand_agent", "phase1_brand_pptx", "completed", "PowerPoint brand brief generated");
 
     const totalAssets = brandImages.length + 2;
     await log_task(project.id, "brand_agent", "phase1_brand_assets", "completed", `Generated ${totalAssets} brand assets (${brandImages.length} images + HTML brief + PPTX)`);
@@ -384,6 +385,7 @@ export async function generatePhase1Deliverables(
     await brandTrack();
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Brand asset generation failed";
+    await log_task(project.id, "brand_agent", "phase1_brand_pptx", "failed", msg).catch(() => {});
     await log_task(project.id, "brand_agent", "phase1_brand_assets", "failed", msg).catch(() => {});
     throw error;
   }
