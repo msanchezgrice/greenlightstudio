@@ -1,0 +1,36 @@
+services:
+  - type: worker
+    name: greenlight-worker
+    runtime: node
+    region: oregon
+    plan: starter
+    buildCommand: npm install && npm run worker:build && npx playwright install chromium --with-deps
+    startCommand: npm run worker:start
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: META_ACCESS_TOKEN
+        sync: false
+      - key: META_AD_ACCOUNT_ID
+        sync: false
+      - key: VERCEL_DEPLOY_HOOK_URL
+        sync: false
+      - key: APP_BASE_URL
+        sync: false
+      - key: WORKER_ID
+        value: render-worker-1
+      - key: WORKER_CONCURRENCY
+        value: "3"
+      - key: WORKER_POLL_MS
+        value: "1000"

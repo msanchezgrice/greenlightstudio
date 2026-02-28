@@ -27,12 +27,83 @@ function roleLabel(role: ChatMessage["role"]) {
   return "You";
 }
 
+type SSEEvent = {
+  id: string;
+  jobId: string;
+  type: string;
+  message: string | null;
+  data: Record<string, unknown>;
+  createdAt: string;
+};
+
+function useJobStream(
+  projectId: string,
+  jobId: string | null,
+  onDelta: (text: string) => void,
+  onDone: () => void
+) {
+  useEffect(() => {
+    if (!jobId) return;
+
+    let cancelled = false;
+    const abortController = new AbortController();
+
+    async function connect() {
+      try {
+        const response = await fetch(
+          `/api/projects/${projectId}/events?jobId=${jobId}`,
+          { signal: abortController.signal }
+        );
+        if (!response.ok || !response.body) return;
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (!cancelled) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          const lines = buffer.split("\n\n");
+          buffer = lines.pop() ?? "";
+
+          for (const chunk of lines) {
+            const dataLine = chunk.replace(/^data: /, "").trim();
+            if (!dataLine) continue;
+            try {
+              const event = JSON.parse(dataLine) as SSEEvent;
+              if (event.type === "delta" && event.message) {
+                onDelta(event.message);
+              } else if (event.type === "done") {
+                onDone();
+                return;
+              }
+            } catch {}
+          }
+        }
+      } catch {
+        if (!cancelled) onDone();
+      }
+    }
+
+    connect();
+
+    return () => {
+      cancelled = true;
+      abortController.abort();
+    };
+  }, [projectId, jobId, onDelta, onDone]);
+}
+
 export function ProjectChatPane({ projectId, title = "Project Chat", deliverableLinks }: ProjectChatPaneProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [streamingJobId, setStreamingJobId] = useState<string | null>(null);
+  const [streamBuffer, setStreamBuffer] = useState("");
   const viewportRef = useRef<HTMLDivElement | null>(null);
 
   const reloadMessages = useCallback(async () => {
@@ -71,9 +142,22 @@ export function ProjectChatPane({ projectId, title = "Project Chat", deliverable
     const viewport = viewportRef.current;
     if (!viewport) return;
     viewport.scrollTop = viewport.scrollHeight;
-  }, [messages.length, sending]);
+  }, [messages.length, sending, streamBuffer]);
 
   const canSend = useMemo(() => input.trim().length > 0 && !sending, [input, sending]);
+
+  const handleDelta = useCallback((text: string) => {
+    setStreamBuffer((prev) => prev + text);
+  }, []);
+
+  const handleStreamDone = useCallback(() => {
+    setStreamingJobId(null);
+    setStreamBuffer("");
+    setSending(false);
+    reloadMessages().catch(() => {});
+  }, [reloadMessages]);
+
+  useJobStream(projectId, streamingJobId, handleDelta, handleStreamDone);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -83,6 +167,17 @@ export function ProjectChatPane({ projectId, title = "Project Chat", deliverable
     setSending(true);
     setError(null);
     setInput("");
+    setStreamBuffer("");
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `optimistic-${Date.now()}`,
+        role: "user",
+        content: message,
+        created_at: new Date().toISOString(),
+      },
+    ]);
 
     try {
       const response = await fetch(`/api/projects/${projectId}/chat`, {
@@ -92,16 +187,24 @@ export function ProjectChatPane({ projectId, title = "Project Chat", deliverable
       });
 
       const raw = await response.text();
-      const json = raw.trim() ? (JSON.parse(raw) as { error?: string }) : null;
+      const json = raw.trim()
+        ? (JSON.parse(raw) as { error?: string; jobId?: string; streaming?: boolean })
+        : null;
+
       if (!response.ok) {
         throw new Error(json?.error || `Failed to send message (HTTP ${response.status})`);
       }
 
-      await reloadMessages();
+      if (json?.streaming && json.jobId) {
+        setStreamingJobId(json.jobId);
+      } else {
+        await reloadMessages();
+        setSending(false);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send message");
       setInput(message);
-    } finally {
+      setMessages((prev) => prev.filter((m) => !m.id.startsWith("optimistic-")));
       setSending(false);
     }
   }
@@ -149,18 +252,29 @@ export function ProjectChatPane({ projectId, title = "Project Chat", deliverable
       <div className="chat-messages" ref={viewportRef}>
         {loading ? (
           <p className="meta-line">Loading chat…</p>
-        ) : !messages.length ? (
+        ) : !messages.length && !streamBuffer ? (
           <p className="meta-line">Ask your CEO agent about strategy, execution, or next steps for this project.</p>
         ) : (
-          messages.map((message) => (
-            <article key={message.id} className={`chat-message ${message.role}`}>
-              <div className="chat-message-meta">
-                <span>{roleLabel(message.role)}</span>
-                <span>{new Date(message.created_at).toLocaleTimeString()}</span>
-              </div>
-              <div className="chat-message-body">{message.content}</div>
-            </article>
-          ))
+          <>
+            {messages.map((message) => (
+              <article key={message.id} className={`chat-message ${message.role}`}>
+                <div className="chat-message-meta">
+                  <span>{roleLabel(message.role)}</span>
+                  <span>{new Date(message.created_at).toLocaleTimeString()}</span>
+                </div>
+                <div className="chat-message-body">{message.content}</div>
+              </article>
+            ))}
+            {streamBuffer && (
+              <article className="chat-message assistant streaming">
+                <div className="chat-message-meta">
+                  <span>CEO Agent</span>
+                  <span className="streaming-indicator">typing…</span>
+                </div>
+                <div className="chat-message-body">{streamBuffer}</div>
+              </article>
+            )}
+          </>
         )}
       </div>
 
@@ -175,7 +289,7 @@ export function ProjectChatPane({ projectId, title = "Project Chat", deliverable
         />
         <div className="button-row">
           <button type="submit" className="mock-btn primary" disabled={!canSend}>
-            {sending ? "Sending…" : "Send"}
+            {sending ? (streamBuffer ? "Streaming…" : "Thinking…") : "Send"}
           </button>
         </div>
       </form>

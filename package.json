@@ -9,7 +9,10 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "worker:build": "tsup",
+    "worker:dev": "tsx --watch src/worker/index.ts",
+    "worker:start": "node dist/worker/index.mjs"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.59",
@@ -24,13 +27,13 @@
     "clsx": "^2.1.1",
     "next": "16.1.6",
     "pdf-lib": "^1.17.1",
+    "@playwright/test": "^1.58.2",
     "pptxgenjs": "^4.0.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
@@ -42,6 +45,8 @@
     "eslint-config-next": "16.1.6",
     "jsdom": "^28.1.0",
     "tailwindcss": "^4",
+    "tsup": "^8.5.0",
+    "tsx": "^4.19.0",
     "typescript": "^5",
     "vitest": "^4.0.18"
   }

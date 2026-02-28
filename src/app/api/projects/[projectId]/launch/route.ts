@@ -1,12 +1,13 @@
 import { auth } from "@clerk/nextjs/server";
-import { after, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withRetry } from "@/lib/retry";
 import { createServiceSupabase } from "@/lib/supabase";
-import { logPhase0Failure, runPhase0 } from "@/lib/phase0";
+import { enqueueJob } from "@/lib/jobs/enqueue";
+import { JOB_TYPES, AGENT_KEYS, PRIORITY } from "@/lib/jobs/constants";
 
 export const runtime = "nodejs";
-export const maxDuration = 800;
+export const maxDuration = 30;
 
 type LaunchTaskRow = {
   description: string;
@@ -120,22 +121,22 @@ export async function POST(req: Request, context: { params: Promise<{ projectId:
       }
     }
 
-    after(async () => {
-      try {
-        await runPhase0({
-          projectId,
-          userId: runAsUserId,
-          revisionGuidance,
-          forceNewApproval,
-        });
-      } catch (bgError) {
-        await logPhase0Failure(projectId, bgError);
-      }
+    const jobId = await enqueueJob({
+      projectId,
+      jobType: JOB_TYPES.PHASE0,
+      agentKey: AGENT_KEYS.CEO,
+      payload: {
+        projectId,
+        ownerClerkId: runAsUserId,
+        revisionGuidance,
+        forceNewApproval,
+      },
+      idempotencyKey: `phase0:${projectId}`,
+      priority: PRIORITY.USER_BLOCKING,
     });
 
-    return NextResponse.json({ ok: true, started: true });
+    return NextResponse.json({ ok: true, started: true, jobId });
   } catch (error) {
-    await logPhase0Failure(projectId, error);
     const errorMessage = error instanceof Error ? error.message : "Failed generating Phase 0 packet";
     const statusCode = errorMessage === "Project not found" ? 404 : 500;
     return NextResponse.json(

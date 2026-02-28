@@ -43,62 +43,6 @@ function escapeHtml(value: string) {
     .replaceAll("'", "&#39;");
 }
 
-function renderPhase1LandingHtml(project: ProjectRow, packet: ReturnType<typeof phase1PacketSchema.parse>) {
-  const title = escapeHtml(packet.landing_page.headline);
-  const subtitle = escapeHtml(packet.landing_page.subheadline);
-  const cta = escapeHtml(packet.landing_page.primary_cta);
-  const palette = packet.brand_kit.color_palette;
-  const primary = palette[0];
-  const secondary = palette[1];
-  const background = palette[2];
-  const sections = packet.landing_page.sections.map((section) => `<li>${escapeHtml(section)}</li>`).join("");
-  const notes = packet.landing_page.launch_notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("");
-
-  return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${escapeHtml(project.name)} — Startup Machine Launch</title>
-    <style>
-      * { box-sizing: border-box; }
-      body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: ${background}; color: #E2E8F0; }
-      .wrap { max-width: 880px; margin: 0 auto; padding: 64px 24px; }
-      .badge { display: inline-block; font-size: 12px; padding: 6px 10px; border-radius: 999px; background: ${primary}22; color: ${primary}; margin-bottom: 16px; }
-      h1 { font-size: 48px; line-height: 1.1; margin: 0 0 12px; color: #F8FAFC; }
-      p.lead { color: #94A3B8; font-size: 18px; margin: 0 0 24px; max-width: 720px; }
-      .cta { display: inline-block; background: ${primary}; color: #07141F; padding: 12px 22px; border-radius: 10px; font-weight: 700; text-decoration: none; }
-      .grid { margin-top: 36px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-      .card { background: #0B1220; border: 1px solid #1E293B; border-radius: 12px; padding: 18px; }
-      h2 { margin: 0 0 10px; font-size: 16px; color: #F8FAFC; }
-      ul { margin: 0; padding-left: 18px; color: #94A3B8; line-height: 1.6; }
-      .footer { margin-top: 28px; color: #64748B; font-size: 12px; }
-      .accent { color: ${secondary}; }
-      @media (max-width: 760px) { h1 { font-size: 36px; } .grid { grid-template-columns: 1fr; } }
-    </style>
-  </head>
-  <body>
-    <main class="wrap">
-      <div class="badge">▲ Startup Machine Shared Runtime</div>
-      <h1>${title}</h1>
-      <p class="lead">${subtitle}</p>
-      <a class="cta" href="#">${cta}</a>
-      <section class="grid">
-        <article class="card">
-          <h2>What’s Included</h2>
-          <ul>${sections}</ul>
-        </article>
-        <article class="card">
-          <h2>Launch Notes</h2>
-          <ul>${notes}</ul>
-        </article>
-      </section>
-      <p class="footer">Deployed by Startup Machine for <span class="accent">${escapeHtml(project.name)}</span>.</p>
-    </main>
-  </body>
-</html>`;
-}
-
 async function createExecution(approval: ApprovalRow, status: "running" | "completed" | "failed", detail: string, providerResponse?: unknown) {
   const db = createServiceSupabase();
   await withRetry(() =>
@@ -213,46 +157,26 @@ export async function executeApprovedAction(input: {
 
     if (input.approval.action_type === "deploy_landing_page") {
       const phasePacket = phase1PacketSchema.parse(payload.phase_packet ?? payload);
-      let html = "";
-      let agentAttempts = 0;
-      const maxAgentAttempts = 2;
-      let agentSuccess = false;
-      let lastAgentError = "";
 
-      while (agentAttempts < maxAgentAttempts && !agentSuccess) {
-        agentAttempts++;
-        try {
-          await withRetry(() =>
-            log_task(input.project.id, "design_agent", "phase1_design_agent_html", "running", `Design Agent generating landing page (attempt ${agentAttempts})`),
-          );
-          const agentResult = await generatePhase1LandingHtml({
-            project_name: input.project.name,
-            domain: input.project.domain,
-            idea_description: (payload.idea_description as string) ?? input.project.name,
-            brand_kit: phasePacket.brand_kit,
-            landing_page: phasePacket.landing_page,
-            waitlist_fields: phasePacket.waitlist.form_fields,
-            project_id: input.project.id,
-          });
-          html = agentResult.html;
-          agentSuccess = true;
-          const traceLog = agentResult.traces.length > 0
-            ? ` | Tools: ${agentResult.traces.map((t) => t.tool).join(", ")}`
-            : "";
-          await withRetry(() =>
-            log_task(input.project.id, "design_agent", "phase1_design_agent_html", "completed", `Design Agent generated custom landing page${traceLog}`),
-          );
-        } catch (designError) {
-          lastAgentError = designError instanceof Error ? designError.message : "Unknown design agent error";
-        }
-      }
-
-      if (!agentSuccess) {
-        await withRetry(() =>
-          log_task(input.project.id, "design_agent", "phase1_design_agent_fallback", "completed", `Design Agent failed after ${agentAttempts} attempts, using template: ${lastAgentError.slice(0, 200)}`),
-        );
-        html = renderPhase1LandingHtml(input.project, phasePacket);
-      }
+      await withRetry(() =>
+        log_task(input.project.id, "design_agent", "phase1_design_agent_html", "running", "Design Agent generating landing page"),
+      );
+      const agentResult = await generatePhase1LandingHtml({
+        project_name: input.project.name,
+        domain: input.project.domain,
+        idea_description: (payload.idea_description as string) ?? input.project.name,
+        brand_kit: phasePacket.brand_kit,
+        landing_page: phasePacket.landing_page,
+        waitlist_fields: phasePacket.waitlist.form_fields,
+        project_id: input.project.id,
+      });
+      const html = agentResult.html;
+      const traceLog = agentResult.traces.length > 0
+        ? ` | Tools: ${agentResult.traces.map((t) => t.tool).join(", ")}`
+        : "";
+      await withRetry(() =>
+        log_task(input.project.id, "design_agent", "phase1_design_agent_html", "completed", `Design Agent generated custom landing page${traceLog}`),
+      );
       const deploymentPath = `${input.project.id}/deployments/landing-${Date.now()}.html`;
       const upload = await withRetry(() =>
         db.storage.from("project-assets").upload(deploymentPath, new TextEncoder().encode(html), {

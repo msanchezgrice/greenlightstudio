@@ -236,7 +236,7 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     tools: ['WebSearch', 'WebFetch'],
     allowedTools: ['WebSearch', 'WebFetch'],
     maxTurns: 10,
-    timeoutMs: 270_000,
+    timeoutMs: 600_000,
     permissionMode: 'dontAsk',
   },
   research: {
@@ -244,7 +244,7 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     tools: ['WebSearch', 'WebFetch'],
     allowedTools: ['WebSearch', 'WebFetch'],
     maxTurns: 10,
-    timeoutMs: 270_000,
+    timeoutMs: 600_000,
     permissionMode: 'dontAsk',
   },
   design: {
@@ -252,7 +252,7 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     tools: ['WebSearch', 'WebFetch'],
     allowedTools: ['WebSearch', 'WebFetch'],
     maxTurns: 10,
-    timeoutMs: 270_000,
+    timeoutMs: 600_000,
     permissionMode: 'dontAsk',
   },
   chat: {
@@ -260,7 +260,7 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     tools: ['WebSearch', 'WebFetch'],
     allowedTools: ['WebSearch', 'WebFetch'],
     maxTurns: 10,
-    timeoutMs: 270_000,
+    timeoutMs: 600_000,
     permissionMode: 'dontAsk',
   },
   none: {
@@ -268,7 +268,7 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     tools: [],
     allowedTools: [],
     maxTurns: 10,
-    timeoutMs: 270_000,
+    timeoutMs: 600_000,
     permissionMode: 'default',
   },
   strategist: {
@@ -276,7 +276,7 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     tools: [],
     allowedTools: [],
     maxTurns: 8,
-    timeoutMs: 150_000,
+    timeoutMs: 600_000,
     permissionMode: 'dontAsk',
   },
   researcher_quick: {
@@ -284,7 +284,7 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     tools: ['WebSearch'],
     allowedTools: ['WebSearch'],
     maxTurns: 4,
-    timeoutMs: 480_000,
+    timeoutMs: 600_000,
     permissionMode: 'dontAsk',
   },
   designer_full: {
@@ -292,15 +292,15 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     tools: ['WebSearch', 'WebFetch'],
     allowedTools: ['WebSearch', 'WebFetch'],
     maxTurns: 10,
-    timeoutMs: 240_000,
+    timeoutMs: 600_000,
     permissionMode: 'dontAsk',
   },
   designer_frontend: {
     name: 'design_agent',
     tools: [],
     allowedTools: [],
-    maxTurns: 4,
-    timeoutMs: 180_000,
+    maxTurns: 8,
+    timeoutMs: 600_000,
     permissionMode: 'dontAsk',
   },
   synthesizer: {
@@ -308,7 +308,7 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     tools: [],
     allowedTools: [],
     maxTurns: 6,
-    timeoutMs: 300_000,
+    timeoutMs: 600_000,
     permissionMode: 'dontAsk',
   },
   ceo_phase0: {
@@ -319,7 +319,119 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
     timeoutMs: 600_000,
     permissionMode: 'dontAsk',
   },
+  code_generator: {
+    name: 'code_generator',
+    tools: ['Read', 'Write', 'Edit', 'Bash', 'WebSearch'],
+    allowedTools: ['Read', 'Write', 'Edit', 'Bash', 'WebSearch'],
+    maxTurns: 30,
+    timeoutMs: 1_800_000,
+    permissionMode: 'dontAsk',
+  },
+  researcher_report: {
+    name: 'researcher_report',
+    tools: ['WebSearch', 'WebFetch'],
+    allowedTools: ['WebSearch', 'WebFetch'],
+    maxTurns: 15,
+    timeoutMs: 900_000,
+    permissionMode: 'dontAsk',
+  },
 };
+
+export type StreamEvent =
+  | { type: "text_delta"; text: string }
+  | { type: "tool_use"; tool: string }
+  | { type: "done"; resultText: string };
+
+export type AgentQueryHooks = {
+  onStreamEvent?: (event: StreamEvent) => Promise<void> | void;
+};
+
+export async function executeAgentQuery(
+  projectId: string,
+  ownerClerkId: string,
+  prompt: string,
+  agentProfileInput: AgentProfile | string,
+  traceKey: string,
+  hooks?: AgentQueryHooks
+): Promise<string> {
+  const agentProfile =
+    typeof agentProfileInput === "string"
+      ? AGENT_PROFILES[agentProfileInput] ?? AGENT_PROFILES.none
+      : agentProfileInput;
+
+  const executablePath = resolveClaudeCodeExecutablePath();
+  const cwd = IS_SERVERLESS_RUNTIME ? AGENT_RUNTIME_TMP_DIR : process.cwd();
+
+  const stream = query({
+    prompt,
+    options: {
+      model: "sonnet",
+      env: sdkEnv(),
+      pathToClaudeCodeExecutable: executablePath,
+      maxTurns: agentProfile.maxTurns,
+      includePartialMessages: true,
+      persistSession: false,
+      cwd,
+      settingSources: [],
+      tools: agentProfile.tools.length > 0 ? agentProfile.tools : [],
+      ...(agentProfile.allowedTools.length > 0
+        ? { allowedTools: agentProfile.allowedTools }
+        : {}),
+      ...(agentProfile.permissionMode !== "default"
+        ? { permissionMode: agentProfile.permissionMode }
+        : {}),
+      ...(agentProfile.tools.length > 0
+        ? { canUseTool: createToolGuard(agentProfile) }
+        : {}),
+      stderr: () => {},
+    },
+  });
+
+  let resultText = "";
+  const effectiveTimeoutMs = agentProfile.timeoutMs || AGENT_QUERY_TIMEOUT_MS;
+  let timedOut = false;
+
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    stream.close();
+  }, effectiveTimeoutMs);
+
+  try {
+    for await (const message of stream) {
+      if (message.type === "assistant") {
+        for (const block of message.message.content) {
+          if (block.type === "text") {
+            resultText += block.text;
+            if (hooks?.onStreamEvent) {
+              await hooks.onStreamEvent({
+                type: "text_delta",
+                text: block.text,
+              });
+            }
+          }
+          if (block.type === "tool_use" && hooks?.onStreamEvent) {
+            await hooks.onStreamEvent({
+              type: "tool_use",
+              tool: block.name,
+            });
+          }
+        }
+      }
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (timedOut) {
+    throw new Error(`Agent query timed out after ${effectiveTimeoutMs}ms`);
+  }
+
+  if (hooks?.onStreamEvent) {
+    await hooks.onStreamEvent({ type: "done", resultText });
+  }
+
+  return resultText;
+}
 
 type QueryAttemptOptions<T> = {
   repair?: (value: unknown) => unknown;
@@ -593,7 +705,7 @@ export type TraceTarget = {
 };
 
 let _traceFlushTimer: ReturnType<typeof setTimeout> | null = null;
-let _traceFlushBuffer: { target: TraceTarget; traces: ToolTrace[] }[] = [];
+const _traceFlushBuffer: { target: TraceTarget; traces: ToolTrace[] }[] = [];
 
 function scheduleTraceFlush(target: TraceTarget, trace: ToolTrace) {
   let entry = _traceFlushBuffer.find(

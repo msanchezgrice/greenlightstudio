@@ -3,12 +3,12 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 import { update_phase, log_task, upsertUser } from "@/lib/supabase-mcp";
-import { enqueueNextPhaseArtifacts } from "@/lib/phase-orchestrator";
 import { withRetry } from "@/lib/retry";
-import { executeApprovedAction } from "@/lib/action-execution";
+import { enqueueJob } from "@/lib/jobs/enqueue";
+import { JOB_TYPES, AGENT_KEYS, PRIORITY } from "@/lib/jobs/constants";
 
 export const runtime = "nodejs";
-export const maxDuration = 800;
+export const maxDuration = 30;
 
 const decisionSchema = z.object({
   decision: z.enum(["approved", "denied", "revised"]),
@@ -54,7 +54,6 @@ export async function POST(req: Request, context: { params: Promise<{ approvalId
     if (!project || project.owner_clerk_id !== userId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     if (row.version !== body.version) return NextResponse.json({ error: "Conflict", expectedVersion: row.version }, { status: 409 });
 
-    const { data: ownerUser } = await db.from("users").select("email").eq("clerk_id", userId).maybeSingle();
     const isPhaseRevisionRequest = body.decision === "revised" && phaseAdvanceActions.has(row.action_type);
     const revisionGuidance = body.guidance?.trim() || null;
     const phase0RelaunchRequired = isPhaseRevisionRequest && row.phase === 0 && Boolean(revisionGuidance);
@@ -74,41 +73,18 @@ export async function POST(req: Request, context: { params: Promise<{ approvalId
       ]);
 
       if (executableActions.has(row.action_type)) {
-        try {
-          await executeApprovedAction({
-            approval: {
-              id: row.id,
-              project_id: row.project_id,
-              action_type: row.action_type,
-              payload: (row.payload as Record<string, unknown> | null) ?? null,
-            },
-            project: {
-              id: project.id,
-              name: project.name as string,
-              domain: (project.domain as string | null) ?? null,
-              repo_url: (project.repo_url as string | null) ?? null,
-              owner_clerk_id: project.owner_clerk_id as string,
-              runtime_mode: project.runtime_mode as "shared" | "attached",
-              phase: project.phase as number,
-              permissions: (project.permissions as {
-                repo_write?: boolean;
-                deploy?: boolean;
-                ads_enabled?: boolean;
-                ads_budget_cap?: number;
-                email_send?: boolean;
-              } | null) ?? null,
-            },
-            ownerEmail: (ownerUser?.email as string | null) ?? null,
-            appBaseUrl: new URL(req.url).origin,
-          });
-        } catch (executionError) {
-          return NextResponse.json(
-            {
-              error: executionError instanceof Error ? executionError.message : "Action execution failed",
-            },
-            { status: 400 },
-          );
-        }
+        await enqueueJob({
+          projectId: row.project_id,
+          jobType: JOB_TYPES.APPROVAL_EXEC,
+          agentKey: AGENT_KEYS.ENGINEERING,
+          payload: {
+            approvalId: row.id,
+            projectId: row.project_id,
+            actionType: row.action_type,
+          },
+          idempotencyKey: `approval:${row.id}`,
+          priority: PRIORITY.USER_BLOCKING,
+        });
       }
     }
 
@@ -132,7 +108,19 @@ export async function POST(req: Request, context: { params: Promise<{ approvalId
         await withRetry(() => update_phase(row.project_id, nextPhase));
 
         try {
-          await withRetry(() => enqueueNextPhaseArtifacts(row.project_id, nextPhase));
+          await enqueueJob({
+            projectId: row.project_id,
+            jobType: JOB_TYPES.PHASE_GEN,
+            agentKey: AGENT_KEYS.CEO,
+            payload: {
+              projectId: row.project_id,
+              phase: nextPhase,
+              forceRegenerate: false,
+              revisionGuidance: null,
+            },
+            idempotencyKey: `phasegen:${row.project_id}:${nextPhase}`,
+            priority: PRIORITY.USER_BLOCKING,
+          });
         } catch (phaseError) {
           await withRetry(() =>
             log_task(
@@ -160,9 +148,18 @@ export async function POST(req: Request, context: { params: Promise<{ approvalId
 
       if (row.phase !== 0) {
         try {
-          await enqueueNextPhaseArtifacts(row.project_id, row.phase as 1 | 2 | 3, {
-            forceRegenerate: true,
-            revisionGuidance,
+          await enqueueJob({
+            projectId: row.project_id,
+            jobType: JOB_TYPES.PHASE_GEN,
+            agentKey: AGENT_KEYS.CEO,
+            payload: {
+              projectId: row.project_id,
+              phase: row.phase,
+              forceRegenerate: true,
+              revisionGuidance,
+            },
+            idempotencyKey: `phasegen:${row.project_id}:${row.phase}:revised`,
+            priority: PRIORITY.USER_BLOCKING,
           });
         } catch (phaseError) {
           const message = phaseError instanceof Error ? phaseError.message : "Failed to re-run phase with guidance";
