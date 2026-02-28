@@ -1,4 +1,5 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import Anthropic from "@anthropic-ai/sdk";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { requireEnv } from "@/lib/env";
@@ -20,6 +21,7 @@ const AGENT_RUNTIME_TMP_DIR = process.env.CLAUDE_SDK_TMPDIR?.trim() || "/tmp";
 const IS_SERVERLESS_RUNTIME = Boolean(process.env.VERCEL || process.env.LAMBDA_TASK_ROOT);
 const AGENT_DEBUG_TASKS_ENABLED = process.env.AGENT_DEBUG_TASKS === "true";
 const AGENT_TRACE_TASKS_ENABLED = process.env.AGENT_TRACE_TASKS !== "false";
+const DIRECT_TEXT_MODEL = process.env.CLAUDE_DIRECT_MODEL?.trim() || "claude-sonnet-4-20250514";
 
 const competitorSchema = z.object({
   competitors: z.array(
@@ -231,6 +233,42 @@ type AgentProfile = {
   timeoutMs: number;
   permissionMode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'dontAsk';
 };
+
+async function runDirectTextPrompt(
+  prompt: string,
+  timeoutMs: number,
+  maxTokens: number,
+) {
+  const client = new Anthropic();
+  const abort = new AbortController();
+  const timeout = setTimeout(() => abort.abort(), timeoutMs);
+  try {
+    const response = await client.messages.create(
+      {
+        model: DIRECT_TEXT_MODEL,
+        max_tokens: maxTokens,
+        messages: [{ role: "user", content: prompt }],
+      },
+      { signal: abort.signal },
+    );
+    const text = response.content
+      .filter((block): block is Anthropic.TextBlock => block.type === "text")
+      .map((block) => block.text)
+      .join("")
+      .trim();
+    if (!text) {
+      throw new Error("Agent returned empty response");
+    }
+    return text;
+  } catch (error) {
+    if (error && typeof error === "object" && "name" in error && (error as { name?: string }).name === "AbortError") {
+      throw new Error(`Agent query timed out after ${Math.round(timeoutMs / 1000)}s`);
+    }
+    throw error instanceof Error ? error : new Error("Agent query failed");
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 const AGENT_PROFILES: Record<string, AgentProfile> = {
   ceo: {
@@ -1612,10 +1650,6 @@ Your final response must be ONLY the raw HTML document starting with <!DOCTYPE h
 Do NOT wrap it in markdown code fences. Do NOT include any text before <!DOCTYPE html> or after </html>.
 Do NOT include commentary, explanations, or JSON. Just the HTML.`;
 
-  const traceTarget = input.project_id
-    ? { projectId: input.project_id, agent: "design_agent", taskPrefix: "phase1_landing_html" } satisfies TraceTarget
-    : undefined;
-
   // Queue-level retries already exist; avoid long duplicate in-job retries.
   const maxAttempts = 1;
   const allTraces: ToolTrace[] = [];
@@ -1623,9 +1657,12 @@ Do NOT include commentary, explanations, or JSON. Just the HTML.`;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      const result = await runRawQuery(prompt, AGENT_PROFILES.designer_frontend, traceTarget);
-      allTraces.push(...result.traces);
-      let html = result.text;
+      const htmlText = await runDirectTextPrompt(
+        prompt,
+        AGENT_PROFILES.designer_frontend.timeoutMs,
+        8192,
+      );
+      let html = htmlText;
 
       // Strip markdown code fences that some models wrap around HTML
       html = html.replace(/^```(?:html)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
@@ -1686,11 +1723,14 @@ HTML:
 ${snippet}
 
 Respond ONLY with JSON: {"pass": true/false, "score": 0-100, "feedback": "specific issues to fix"}
-Pass threshold: score >= 55.`;
+  Pass threshold: score >= 55.`;
 
   try {
-    const result = await runRawQuery(prompt, AGENT_PROFILES.synthesizer);
-    const text = result.text.trim();
+    const text = await runDirectTextPrompt(
+      prompt,
+      AGENT_PROFILES.synthesizer.timeoutMs,
+      800,
+    );
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
