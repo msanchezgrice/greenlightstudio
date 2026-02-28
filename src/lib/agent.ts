@@ -13,6 +13,7 @@ import {
   type Phase2Packet,
   type Phase3Packet,
 } from "@/types/phase-packets";
+import { brandBriefDeckSpecSchema, type BrandBriefDeckSpec } from "@/types/brand-brief";
 import { z } from "zod";
 
 const AGENT_QUERY_TIMEOUT_MS = Math.max(30_000, Number(process.env.CLAUDE_AGENT_QUERY_TIMEOUT_MS ?? 180_000));
@@ -1494,6 +1495,89 @@ Rules: ground assessment in the actual deliverables above, no markdown.`,
     deliverables: [],
     reasoning_synopsis: synopsis.reasoning_synopsis,
   };
+}
+
+export async function generateBrandBriefDeckSpec(input: {
+  project_id?: string;
+  project_name: string;
+  domain: string | null;
+  idea_description: string;
+  brand_kit: Phase1Packet["brand_kit"];
+  landing_page: Phase1Packet["landing_page"];
+  waitlist: Phase1Packet["waitlist"];
+}): Promise<BrandBriefDeckSpec> {
+  const prompt = `You are a world-class brand strategist and presentation designer creating a production-ready brand brief deck.
+
+Project:
+${JSON.stringify(
+    {
+      project_name: input.project_name,
+      domain: input.domain,
+      idea_description: input.idea_description,
+      brand_kit: input.brand_kit,
+      landing_page: input.landing_page,
+      waitlist: input.waitlist,
+    },
+    null,
+    2,
+  )}
+
+Output STRICT JSON only with this shape:
+{
+  "visual_direction": "single coherent aesthetic direction for the brand",
+  "narrative": "succinct narrative arc for the deck",
+  "typography": {
+    "heading_font": "Google Font family name",
+    "body_font": "Google Font family name"
+  },
+  "style_tokens": {
+    "background": "#RRGGBB",
+    "surface": "#RRGGBB",
+    "text": "#RRGGBB",
+    "muted_text": "#RRGGBB",
+    "accent": "#RRGGBB",
+    "accent_secondary": "#RRGGBB"
+  },
+  "slides": [
+    {
+      "kind": "cover|positioning|logo_system|palette|typography|imagery|voice|guidelines|closing",
+      "layout": "statement|split_image_left|split_image_right|full_image|grid|rules|spotlight",
+      "kicker": "short section label",
+      "title": "slide title",
+      "subtitle": "optional subtitle",
+      "body": "optional body copy",
+      "bullets": ["bullet", "bullet"],
+      "do": ["for guidelines slide"],
+      "dont": ["for guidelines slide"],
+      "image_key": "logo|hero|null",
+      "palette_focus": ["#RRGGBB", "#RRGGBB"]
+    }
+  ]
+}
+
+Rules:
+- 7 to 9 slides only.
+- Include exactly one "cover", one "palette", one "guidelines", and one "closing" slide.
+- For "palette" slide include 4 to 6 colors in palette_focus.
+- For "guidelines" slide include 3 to 5 do items and 3 to 5 dont items.
+- For "logo_system" and "imagery" slides set image_key explicitly.
+- Build a coherent narrative arc from positioning -> visual system -> execution guidance.
+- Avoid generic filler copy. Be specific to this project and its market.
+- Keep bullets concise, concrete, and action-oriented.
+- Prefer sophisticated but readable visual direction; avoid buzzword-heavy vague writing.
+- Use real Google font family names.
+- Every hex color must be valid 6-digit hex.
+- Do not include placeholder text.
+- No markdown, no explanation, JSON only.`;
+
+  return runDirectJsonQuery(
+    prompt,
+    brandBriefDeckSpecSchema,
+    undefined,
+    AGENT_PROFILES.designer_full.timeoutMs,
+    4500,
+    input.project_id,
+  );
 }
 
 export async function generatePhase2Packet(input: PhaseGenerationInput): Promise<Phase2Packet> {

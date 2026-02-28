@@ -18,81 +18,44 @@ export type BrandImage = {
   label: string;
 };
 
-function getGeminiClient(): GoogleGenAI | null {
-  const key = process.env.GEMINI_API_KEY ?? process.env.NANOBANANA_GEMINI_API_KEY;
-  if (!key) return null;
+const NANOBANANA_MODEL =
+  process.env.NANOBANANA_MODEL?.trim() ||
+  process.env.GEMINI_IMAGE_MODEL?.trim() ||
+  "nanobanana-pro-2";
+
+function getGeminiClient(): GoogleGenAI {
+  const key = process.env.GEMINI_API_KEY?.trim() || process.env.NANOBANANA_GEMINI_API_KEY?.trim();
+  if (!key) {
+    throw new Error("Brand image generation requires GEMINI_API_KEY or NANOBANANA_GEMINI_API_KEY");
+  }
   return new GoogleGenAI({ apiKey: key });
 }
 
-async function generateImageFromGemini(
-  ai: GoogleGenAI,
-  prompt: string,
-): Promise<Buffer | null> {
-  try {
-    const response = await ai.models.generateImages({
-      model: "gemini-2.0-flash-exp",
-      prompt,
-      config: { numberOfImages: 1 },
-    });
+async function generateImageFromGemini(ai: GoogleGenAI, prompt: string, label: string): Promise<Buffer> {
+  let lastError: Error | null = null;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const response = await ai.models.generateImages({
+        model: NANOBANANA_MODEL,
+        prompt,
+        config: { numberOfImages: 1 },
+      });
 
-    const images = response.generatedImages;
-    if (!images || images.length === 0) return null;
+      const image = response.generatedImages?.[0]?.image?.imageBytes;
+      if (!image) {
+        throw new Error(`${label}: model returned no image bytes`);
+      }
 
-    const b64 = images[0].image?.imageBytes;
-    if (!b64) return null;
-    return Buffer.from(b64, "base64");
-  } catch {
-    return null;
+      return Buffer.from(image, "base64");
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(`${label}: unknown image generation failure`);
+      if (attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 700 * attempt));
+      }
+    }
   }
-}
 
-function generateFallbackLogoSvg(name: string, palette: string[]): Buffer {
-  const primary = palette[0] ?? "#6EE7B7";
-  const secondary = palette[1] ?? "#3B82F6";
-  const initial = name.charAt(0).toUpperCase();
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="${primary}"/>
-      <stop offset="100%" stop-color="${secondary}"/>
-    </linearGradient>
-    <filter id="shadow">
-      <feDropShadow dx="0" dy="4" stdDeviation="12" flood-color="${primary}" flood-opacity="0.3"/>
-    </filter>
-  </defs>
-  <rect width="512" height="512" rx="96" fill="url(#bg)" filter="url(#shadow)"/>
-  <text x="256" y="256" text-anchor="middle" dominant-baseline="central" fill="#fff" font-family="system-ui,-apple-system,sans-serif" font-size="220" font-weight="800">${initial}</text>
-</svg>`;
-  return Buffer.from(svg, "utf-8");
-}
-
-function generateFallbackHeroSvg(name: string, palette: string[]): Buffer {
-  const primary = palette[0] ?? "#6EE7B7";
-  const secondary = palette[1] ?? "#3B82F6";
-  const bg = palette[2] ?? "#0A0F1C";
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
-  <defs>
-    <linearGradient id="heroBg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="${bg}"/>
-      <stop offset="100%" stop-color="${primary}22"/>
-    </linearGradient>
-    <radialGradient id="glow" cx="70%" cy="30%">
-      <stop offset="0%" stop-color="${primary}" stop-opacity="0.15"/>
-      <stop offset="100%" stop-color="${bg}" stop-opacity="0"/>
-    </radialGradient>
-  </defs>
-  <rect width="1200" height="630" fill="url(#heroBg)"/>
-  <rect width="1200" height="630" fill="url(#glow)"/>
-  <circle cx="900" cy="200" r="180" fill="${secondary}" fill-opacity="0.08"/>
-  <circle cx="300" cy="400" r="120" fill="${primary}" fill-opacity="0.06"/>
-  <text x="600" y="290" text-anchor="middle" fill="#F8FAFC" font-family="system-ui,-apple-system,sans-serif" font-size="64" font-weight="800" letter-spacing="-2">${escapeXml(name)}</text>
-  <text x="600" y="360" text-anchor="middle" fill="${primary}" font-family="system-ui,sans-serif" font-size="24" font-weight="500" opacity="0.8">Launching Soon</text>
-</svg>`;
-  return Buffer.from(svg, "utf-8");
-}
-
-function escapeXml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  throw new Error(lastError?.message ?? `${label}: image generation failed`);
 }
 
 export async function generateBrandImages(
@@ -101,71 +64,69 @@ export async function generateBrandImages(
   brandKit: BrandKit,
 ): Promise<BrandImage[]> {
   const ai = getGeminiClient();
-  const images: BrandImage[] = [];
 
-  const logoPrompt = `Professional, clean, modern logo mark for a startup called "${projectName}". ${brandKit.logo_prompt}. Use colors: ${brandKit.color_palette.join(", ")}. Minimal, scalable, icon-style logo suitable for app icon and favicon. White or transparent background. No text in the logo.`;
-  const heroPrompt = `Professional hero banner image for a startup called "${projectName}". Brand voice: ${brandKit.voice}. Abstract, modern, atmospheric background using brand colors ${brandKit.color_palette.join(", ")}. Suitable for website hero section and social media Open Graph image. 1200x630 aspect ratio. No text.`;
+  await log_task(
+    projectId,
+    "brand_agent",
+    "phase1_brand_img",
+    "running",
+    `Generating brand images via Gemini model ${NANOBANANA_MODEL}`,
+  ).catch(() => {});
 
-  if (ai) {
-    await log_task(projectId, "brand_agent", "phase1_brand_img", "running", "Generating AI brand images via Gemini").catch(() => {});
+  try {
+    const logoPrompt = [
+      `Create a premium brand logo for "${projectName}".`,
+      `Direction: ${brandKit.logo_prompt}.`,
+      `Brand voice: ${brandKit.voice}.`,
+      `Palette: ${brandKit.color_palette.join(", ")}.`,
+      "Output requirements: transparent background, centered mark, no surrounding whitespace, no extra text, crisp edges.",
+      "Style: modern, iconic, scalable from favicon to billboard.",
+    ].join(" ");
 
-    const [logoBuf, heroBuf] = await Promise.allSettled([
-      generateImageFromGemini(ai, logoPrompt),
-      generateImageFromGemini(ai, heroPrompt),
+    const heroPrompt = [
+      `Create a premium hero visual for "${projectName}".`,
+      `Brand voice: ${brandKit.voice}.`,
+      `Palette: ${brandKit.color_palette.join(", ")}.`,
+      "Aspect ratio 1200x630, cinematic composition, high contrast focal point, no text.",
+      "Style should feel production-ready for landing page and Open Graph card.",
+    ].join(" ");
+
+    const [logoBuffer, heroBuffer] = await Promise.all([
+      generateImageFromGemini(ai, logoPrompt, "logo"),
+      generateImageFromGemini(ai, heroPrompt, "hero"),
     ]);
 
-    const logoResult = logoBuf.status === "fulfilled" ? logoBuf.value : null;
-    const heroResult = heroBuf.status === "fulfilled" ? heroBuf.value : null;
-
-    if (logoResult) {
-      images.push({
+    const images: BrandImage[] = [
+      {
         filename: "logo.png",
         storagePath: `${projectId}/brand/logo.png`,
-        buffer: logoResult,
+        buffer: logoBuffer,
         mimeType: "image/png",
         label: "AI Logo Mark",
-      });
-    }
-    if (heroResult) {
-      images.push({
+      },
+      {
         filename: "hero.png",
         storagePath: `${projectId}/brand/hero.png`,
-        buffer: heroResult,
+        buffer: heroBuffer,
         mimeType: "image/png",
         label: "Hero / OG Image",
-      });
-    }
+      },
+    ];
 
     await log_task(
       projectId,
       "brand_agent",
       "phase1_brand_img",
       "completed",
-      `Generated ${images.length} AI images${images.length < 2 ? " (some fell back to SVG)" : ""}`,
+      `Generated ${images.length} brand images with ${NANOBANANA_MODEL}`,
     ).catch(() => {});
-  }
 
-  if (!images.find((i) => i.filename === "logo.png")) {
-    images.push({
-      filename: "logo.svg",
-      storagePath: `${projectId}/brand/logo.svg`,
-      buffer: generateFallbackLogoSvg(projectName, brandKit.color_palette),
-      mimeType: "image/svg+xml",
-      label: "Logo Mark",
-    });
+    return images;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "Brand image generation failed";
+    await log_task(projectId, "brand_agent", "phase1_brand_img", "failed", detail).catch(() => {});
+    throw error;
   }
-
-  if (!images.find((i) => i.filename === "hero.png")) {
-    images.push({
-      filename: "hero.svg",
-      storagePath: `${projectId}/brand/hero.svg`,
-      buffer: generateFallbackHeroSvg(projectName, brandKit.color_palette),
-      mimeType: "image/svg+xml",
-      label: "Hero / OG Image",
-    });
-  }
-
-  return images;
 }
 
 export async function uploadBrandImages(
