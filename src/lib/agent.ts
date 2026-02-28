@@ -428,6 +428,7 @@ export async function executeAgentQuery(
 
   const executablePath = resolveClaudeCodeExecutablePath();
   const cwd = options?.cwd ? path.resolve(options.cwd) : IS_SERVERLESS_RUNTIME ? AGENT_RUNTIME_TMP_DIR : process.cwd();
+  const hasStreamEventHooks = Boolean(hooks?.onStreamEvent);
 
   const stream = query({
     prompt,
@@ -436,7 +437,7 @@ export async function executeAgentQuery(
       env: sdkEnv(),
       pathToClaudeCodeExecutable: executablePath,
       maxTurns: agentProfile.maxTurns,
-      includePartialMessages: false,
+      includePartialMessages: hasStreamEventHooks,
       persistSession: false,
       cwd,
       settingSources: [],
@@ -459,8 +460,6 @@ export async function executeAgentQuery(
   let timedOut = false;
   let streamError: unknown = null;
   let timeout: ReturnType<typeof setTimeout> | null = null;
-
-  const hasStreamEventHooks = Boolean(hooks?.onStreamEvent);
 
   const consumeStream = (async () => {
     for await (const message of stream) {
