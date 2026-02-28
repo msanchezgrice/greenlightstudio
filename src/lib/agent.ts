@@ -909,6 +909,18 @@ async function runRawQuery(prompt: string, agentProfile: AgentProfile = AGENT_PR
   return { text: finalText, traces };
 }
 
+async function runDirectJsonQuery<T>(
+  prompt: string,
+  schema: z.ZodType<T>,
+  repair?: (value: unknown) => unknown,
+  timeoutMs = AGENT_QUERY_TIMEOUT_MS,
+  maxTokens = 4096,
+  debugProjectId?: string,
+) {
+  const text = await runDirectTextPrompt(prompt, timeoutMs, maxTokens);
+  return parseSchemaWithRepair(parseAgentJson<T>(text), { schema, repair }, debugProjectId);
+}
+
 async function runJsonQuery<T>(prompt: string, schema: z.ZodType<T>, repair?: (value: unknown) => unknown, agentProfile: AgentProfile = AGENT_PROFILES.none, traceTarget?: TraceTarget, debugProjectId?: string) {
   const profiles: QueryProfile[] = [
     { name: "structured_default", useOutputFormat: true },
@@ -1360,10 +1372,9 @@ export async function generatePhase1Packet(input: PhaseGenerationInput): Promise
   const guidance = input.revision_guidance?.trim()
     ? `\nRevision guidance from user:\n${input.revision_guidance.trim()}\nPrioritize this guidance in your output.`
     : "";
-  const tt = input.project_id ? (agent: string, prefix: string): TraceTarget => ({ projectId: input.project_id!, agent, taskPrefix: prefix }) : undefined;
 
   const [landing, brand, waitlistAnalytics, email, social] = await Promise.all([
-    runJsonQuery(
+    runDirectJsonQuery(
       `You are Design Agent for "${input.project_name}". Generate a landing page content strategy.
 
 Input:\n${ctx}${guidance}
@@ -1374,10 +1385,11 @@ Return STRICT JSON only:
 Rules: no markdown, no commentary, be specific to this project.`,
       phase1PacketSchema.shape.landing_page,
       undefined,
-      AGENT_PROFILES.strategist,
-      tt?.("design_agent", "phase1_landing"),
+      AGENT_PROFILES.strategist.timeoutMs,
+      2000,
+      input.project_id,
     ),
-    runJsonQuery(
+    runDirectJsonQuery(
       `You are Brand Agent for "${input.project_name}". Generate a brand identity kit.
 
 Input:\n${ctx}${guidance}
@@ -1388,10 +1400,11 @@ Return STRICT JSON only:
 Rules: use real hex codes, no markdown, be specific to this project.`,
       phase1PacketSchema.shape.brand_kit,
       undefined,
-      AGENT_PROFILES.strategist,
-      tt?.("brand_agent", "phase1_brand"),
+      AGENT_PROFILES.strategist.timeoutMs,
+      2200,
+      input.project_id,
     ),
-    runJsonQuery(
+    runDirectJsonQuery(
       `You are Growth Agent for "${input.project_name}". Generate waitlist capture and analytics strategy.
 
 Input:\n${ctx}${guidance}
@@ -1405,9 +1418,11 @@ Rules: no markdown, be specific to this project.`,
         analytics: phase1PacketSchema.shape.analytics,
       }),
       undefined,
-      AGENT_PROFILES.strategist,
+      AGENT_PROFILES.strategist.timeoutMs,
+      2600,
+      input.project_id,
     ),
-    runJsonQuery(
+    runDirectJsonQuery(
       `You are Outreach Agent for "${input.project_name}". Generate a 3-email onboarding sequence for new waitlist signups.
 
 Input:\n${ctx}${guidance}
@@ -1418,9 +1433,11 @@ Return STRICT JSON only:
 Rules: make subjects compelling, goals actionable, no markdown.`,
       phase1PacketSchema.shape.email_sequence,
       undefined,
-      AGENT_PROFILES.strategist,
+      AGENT_PROFILES.strategist.timeoutMs,
+      2200,
+      input.project_id,
     ),
-    runJsonQuery(
+    runDirectJsonQuery(
       `You are Growth Agent for "${input.project_name}". Generate a social media launch strategy.
 
 Input:\n${ctx}${guidance}
@@ -1431,7 +1448,9 @@ Return STRICT JSON only:
 Rules: no markdown, be specific to this project and audience.`,
       phase1PacketSchema.shape.social_strategy,
       undefined,
-      AGENT_PROFILES.strategist,
+      AGENT_PROFILES.strategist.timeoutMs,
+      1800,
+      input.project_id,
     ),
   ]);
 
@@ -1444,7 +1463,7 @@ Rules: no markdown, be specific to this project and audience.`,
     social_strategy: social,
   };
 
-  const synopsis = await runJsonQuery(
+  const synopsis = await runDirectJsonQuery(
     `You are CEO Agent. Review Phase 1 deliverables for "${input.project_name}" and provide executive assessment.
 
 Project context:\n${ctx}${guidance}
@@ -1458,7 +1477,9 @@ Return STRICT JSON only:
 Rules: ground assessment in the actual deliverables above, no markdown.`,
     z.object({ summary: z.string().min(20), reasoning_synopsis: reasoningSynopsisSchema }),
     undefined,
-    AGENT_PROFILES.synthesizer,
+    AGENT_PROFILES.synthesizer.timeoutMs,
+    2400,
+    input.project_id,
   );
 
   return {
