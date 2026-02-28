@@ -17,6 +17,9 @@ async function runOnce() {
     p_worker_id: cfg.workerId,
     p_limit: cfg.claimBatch,
   });
+  if (claim.error) {
+    throw new Error(`claim_agent_jobs failed: ${claim.error.message}`);
+  }
   const jobs = (claim.data ?? []) as JobRow[];
   if (!jobs.length) return { ran: 0 };
 
@@ -122,6 +125,7 @@ async function main() {
   });
 
   let lastReclaim = 0;
+  let consecutivePollErrors = 0;
 
   while (!shuttingDown) {
     const now = Date.now();
@@ -129,6 +133,9 @@ async function main() {
       try {
         const db = createAdminSupabase();
         const result = await db.rpc("reclaim_stale_jobs");
+        if (result.error) {
+          throw new Error(`reclaim_stale_jobs failed: ${result.error.message}`);
+        }
         if (result.data && Number(result.data) > 0) {
           console.log(`[worker] reclaimed ${result.data} stale jobs`);
         }
@@ -140,11 +147,18 @@ async function main() {
 
     try {
       const { ran } = await runOnce();
+      consecutivePollErrors = 0;
       if (ran > 0) {
         console.log(`[worker] processed ${ran} jobs`);
       }
     } catch (e) {
+      consecutivePollErrors += 1;
       console.error("[worker] poll error:", e);
+      if (consecutivePollErrors >= 10) {
+        throw new Error(
+          `[worker] exiting after ${consecutivePollErrors} consecutive poll errors`
+        );
+      }
     }
 
     await sleep(cfg.pollMs);
