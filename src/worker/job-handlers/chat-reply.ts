@@ -54,6 +54,18 @@ const ACTION_RULES: Record<ChatExecutionActionType, ActionRule> = {
   },
 };
 
+const EXECUTION_VERB_REGEX =
+  /\b(remake|rebuild|redo|regenerate|deploy|redeploy|publish|launch|ship|send|resend|activate|trigger|run)\b/i;
+const EXECUTION_OBJECT_REGEX =
+  /\b(landing page|landing|welcome email|email sequence|lifecycle email|ads|campaign|repo workflow|workflow|deploy|go live)\b/i;
+
+function shouldEvaluateExecutionIntent(message: string) {
+  const trimmed = message.trim();
+  if (trimmed.length < 6) return false;
+  if (!EXECUTION_VERB_REGEX.test(trimmed)) return false;
+  return EXECUTION_OBJECT_REGEX.test(trimmed);
+}
+
 function isTruthyFlag(value: unknown) {
   return value === true;
 }
@@ -282,7 +294,7 @@ export async function handleChatReply(
       .eq("project_id", projectId)
       .eq("owner_clerk_id", ownerClerkId)
       .order("created_at", { ascending: false })
-      .limit(24),
+      .limit(16),
     db
       .from("phase_packets")
       .select("id,phase,confidence,packet,packet_data")
@@ -296,13 +308,13 @@ export async function handleChatReply(
       .select("agent,description,status,detail,created_at")
       .eq("project_id", projectId)
       .order("created_at", { ascending: false })
-      .limit(12),
+      .limit(8),
     db
       .from("approval_queue")
       .select("title,status,risk,created_at")
       .eq("project_id", projectId)
       .order("created_at", { ascending: false })
-      .limit(8),
+      .limit(6),
   ]);
 
   type ChatRow = { role: string; content: string };
@@ -324,48 +336,50 @@ export async function handleChatReply(
 
   messages.push({ role: "user", content: enrichedMessage });
 
-  await emitJobEvent(db, {
-    projectId,
-    jobId: job.id,
-    type: "log",
-    message: "Evaluating execution intent",
-  });
-
   let automationOutcome: ChatAutomationOutcome = {
     status: "none",
     actionType: null,
     summary: "No execution action requested.",
   };
 
-  try {
-    automationOutcome = await evaluateAndQueueChatAction({
-      db,
-      projectId,
-      ownerClerkId,
-      message,
-      project: {
-        id: project.data.id as string,
-        name: project.data.name as string,
-        phase: project.data.phase as number,
-        runtime_mode: project.data.runtime_mode as "shared" | "attached",
-        repo_url: (project.data.repo_url as string | null) ?? null,
-        permissions: (project.data.permissions as Record<string, unknown> | null) ?? null,
-      },
-      latestPacketPhase: latestPacketRow?.phase ?? null,
-    });
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : "Intent evaluation failed";
-    automationOutcome = {
-      status: "ignored",
-      actionType: null,
-      summary: detail,
-    };
+  if (shouldEvaluateExecutionIntent(message)) {
     await emitJobEvent(db, {
       projectId,
       jobId: job.id,
       type: "log",
-      message: `Execution intent check failed: ${detail.slice(0, 180)}`,
+      message: "Evaluating execution intent",
     });
+
+    try {
+      automationOutcome = await evaluateAndQueueChatAction({
+        db,
+        projectId,
+        ownerClerkId,
+        message,
+        project: {
+          id: project.data.id as string,
+          name: project.data.name as string,
+          phase: project.data.phase as number,
+          runtime_mode: project.data.runtime_mode as "shared" | "attached",
+          repo_url: (project.data.repo_url as string | null) ?? null,
+          permissions: (project.data.permissions as Record<string, unknown> | null) ?? null,
+        },
+        latestPacketPhase: latestPacketRow?.phase ?? null,
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Intent evaluation failed";
+      automationOutcome = {
+        status: "ignored",
+        actionType: null,
+        summary: detail,
+      };
+      await emitJobEvent(db, {
+        projectId,
+        jobId: job.id,
+        type: "log",
+        message: `Execution intent check failed: ${detail.slice(0, 180)}`,
+      });
+    }
   }
 
   if (automationOutcome.status === "queued") {
@@ -401,7 +415,7 @@ export async function handleChatReply(
       name: project.data.name as string,
       domain: (project.data.domain as string | null) ?? null,
       phase: project.data.phase as number,
-      idea_description: (project.data.idea_description as string).slice(0, 800),
+      idea_description: (project.data.idea_description as string).slice(0, 500),
       repo_url: (project.data.repo_url as string | null) ?? null,
       runtime_mode: project.data.runtime_mode as "shared" | "attached",
       focus_areas: (project.data.focus_areas as string[]) ?? [],
@@ -410,7 +424,7 @@ export async function handleChatReply(
       ? {
         phase: latestPacketRow.phase,
         confidence: latestPacketRow.confidence,
-        packet_excerpt: JSON.stringify(latestPacketRow.packet_data ?? latestPacketRow.packet).slice(0, 3000),
+        packet_excerpt: JSON.stringify(latestPacketRow.packet_data ?? latestPacketRow.packet).slice(0, 1600),
       }
       : null,
     recentTasks: (tasksQuery.data ?? []) as Array<{
@@ -427,7 +441,7 @@ export async function handleChatReply(
       created_at: string;
     }>,
     chatAutomation: automationOutcome,
-    messages: messages.slice(-12),
+    messages: messages.slice(-8),
   };
 
   const prompt = `You are the Startup Machine CEO chat assistant.
@@ -440,7 +454,7 @@ Behavior rules:
 - If information is missing, say exactly what is missing and how to get it.
 - If chatAutomation.status is "queued" or "existing", acknowledge it clearly in the first sentence and tell user to use Inbox.
 - If chatAutomation.status is "blocked", explain the exact blocker and the concrete prerequisite.
-- Reply in <= 200 words unless the user explicitly asks for more.
+- Reply in <= 140 words unless the user explicitly asks for more.
 - No markdown code fences.
 
 Project context:
@@ -452,7 +466,7 @@ ${JSON.stringify(promptContext, null, 2)}`;
   const flushDelta = async (force = false) => {
     if (!pendingDelta) return;
     const now = Date.now();
-    if (!force && pendingDelta.length < 80 && now - lastDeltaFlushMs < 200) return;
+    if (!force && pendingDelta.length < 24 && now - lastDeltaFlushMs < 90) return;
     const chunk = pendingDelta;
     pendingDelta = "";
     lastDeltaFlushMs = now;

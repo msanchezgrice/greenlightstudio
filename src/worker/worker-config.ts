@@ -8,7 +8,7 @@ export function getWorkerConfig() {
   return {
     workerId: process.env.WORKER_ID ?? "worker-local",
     concurrency,
-    pollMs: Math.max(250, Number(process.env.WORKER_POLL_MS ?? 1000)),
+    pollMs: Math.max(250, Number(process.env.WORKER_POLL_MS ?? 400)),
     claimBatch,
     heavyConcurrency,
     reclaimIntervalMs: Math.max(10_000, Number(process.env.WORKER_RECLAIM_INTERVAL_MS ?? 60_000)),

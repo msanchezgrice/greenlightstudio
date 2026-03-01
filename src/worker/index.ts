@@ -25,6 +25,8 @@ const HEAVY_JOB_TYPES = new Set([
   "browser.check_page",
 ]);
 
+const REALTIME_JOB_TYPES = new Set(["chat.reply"]);
+
 async function finalizeJob(
   db: ReturnType<typeof createAdminSupabase>,
   jobId: string,
@@ -71,7 +73,11 @@ async function runOnce(cfg: ReturnType<typeof getWorkerConfig>) {
   const jobs = (claim.data ?? []) as JobRow[];
   if (!jobs.length) return { ran: 0 };
 
-  const pendingJobs = [...jobs];
+  const pendingJobs = [...jobs].sort((left, right) => {
+    const leftRealtime = REALTIME_JOB_TYPES.has(left.job_type) ? 1 : 0;
+    const rightRealtime = REALTIME_JOB_TYPES.has(right.job_type) ? 1 : 0;
+    return rightRealtime - leftRealtime;
+  });
   let heavyInFlight = 0;
 
   const takeNextJob = async (): Promise<{ job: JobRow; isHeavy: boolean } | null> => {

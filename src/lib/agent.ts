@@ -319,10 +319,18 @@ const AGENT_PROFILES: Record<string, AgentProfile> = {
   },
   chat: {
     name: 'ceo_chat',
-    tools: ['WebSearch', 'WebFetch'],
-    allowedTools: ['WebSearch', 'WebFetch'],
-    maxTurns: 10,
-    timeoutMs: 600_000,
+    tools: [],
+    allowedTools: [],
+    maxTurns: 6,
+    timeoutMs: 240_000,
+    permissionMode: 'dontAsk',
+  },
+  chat_router: {
+    name: 'ceo_chat_router',
+    tools: [],
+    allowedTools: [],
+    maxTurns: 3,
+    timeoutMs: 90_000,
     permissionMode: 'dontAsk',
   },
   none: {
@@ -1412,7 +1420,7 @@ Routing rules:
     prompt,
     chatExecutionIntentSchema,
     undefined,
-    AGENT_PROFILES.chat,
+    AGENT_PROFILES.chat_router,
     undefined,
     input.project_id,
   );

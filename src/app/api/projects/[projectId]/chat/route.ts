@@ -100,32 +100,23 @@ export async function POST(req: Request, context: { params: Promise<{ projectId:
 
     const db = createServiceSupabase();
 
-    const { error: insertUserError } = await withRetry(() =>
-      db.from("project_chat_messages").insert({
-        project_id: projectId,
-        owner_clerk_id: userId,
-        role: "user",
-        content: body.message,
-      }),
+    const { data: insertedUserMsg, error: insertUserError } = await withRetry(() =>
+      db
+        .from("project_chat_messages")
+        .insert({
+          project_id: projectId,
+          owner_clerk_id: userId,
+          role: "user",
+          content: body.message,
+        })
+        .select("id")
+        .single(),
     );
 
     if (insertUserError) {
       throw new Error(insertUserError.message);
     }
-
-    const { data: userMsg } = await withRetry(() =>
-      db
-        .from("project_chat_messages")
-        .select("id")
-        .eq("project_id", projectId)
-        .eq("owner_clerk_id", userId)
-        .eq("role", "user")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .single(),
-    );
-
-    const userMessageId = (userMsg?.id as string | undefined) ?? crypto.randomUUID();
+    const userMessageId = (insertedUserMsg?.id as string | undefined) ?? crypto.randomUUID();
 
     const jobId = await enqueueJob({
       projectId,
