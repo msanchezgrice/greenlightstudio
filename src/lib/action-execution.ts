@@ -4,6 +4,7 @@ import { log_task } from "@/lib/supabase-mcp";
 import { phase1PacketSchema, phase2PacketSchema, phase3PacketSchema } from "@/types/phase-packets";
 import { createMetaCampaign, sendResendEmail, triggerGitHubRepositoryDispatch, triggerVercelDeployHook } from "@/lib/integrations";
 import { generatePhase1LandingHtml } from "@/lib/agent";
+import { recordProjectEvent } from "@/lib/project-events";
 
 type ApprovalRow = {
   id: string;
@@ -108,6 +109,7 @@ export async function processDueEmailJobs(limit = 50) {
         to: job.to_email as string,
         subject: job.subject as string,
         html: job.html_body as string,
+        projectId: job.project_id as string,
       });
       await withRetry(() =>
         db
@@ -123,6 +125,17 @@ export async function processDueEmailJobs(limit = 50) {
       await withRetry(() =>
         log_task(job.project_id as string, "outreach_agent", "email_job_sent", "completed", `Sent ${job.subject as string}`),
       );
+      await recordProjectEvent(db, {
+        projectId: job.project_id as string,
+        eventType: "email.outbound.sent",
+        message: `Outbound email sent: ${job.subject as string}`,
+        data: {
+          email_job_id: job.id as string,
+          provider_message_id: result.id,
+          to_email: job.to_email as string,
+        },
+        agentKey: "outreach",
+      });
       sent += 1;
     } catch (jobError) {
       const detail = jobError instanceof Error ? jobError.message : "Email send failed";
@@ -136,6 +149,17 @@ export async function processDueEmailJobs(limit = 50) {
           .eq("id", job.id as string),
       );
       await withRetry(() => log_task(job.project_id as string, "outreach_agent", "email_job_failed", "failed", detail));
+      await recordProjectEvent(db, {
+        projectId: job.project_id as string,
+        eventType: "email.outbound.failed",
+        message: `Outbound email failed: ${job.subject as string}`,
+        data: {
+          email_job_id: job.id as string,
+          to_email: job.to_email as string,
+          error: detail,
+        },
+        agentKey: "outreach",
+      });
       failed += 1;
     }
   }
@@ -234,8 +258,10 @@ export async function executeApprovedAction(input: {
           .eq("id", input.project.id),
       );
 
-      if (process.env.VERCEL_DEPLOY_HOOK_URL) {
-        await triggerVercelDeployHook({ projectId: input.project.id, action: "shared_runtime_deploy", liveUrl });
+      try {
+        await triggerVercelDeployHook({ projectId: input.project.id, action: "shared_runtime_deploy", liveUrl }, input.project.id);
+      } catch {
+        // Shared landing deploy remains successful even when optional deploy hook is unavailable.
       }
 
       await withRetry(() => log_task(input.project.id, "design_agent", "phase1_deploy_live", "completed", liveUrl));
@@ -300,6 +326,7 @@ export async function executeApprovedAction(input: {
       const campaign = await createMetaCampaign({
         name: `${input.project.name} Phase 2 Test`,
         dailyBudgetUsd: Math.max(0, phasePacket.paid_acquisition.budget_cap_per_day),
+        projectId: input.project.id,
       });
       await withRetry(() =>
         log_task(
@@ -327,6 +354,7 @@ export async function executeApprovedAction(input: {
           merge_policy: phasePacket.merge_policy,
           checklist: phasePacket.launch_checklist,
         },
+        projectId: input.project.id,
       });
       await withRetry(() =>
         log_task(input.project.id, "engineering_agent", "phase3_repo_workflow_triggered", "completed", `${dispatch.owner}/${dispatch.repo}`),
@@ -340,7 +368,7 @@ export async function executeApprovedAction(input: {
         projectId: input.project.id,
         action: "phase3_deploy",
         phase: 3,
-      });
+      }, input.project.id);
       await withRetry(() => log_task(input.project.id, "engineering_agent", "phase3_deploy_triggered", "completed", "Vercel deploy hook called"));
       await createExecution(input.approval, "completed", "Vercel deploy hook triggered", deploy);
       return { detail: "Vercel deploy hook triggered." };

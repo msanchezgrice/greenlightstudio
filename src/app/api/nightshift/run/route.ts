@@ -94,6 +94,17 @@ async function nightShiftHandler(req: Request) {
     });
   } catch {}
 
+  try {
+    await enqueueJob({
+      projectId: SYSTEM_PROJECT_ID,
+      jobType: JOB_TYPES.SCHEDULER_RUN_RECURRING,
+      agentKey: AGENT_KEYS.SYSTEM,
+      payload: { limit: 200, trigger: "nightshift" },
+      idempotencyKey: `scheduler-nightshift:${today}`,
+      priority: PRIORITY.BACKGROUND,
+    });
+  } catch {}
+
   return NextResponse.json({
     ran_at: new Date().toISOString(),
     project_count: projects?.length ?? 0,

@@ -44,6 +44,7 @@ type ExecutionApproval = {
 type EnqueuePhaseOptions = {
   forceRegenerate?: boolean;
   revisionGuidance?: string | null;
+  companyContextSummary?: string | null;
 };
 
 function buildPhasePlan(project: ProjectRow, phase: 1 | 2 | 3): PhasePlan {
@@ -143,7 +144,12 @@ function riskFromConfidence(confidence: number): "high" | "medium" | "low" {
   return "low";
 }
 
-async function generatePacketForPhase(project: ProjectRow, phase: 1 | 2 | 3, revisionGuidance?: string | null) {
+async function generatePacketForPhase(
+  project: ProjectRow,
+  phase: 1 | 2 | 3,
+  revisionGuidance?: string | null,
+  companyContextSummary?: string | null,
+) {
   const input = {
     project_id: project.id,
     project_name: project.name,
@@ -162,6 +168,7 @@ async function generatePacketForPhase(project: ProjectRow, phase: 1 | 2 | 3, rev
     focus_areas: project.focus_areas?.length ? project.focus_areas : ["Market Research", "Landing Page"],
     scan_results: project.scan_results,
     revision_guidance: revisionGuidance ?? null,
+    company_context_summary: companyContextSummary ?? null,
   };
 
   if (phase === 1) return generatePhase1Packet(input);
@@ -252,6 +259,7 @@ export async function enqueueNextPhaseArtifacts(projectId: string, phase: number
   const db = createServiceSupabase();
   const forceRegenerate = Boolean(options.forceRegenerate);
   const revisionGuidance = options.revisionGuidance?.trim() || null;
+  const companyContextSummary = options.companyContextSummary?.trim() || null;
 
   const { data: project, error: projectError } = await withRetry(() =>
     db
@@ -325,7 +333,7 @@ export async function enqueueNextPhaseArtifacts(projectId: string, phase: number
 
   let packet: Phase1Packet | Phase2Packet | Phase3Packet;
   try {
-    packet = await generatePacketForPhase(project as ProjectRow, plan.phase, revisionGuidance);
+    packet = await generatePacketForPhase(project as ProjectRow, plan.phase, revisionGuidance, companyContextSummary);
   } catch (genError) {
     const errorMsg = genError instanceof Error ? genError.message : "Phase artifact generation failed";
     for (const task of plan.tasks) {

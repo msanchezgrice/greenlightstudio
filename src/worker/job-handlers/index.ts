@@ -10,6 +10,9 @@ import { handleChatReply } from "./chat-reply";
 import { handleCodeGenerateMvp } from "./code-generate-mvp";
 import { handleResearchGenerateReport } from "./research-generate-report";
 import { handleBrowserCheckPage } from "./browser-check-page";
+import { handleBrainRefresh } from "./brain-refresh";
+import { handleSchedulerRunRecurring } from "./scheduler-run-recurring";
+import { handleRuntimeProvisionProject } from "./runtime-provision-project";
 
 export type JobRow = {
   id: string;
@@ -35,6 +38,9 @@ const handlers: Record<string, JobHandler> = {
   "code.generate_mvp": handleCodeGenerateMvp,
   "research.generate_report": handleResearchGenerateReport,
   "browser.check_page": handleBrowserCheckPage,
+  "brain.refresh": handleBrainRefresh,
+  "scheduler.run_recurring": handleSchedulerRunRecurring,
+  "runtime.provision_project": handleRuntimeProvisionProject,
 };
 
 export function getHandler(jobType: string): JobHandler | null {

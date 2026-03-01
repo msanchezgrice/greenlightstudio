@@ -6,6 +6,7 @@ import { withRetry } from "@/lib/retry";
 import { createServiceSupabase } from "@/lib/supabase";
 import { enqueueJob } from "@/lib/jobs/enqueue";
 import { JOB_TYPES, AGENT_KEYS, PRIORITY } from "@/lib/jobs/constants";
+import { recordProjectEvent } from "@/lib/project-events";
 
 export const runtime = "nodejs";
 export const maxDuration = 800;
@@ -139,6 +140,18 @@ export async function POST(req: Request, context: { params: Promise<{ projectId:
       },
       idempotencyKey: phase0IdempotencyKey(projectId, revisionGuidance, forceNewApproval),
       priority: PRIORITY.USER_BLOCKING,
+    });
+
+    await recordProjectEvent(db, {
+      projectId,
+      eventType: "phase0.launch_requested",
+      message: "Phase 0 packet generation requested",
+      data: {
+        launch_job_id: jobId,
+        force_new_approval: forceNewApproval,
+        revision_guidance: revisionGuidance ? revisionGuidance.slice(0, 140) : null,
+      },
+      agentKey: "ceo",
     });
 
     return NextResponse.json({ ok: true, started: true, jobId });

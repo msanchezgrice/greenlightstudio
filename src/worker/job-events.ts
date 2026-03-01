@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { recordProjectEvent } from "@/lib/project-events";
 
 export type JobEventType =
   | "status"
@@ -28,5 +29,20 @@ export async function emitJobEvent(
   });
   if (error) {
     console.error(`[job-events] failed to emit ${input.type} for job ${input.jobId}:`, error.message);
+  }
+
+  if (input.type === "status" || input.type === "artifact" || input.type === "done") {
+    await recordProjectEvent(db, {
+      projectId: input.projectId,
+      eventType: `job.${input.type}`,
+      message: input.message ?? `${input.type} event`,
+      data: {
+        job_id: input.jobId,
+        type: input.type,
+        ...(input.data ?? {}),
+      },
+      agentKey: "system",
+      skipBrainRefresh: true,
+    });
   }
 }

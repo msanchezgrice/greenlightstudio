@@ -108,8 +108,34 @@ export function deriveNightShiftActions(input: {
   runtimeMode: "shared" | "attached";
   permissions: ProjectPermissions;
   repoUrl: string | null;
+  kpis?: {
+    traffic_7d: number;
+    traffic_30d: number;
+    leads_7d: number;
+    leads_30d: number;
+    payments_succeeded_7d: number;
+    payments_succeeded_30d: number;
+    revenue_cents_7d: number;
+    revenue_cents_30d: number;
+  };
 }): NightShiftDerivedAction[] {
   const nextActions = nextActionsFromPacket(input.packet);
+  const kpis = input.kpis;
+
+  if (kpis) {
+    if (kpis.traffic_7d > 0 && kpis.leads_7d === 0) {
+      nextActions.push("Optimize landing page conversion and launch an updated lifecycle email sequence");
+    }
+    if (kpis.traffic_7d === 0 && kpis.leads_7d === 0) {
+      nextActions.push("Increase top-of-funnel distribution with outreach and social posting this week");
+    }
+    if (kpis.leads_30d > 20 && kpis.payments_succeeded_30d === 0) {
+      nextActions.push("Launch conversion-focused lifecycle email and paid re-engagement test");
+    }
+    if (kpis.payments_succeeded_30d > 0 && kpis.revenue_cents_30d > 0) {
+      nextActions.push("Scale successful channel performance while preserving quality and support throughput");
+    }
+  }
   const seenApprovalTypes = new Set<string>();
 
   return nextActions.slice(0, 3).map((action) => {

@@ -1106,12 +1106,16 @@ export async function generatePhase0Packet(
   priorPacket?: Packet | null,
   assets?: ProjectAsset[],
   projectId?: string,
+  companyContextSummary?: string | null,
 ): Promise<Packet> {
   const trimmedGuidance = revisionGuidance?.trim() || "";
   const attachedFilesBlock = formatAttachedFilesBlock(assets ?? []);
   const ctx = JSON.stringify({ domain: input.domain, idea_description: input.idea_description });
   const guidanceBlock = trimmedGuidance
     ? `\nRevision guidance from user:\n${trimmedGuidance}\nPrioritize this guidance.`
+    : "";
+  const companyContextBlock = companyContextSummary?.trim()
+    ? `\nCompany mission + memory context:\n${companyContextSummary.trim().slice(0, 5000)}\n`
     : "";
 
   if (trimmedGuidance && priorPacket) {
@@ -1132,7 +1136,7 @@ Allowed keys:
 
 Project context:
 ${JSON.stringify({ domain: input.domain, idea_description: input.idea_description, repo_url: input.repo_url }, null, 2)}
-${attachedFilesBlock}
+${attachedFilesBlock}${companyContextBlock}
 
 User revision guidance:
 ${trimmedGuidance}
@@ -1180,7 +1184,7 @@ Rules:
   const ceoPrompt = `You are CEO Agent for a startup validation platform. Use web search to research "${input.domain}" and generate a STRICT JSON Phase 0 packet.
 
 Project:\n${JSON.stringify(input)}
-${guidanceBlock}${attachedFilesBlock}
+${guidanceBlock}${attachedFilesBlock}${companyContextBlock}
 
 Search for: the company/domain, its market, competitors, and feasibility. Then synthesize into the JSON below.
 
@@ -1216,7 +1220,7 @@ Rules:
   // concurrent Claude SDK processes on small worker instances.
   const compSettled = await settle(() =>
     runJsonQuery(
-      `You are Competitor Research Agent. Return STRICT JSON only.\nInput:\n${ctx}\n${guidanceBlock}${attachedFilesBlock}\n\nRequired JSON shape:\n{"competitors":[{"name":"","positioning":"","gap":"","pricing":""}]}\n\nRules:\n- find exactly 6 competitors with real names and pricing\n- use web search to find real competitors and their actual pricing\n- no markdown fences, no commentary, raw JSON only`,
+      `You are Competitor Research Agent. Return STRICT JSON only.\nInput:\n${ctx}\n${guidanceBlock}${attachedFilesBlock}${companyContextBlock}\n\nRequired JSON shape:\n{"competitors":[{"name":"","positioning":"","gap":"","pricing":""}]}\n\nRules:\n- find exactly 6 competitors with real names and pricing\n- use web search to find real competitors and their actual pricing\n- no markdown fences, no commentary, raw JSON only`,
       competitorSchema,
       undefined,
       AGENT_PROFILES.researcher_quick,
@@ -1227,7 +1231,7 @@ Rules:
 
   const mktSettled = await settle(() =>
     runJsonQuery(
-      `You are Market Research Agent. Return STRICT JSON only.\nInput:\n${ctx}\n${guidanceBlock}${attachedFilesBlock}\n\nRequired JSON shape:\n{"market_sizing":{"tam":"","sam":"","som":""},"notes":["",""]}\n\nRules:\n- use web search to find real market data and TAM/SAM/SOM estimates\n- notes should capture key market insights\n- no markdown fences, no commentary, raw JSON only`,
+      `You are Market Research Agent. Return STRICT JSON only.\nInput:\n${ctx}\n${guidanceBlock}${attachedFilesBlock}${companyContextBlock}\n\nRequired JSON shape:\n{"market_sizing":{"tam":"","sam":"","som":""},"notes":["",""]}\n\nRules:\n- use web search to find real market data and TAM/SAM/SOM estimates\n- notes should capture key market insights\n- no markdown fences, no commentary, raw JSON only`,
       marketSchema,
       undefined,
       AGENT_PROFILES.researcher_quick,
@@ -1276,7 +1280,7 @@ Rules:
   const fallbackPrompt = `You are CEO Agent. Generate STRICT JSON for a Phase 0 packet.
 Use this onboarding input:\n${JSON.stringify(input)}
 Use this research brief:\n${JSON.stringify(research)}
-${guidanceBlock}${attachedFilesBlock}
+${guidanceBlock}${attachedFilesBlock}${companyContextBlock}
 
 Return ONLY valid JSON with these keys:
 - tagline (string)
@@ -1453,6 +1457,7 @@ type PhaseGenerationInput = {
   focus_areas: string[];
   scan_results: Record<string, unknown> | null;
   revision_guidance?: string | null;
+  company_context_summary?: string | null;
 };
 
 function phaseContext(input: PhaseGenerationInput) {
@@ -1468,6 +1473,7 @@ function phaseContext(input: PhaseGenerationInput) {
       focus_areas: input.focus_areas,
       scan_results: input.scan_results,
       revision_guidance: input.revision_guidance ?? null,
+      company_context_summary: input.company_context_summary ?? null,
     },
     null,
     2,

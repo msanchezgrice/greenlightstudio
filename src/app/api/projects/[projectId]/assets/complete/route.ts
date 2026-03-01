@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 import { withRetry } from "@/lib/retry";
+import { recordProjectEvent } from "@/lib/project-events";
 
 const bodySchema = z.object({
   assetId: z.string().uuid(),
@@ -55,6 +56,17 @@ export async function POST(req: Request, context: { params: Promise<{ projectId:
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 400 });
   }
+
+  await recordProjectEvent(db, {
+    projectId,
+    eventType: "asset.upload_completed",
+    message: `Asset uploaded and verified`,
+    data: {
+      asset_id: body.assetId,
+      storage_path: asset.storage_path,
+    },
+    agentKey: "system",
+  });
 
   return NextResponse.json({ ok: true, assetId: body.assetId });
 }

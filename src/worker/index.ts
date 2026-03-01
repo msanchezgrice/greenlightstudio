@@ -23,6 +23,7 @@ const HEAVY_JOB_TYPES = new Set([
   "code.generate_mvp",
   "research.generate_report",
   "browser.check_page",
+  "runtime.provision_project",
 ]);
 
 const REALTIME_JOB_TYPES = new Set(["chat.reply"]);

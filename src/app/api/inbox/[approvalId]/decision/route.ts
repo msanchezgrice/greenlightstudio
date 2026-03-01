@@ -6,6 +6,7 @@ import { update_phase, log_task, upsertUser } from "@/lib/supabase-mcp";
 import { withRetry } from "@/lib/retry";
 import { enqueueJob } from "@/lib/jobs/enqueue";
 import { JOB_TYPES, AGENT_KEYS, PRIORITY } from "@/lib/jobs/constants";
+import { recordProjectEvent } from "@/lib/project-events";
 
 export const runtime = "nodejs";
 export const maxDuration = 800;
@@ -158,6 +159,21 @@ export async function POST(req: Request, context: { params: Promise<{ approvalId
     }
 
     await withRetry(() => log_task(row.project_id, "ceo_agent", "approval_decision", "completed", `Decision: ${body.decision}`));
+
+    await recordProjectEvent(db, {
+      projectId: row.project_id,
+      eventType: "approval.decided",
+      message: `Approval ${body.decision}: ${row.action_type}`,
+      data: {
+        approval_id: row.id,
+        action_type: row.action_type,
+        decision: body.decision,
+        decided_by: userId,
+        version: row.version + 1,
+        execution_job_id: executionJobId,
+      },
+      agentKey: "ceo",
+    });
 
     return NextResponse.json({
       ok: true,

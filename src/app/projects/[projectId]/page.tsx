@@ -59,6 +59,26 @@ type NightShiftSummaryRow = {
   created_at: string;
 };
 
+type BrainRow = {
+  mission_markdown: string;
+  memory_markdown: string;
+  memory_version: number;
+  updated_at: string;
+};
+
+type RecommendationEventRow = {
+  id: string;
+  created_at: string;
+  data: {
+    recommendations?: Array<{
+      priority?: number;
+      description?: string;
+      approval_action_type?: string | null;
+    }>;
+    approvals_queued?: number;
+  } | null;
+};
+
 type ProjectPermissions = {
   repo_write?: boolean;
   deploy?: boolean;
@@ -135,7 +155,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
 
   const projects = await getOwnedProjects(userId);
   const projectIds = projects.map((project) => project.id);
-  const [{ total: pendingCount }, projectQuery, approvalsQuery, tasksQuery, packetQuery, nightShiftSummaryQuery, nightShiftFailuresQuery, allPackets, projectAssets] =
+  const [{ total: pendingCount }, projectQuery, approvalsQuery, tasksQuery, packetQuery, nightShiftSummaryQuery, nightShiftFailuresQuery, allPackets, projectAssets, brainQuery, recommendationEventQuery] =
     await Promise.all([
     getPendingApprovalsByProject(projectIds),
     withRetry(() =>
@@ -194,6 +214,23 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
     ),
     getPacketsByProject(projectId),
     getProjectAssets(projectId),
+    withRetry(() =>
+      db
+        .from("project_brain_documents")
+        .select("mission_markdown,memory_markdown,memory_version,updated_at")
+        .eq("project_id", projectId)
+        .maybeSingle(),
+    ),
+    withRetry(() =>
+      db
+        .from("project_events")
+        .select("id,created_at,data")
+        .eq("project_id", projectId)
+        .eq("event_type", "nightshift.recommendations_generated")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ),
   ]);
 
   if (projectQuery.error || !projectQuery.data) {
@@ -217,6 +254,11 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const permissions = (project.permissions as ProjectPermissions | null) ?? {};
   const nightShiftSummary = (nightShiftSummaryQuery.data as NightShiftSummaryRow | null) ?? null;
   const nightShiftFailures = (nightShiftFailuresQuery.data ?? []) as NightShiftSummaryRow[];
+  const brain = (brainQuery.data as BrainRow | null) ?? null;
+  const latestRecommendationEvent = (recommendationEventQuery.data as RecommendationEventRow | null) ?? null;
+  const recommendations = Array.isArray(latestRecommendationEvent?.data?.recommendations)
+    ? latestRecommendationEvent.data?.recommendations ?? []
+    : [];
   const landingVariantAssets = projectAssets
     .filter((asset) => asset.kind === "landing_html")
     .sort((a, b) => {
@@ -355,6 +397,69 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
                 </tbody>
               </table>
             </div>
+          )}
+        </section>
+
+        <section className="studio-card">
+          <h2>Company Brain</h2>
+          {!brain ? (
+            <p className="meta-line">Brain document not initialized yet.</p>
+          ) : (
+            <>
+              <p className="meta-line">Memory version {brain.memory_version} · Updated {new Date(brain.updated_at).toLocaleString()}</p>
+              <div className="table-shell" style={{ marginTop: 10 }}>
+                <table className="studio-table compact">
+                  <thead>
+                    <tr>
+                      <th>Mission</th>
+                      <th>Memory</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td style={{ width: "50%", whiteSpace: "pre-wrap", verticalAlign: "top" }}>{brain.mission_markdown}</td>
+                      <td style={{ width: "50%", whiteSpace: "pre-wrap", verticalAlign: "top" }}>{brain.memory_markdown}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div className="card-actions" style={{ marginTop: 12 }}>
+                <Link href={`/api/projects/${projectId}/brain`} className="btn btn-details" target="_blank" rel="noopener noreferrer">
+                  Open Brain JSON
+                </Link>
+              </div>
+            </>
+          )}
+        </section>
+
+        <section className="studio-card">
+          <h2>Nightly Recommendations</h2>
+          {!recommendations.length ? (
+            <p className="meta-line">No prioritized recommendations generated yet.</p>
+          ) : (
+            <>
+              <p className="meta-line">Generated {new Date(latestRecommendationEvent?.created_at ?? new Date().toISOString()).toLocaleString()}</p>
+              <div className="table-shell" style={{ marginTop: 10 }}>
+                <table className="studio-table compact">
+                  <thead>
+                    <tr>
+                      <th>Priority</th>
+                      <th>Recommendation</th>
+                      <th>Suggested Action Type</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recommendations.map((rec, idx) => (
+                      <tr key={`night-rec-${idx}`}>
+                        <td>{rec.priority ?? idx + 1}</td>
+                        <td>{rec.description ?? "No description"}</td>
+                        <td>{rec.approval_action_type ?? "--"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </section>
 

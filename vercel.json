@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/scheduler/run",
+      "schedule": "*/1 * * * *"
+    },
+    {
       "path": "/api/nightshift/run",
       "schedule": "0 6 * * *"
     }

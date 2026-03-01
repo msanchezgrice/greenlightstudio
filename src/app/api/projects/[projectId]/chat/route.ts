@@ -5,6 +5,7 @@ import { createServiceSupabase } from "@/lib/supabase";
 import { withRetry } from "@/lib/retry";
 import { enqueueJob } from "@/lib/jobs/enqueue";
 import { JOB_TYPES, AGENT_KEYS, PRIORITY } from "@/lib/jobs/constants";
+import { recordProjectEvent } from "@/lib/project-events";
 
 export const runtime = "nodejs";
 export const maxDuration = 800;
@@ -117,6 +118,18 @@ export async function POST(req: Request, context: { params: Promise<{ projectId:
       throw new Error(insertUserError.message);
     }
     const userMessageId = (insertedUserMsg?.id as string | undefined) ?? crypto.randomUUID();
+
+    await recordProjectEvent(db, {
+      projectId,
+      eventType: "chat.user_message",
+      message: "User sent message in project chat",
+      data: {
+        user_message_id: userMessageId,
+        owner_clerk_id: userId,
+        content_preview: body.message.slice(0, 220),
+      },
+      agentKey: "ceo",
+    });
 
     const jobId = await enqueueJob({
       projectId,

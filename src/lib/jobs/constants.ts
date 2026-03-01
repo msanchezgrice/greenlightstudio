@@ -12,6 +12,9 @@ export const JOB_TYPES = {
   CODE_GEN_MVP: "code.generate_mvp",
   RESEARCH_REPORT: "research.generate_report",
   BROWSER_CHECK: "browser.check_page",
+  BRAIN_REFRESH: "brain.refresh",
+  SCHEDULER_RUN_RECURRING: "scheduler.run_recurring",
+  RUNTIME_PROVISION: "runtime.provision_project",
 } as const;
 
 export type JobType = (typeof JOB_TYPES)[keyof typeof JOB_TYPES];
@@ -24,6 +27,8 @@ export const AGENT_KEYS = {
   NIGHTSHIFT: "night_shift",
   OUTREACH: "outreach",
   SYSTEM: "system",
+  BRAIN: "brain",
+  PROVISIONER: "provisioner",
 } as const;
 
 export const PRIORITY = {

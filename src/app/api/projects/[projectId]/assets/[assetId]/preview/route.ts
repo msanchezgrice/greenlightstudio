@@ -1,3 +1,4 @@
+import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { createServiceSupabase } from "@/lib/supabase";
 
@@ -5,8 +6,24 @@ export async function GET(
   _req: Request,
   { params }: { params: Promise<{ projectId: string; assetId: string }> },
 ) {
+  const { userId } = await auth();
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { projectId, assetId } = await params;
   const db = createServiceSupabase();
+
+  const { data: project, error: projectError } = await db
+    .from("projects")
+    .select("id")
+    .eq("id", projectId)
+    .eq("owner_clerk_id", userId)
+    .maybeSingle();
+
+  if (projectError || !project) {
+    return NextResponse.json({ error: "Project not found" }, { status: 404 });
+  }
 
   const { data: asset, error } = await db
     .from("project_assets")

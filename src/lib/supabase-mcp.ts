@@ -2,6 +2,7 @@ import type { Packet } from "@/types/domain";
 import { createServiceSupabase } from "@/lib/supabase";
 import { withRetry } from "@/lib/retry";
 import { reasoningSynopsisSchema } from "@/types/domain";
+import { recordProjectEvent } from "@/lib/project-events";
 
 type Permissions = {
   repo_write: boolean;
@@ -215,6 +216,23 @@ export async function log_task(projectId: string, agent: string, description: st
 
   if (taskError) throw new Error(taskError.message);
   if (logError) throw new Error(logError.message);
+
+  try {
+    await recordProjectEvent(db, {
+      projectId,
+      eventType: `task.${status}`,
+      message: `${agent} ${status} ${description}`,
+      data: {
+        agent,
+        description,
+        status,
+        detail: detail ?? null,
+      },
+      agentKey: agent,
+    });
+  } catch {
+    // Do not fail task logging if event/memory fanout fails.
+  }
 }
 
 export async function get_scan_cache(domain: string) {

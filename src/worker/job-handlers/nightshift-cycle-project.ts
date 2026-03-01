@@ -3,6 +3,10 @@ import { emitJobEvent } from "../job-events";
 import { writeMemory } from "../memory";
 import { deriveNightShiftActions, type NightShiftDerivedAction } from "@/lib/nightshift";
 import { parsePhasePacket } from "@/types/phase-packets";
+import { assembleCompanyContext } from "@/lib/company-context";
+import { recordProjectEvent } from "@/lib/project-events";
+import { log_task } from "@/lib/supabase-mcp";
+import { withRetry } from "@/lib/retry";
 
 export async function handleNightshiftCycleProject(
   db: SupabaseClient,
@@ -34,6 +38,8 @@ export async function handleNightshiftCycleProject(
     .eq("id", projectId)
     .single();
   if (project.error || !project.data) throw new Error("Project not found");
+
+  const companyContext = await assembleCompanyContext(db, projectId);
 
   const latest = await db
     .from("phase_packets")
@@ -70,6 +76,7 @@ export async function handleNightshiftCycleProject(
     repoUrl: (project.data.repo_url as string | null) ?? null,
     runtimeMode: project.data.runtime_mode as "shared" | "attached",
     permissions: (project.data.permissions as Record<string, unknown>) ?? {},
+    kpis: companyContext.kpis,
   });
 
   const actionable = actions.filter(
@@ -126,12 +133,66 @@ export async function handleNightshiftCycleProject(
     message: `Nightshift cycle complete: ${actions?.length ?? 0} actions derived, ${enqueuedApprovals} approvals queued`,
   });
 
+  const prioritizedRecommendations = actions.slice(0, 5).map((action, index) => ({
+    priority: index + 1,
+    description: action.description,
+    approval_action_type: action.approval?.action_type ?? null,
+  }));
+
+  const summaryDetail = prioritizedRecommendations.length
+    ? prioritizedRecommendations
+      .map((recommendation) =>
+        `P${recommendation.priority}: ${recommendation.description}${recommendation.approval_action_type ? ` -> ${recommendation.approval_action_type}` : ""}`,
+      )
+      .join(" | ")
+    : "No recommendations generated in this cycle.";
+
+  await withRetry(() =>
+    log_task(
+      projectId,
+      "night_shift",
+      "nightshift_summary",
+      "completed",
+      `${summaryDetail} | approvals_queued=${enqueuedApprovals}`,
+    ),
+  );
+
+  await recordProjectEvent(db, {
+    projectId,
+    eventType: "nightshift.cycle_completed",
+    message: `Night shift cycle completed (${actions.length} actions, ${enqueuedApprovals} approvals)`,
+    data: {
+      actions: actions.length,
+      approvals_queued: enqueuedApprovals,
+      kpis: companyContext.kpis,
+    },
+    agentKey: "night_shift",
+  });
+
+  await recordProjectEvent(db, {
+    projectId,
+    eventType: "nightshift.recommendations_generated",
+    message: `Night shift produced ${prioritizedRecommendations.length} prioritized recommendations`,
+    data: {
+      recommendations: prioritizedRecommendations,
+      approvals_queued: enqueuedApprovals,
+      kpis: companyContext.kpis,
+    },
+    agentKey: "night_shift",
+  });
+
   if (actions?.length) {
     await writeMemory(db, projectId, job.id, [
       {
         category: "context",
         key: "last_nightshift",
-        value: `Nightshift ran at ${new Date().toISOString()}: ${actions.length} actions, ${enqueuedApprovals} approvals queued`,
+        value: `Nightshift ran at ${new Date().toISOString()}: ${actions.length} actions, ${enqueuedApprovals} approvals queued, leads_7d=${companyContext.kpis.leads_7d}, revenue_30d=${companyContext.kpis.revenue_cents_30d}`,
+        agentKey: "night_shift",
+      },
+      {
+        category: "decision",
+        key: "nightshift_top_recommendations",
+        value: summaryDetail.slice(0, 500),
         agentKey: "night_shift",
       },
     ]);

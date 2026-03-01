@@ -5,6 +5,10 @@ import { create_project, upsertUser } from "@/lib/supabase-mcp";
 import { getOwnedProjects, getLatestPacketsByProject } from "@/lib/studio";
 import { withRetry } from "@/lib/retry";
 import { sendWelcomeDrip } from "@/lib/drip-emails";
+import { ensureProjectEmailIdentity } from "@/lib/project-integrations";
+import { ensureProjectBrainDocument } from "@/lib/brain";
+import { recordProjectEvent } from "@/lib/project-events";
+import { createServiceSupabase } from "@/lib/supabase";
 
 export async function GET() {
   const { userId } = await auth();
@@ -113,6 +117,7 @@ export async function POST(req: Request) {
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = onboardingSchema.parse(await req.json());
+  const db = createServiceSupabase();
 
   const clerkUser = await currentUser();
   const primaryEmail = clerkUser?.emailAddresses.find((entry) => entry.id === clerkUser.primaryEmailAddressId)?.emailAddress ?? null;
@@ -226,6 +231,82 @@ export async function POST(req: Request) {
         }),
       );
       projectIds.push(projectId);
+
+      await ensureProjectEmailIdentity(projectId);
+      await ensureProjectBrainDocument(db, projectId);
+
+      await withRetry(() =>
+        db
+          .from("project_recurring_tasks")
+          .upsert(
+            {
+              project_id: projectId,
+              task_key: "brain_hard_refresh_5m",
+              cron_expr: "*/5 * * * *",
+              timezone: "UTC",
+              job_type: "brain.refresh",
+              agent_key: "brain",
+              payload: { reason: "scheduled_refresh" },
+              priority: 50,
+              enabled: true,
+              next_run_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+              created_by: userId,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "project_id,task_key" },
+          ),
+      );
+
+      await withRetry(() =>
+        db
+          .from("project_recurring_tasks")
+          .upsert(
+            {
+              project_id: projectId,
+              task_key: "nightly_context_prioritization",
+              cron_expr: "0 6 * * *",
+              timezone: "UTC",
+              job_type: "nightshift.cycle_project",
+              agent_key: "night_shift",
+              payload: { projectId, source: "recurring" },
+              priority: 20,
+              enabled: true,
+              next_run_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+              created_by: userId,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "project_id,task_key" },
+          ),
+      );
+
+      await withRetry(() =>
+        db
+          .from("project_runtime_instances")
+          .upsert(
+            {
+              project_id: projectId,
+              status: "shared",
+              mode: "shared",
+              provider: "shared",
+              runtime_metadata: { seeded_at: new Date().toISOString() },
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "project_id" },
+          ),
+      );
+
+      await recordProjectEvent(db, {
+        projectId,
+        eventType: "project.created",
+        message: "Project created and initialized",
+        data: {
+          owner_clerk_id: userId,
+          domain: domain ?? null,
+          runtime_mode: body.runtime_mode,
+          night_shift: body.night_shift,
+        },
+        agentKey: "system",
+      });
     }
 
     const firstProjectName = projectSeedName({

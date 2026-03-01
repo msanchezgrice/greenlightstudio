@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { emitJobEvent } from "../job-events";
 import { loadMemory, writeMemory, formatMemoryForPrompt, type MemoryEntry } from "../memory";
+import { assembleCompanyContext, companyContextToMarkdown } from "@/lib/company-context";
+import { recordProjectEvent } from "@/lib/project-events";
 import {
   detectChatExecutionIntent,
   executeAgentQuery,
@@ -279,6 +281,8 @@ export async function handleChatReply(
 
   const memories = await loadMemory(db, projectId);
   const memoryContext = formatMemoryForPrompt(memories);
+  const companyContext = await assembleCompanyContext(db, projectId);
+  const companyContextMarkdown = companyContextToMarkdown(companyContext);
 
   const project = await db
     .from("projects")
@@ -440,6 +444,10 @@ export async function handleChatReply(
       risk: string;
       created_at: string;
     }>,
+    companyMission: companyContext.mission_markdown,
+    companyMemory: companyContext.memory_markdown,
+    companyKpis: companyContext.kpis,
+    companyDeltaEvents: companyContext.delta_events.slice(0, 20),
     chatAutomation: automationOutcome,
     messages: messages.slice(-8),
   };
@@ -459,6 +467,12 @@ Behavior rules:
 
 Project context:
 ${JSON.stringify(promptContext, null, 2)}`;
+
+  const promptWithCompanyContext = `${prompt}
+
+[Company Context Snapshot]
+${companyContextMarkdown}
+`;
 
   let reply = "";
   let pendingDelta = "";
@@ -506,7 +520,7 @@ ${JSON.stringify(promptContext, null, 2)}`;
   const fullReply = await executeAgentQuery(
     projectId,
     ownerClerkId,
-    prompt,
+    promptWithCompanyContext,
     "chat",
     "chat",
     hooks
@@ -535,6 +549,18 @@ ${JSON.stringify(promptContext, null, 2)}`;
     content: reply.trim(),
   });
   if (insertErr) throw new Error(insertErr.message);
+
+  await recordProjectEvent(db, {
+    projectId,
+    eventType: "chat.assistant_reply",
+    message: "CEO agent replied in project chat",
+    data: {
+      owner_clerk_id: ownerClerkId,
+      reply_preview: reply.trim().slice(0, 220),
+      job_id: job.id,
+    },
+    agentKey: "ceo",
+  });
 
   const systemMessage = automationSystemMessage(automationOutcome);
   if (systemMessage) {

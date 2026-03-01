@@ -4,6 +4,7 @@ import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { createServiceSupabase } from "@/lib/supabase";
 import { withRetry } from "@/lib/retry";
+import { recordProjectEvent } from "@/lib/project-events";
 
 const bodySchema = z.object({
   name: z.string().min(1).max(255),
@@ -61,6 +62,19 @@ export async function POST(req: Request, context: { params: Promise<{ projectId:
   if (assetError || !asset) {
     return NextResponse.json({ error: assetError?.message ?? "Failed to register asset row" }, { status: 400 });
   }
+
+  await recordProjectEvent(db, {
+    projectId,
+    eventType: "asset.upload_requested",
+    message: `Upload URL issued for asset ${cleanName}`,
+    data: {
+      asset_id: asset.id,
+      filename: cleanName,
+      mime_type: body.type,
+      size_bytes: body.size,
+    },
+    agentKey: "system",
+  });
 
   return NextResponse.json({
     assetId: asset.id,

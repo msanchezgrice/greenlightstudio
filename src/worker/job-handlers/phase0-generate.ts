@@ -2,6 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { emitJobEvent } from "../job-events";
 import { loadMemory, writeMemory } from "../memory";
 import { runPhase0, logPhase0Failure } from "@/lib/phase0";
+import { assembleCompanyContext, companyContextToMarkdown } from "@/lib/company-context";
+import { recordProjectEvent } from "@/lib/project-events";
 
 export async function handlePhase0Generate(
   db: SupabaseClient,
@@ -21,6 +23,8 @@ export async function handlePhase0Generate(
   });
 
   const memories = await loadMemory(db, projectId);
+  const companyContext = await assembleCompanyContext(db, projectId);
+  const companyContextSummary = companyContextToMarkdown(companyContext);
   if (memories.length > 0) {
     await emitJobEvent(db, {
       projectId,
@@ -43,6 +47,7 @@ export async function handlePhase0Generate(
       userId: ownerClerkId,
       revisionGuidance,
       forceNewApproval,
+      companyContextSummary,
     });
 
     await emitJobEvent(db, {
@@ -60,6 +65,17 @@ export async function handlePhase0Generate(
         agentKey: "ceo",
       },
     ]);
+
+    await recordProjectEvent(db, {
+      projectId,
+      eventType: "phase.packet_generated",
+      message: "Phase 0 packet generated",
+      data: {
+        phase: 0,
+        revision_guidance: revisionGuidance ? revisionGuidance.slice(0, 140) : null,
+      },
+      agentKey: "ceo",
+    });
   } catch (e) {
     await logPhase0Failure(projectId, e);
     throw e;

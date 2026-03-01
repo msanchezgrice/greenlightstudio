@@ -10,6 +10,7 @@ type RunPhase0Options = {
   userId: string;
   revisionGuidance?: string | null;
   forceNewApproval?: boolean;
+  companyContextSummary?: string | null;
 };
 
 type PhaseTaskStatus = "running" | "completed" | "failed";
@@ -50,7 +51,7 @@ export async function runPhase0(opts: RunPhase0Options) {
   ]);
 }
 
-async function runPhase0Inner({ projectId, userId, revisionGuidance, forceNewApproval }: RunPhase0Options) {
+async function runPhase0Inner({ projectId, userId, revisionGuidance, forceNewApproval, companyContextSummary }: RunPhase0Options) {
   const db = createServiceSupabase();
   let initRunning = false;
   let researchRunning = false;
@@ -128,7 +129,14 @@ async function runPhase0Inner({ projectId, userId, revisionGuidance, forceNewApp
 
     await logPhaseTask(projectId, "research_agent", "phase0_research", "running", "Researching competitors and market");
     researchRunning = true;
-    const packet = await generatePhase0Packet(input, trimmedGuidance, priorPacket, projectAssets, projectId);
+    const packet = await generatePhase0Packet(
+      input,
+      trimmedGuidance,
+      priorPacket,
+      projectAssets,
+      projectId,
+      companyContextSummary ?? null,
+    );
     const confidence = packet.reasoning_synopsis.confidence;
     await logPhaseTask(projectId, "research_agent", "phase0_research", "completed", `Research complete (${confidence}/100 confidence)`);
     researchRunning = false;

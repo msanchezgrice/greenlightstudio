@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { emitJobEvent } from "../job-events";
 import { writeMemory } from "../memory";
 import { executeApprovedAction } from "@/lib/action-execution";
+import { recordProjectEvent } from "@/lib/project-events";
 
 export async function handleApprovalExecute(
   db: SupabaseClient,
@@ -67,6 +68,18 @@ export async function handleApprovalExecute(
     message: `Executing ${approval.data.action_type}`,
   });
 
+  await recordProjectEvent(db, {
+    projectId,
+    eventType: "execution.started",
+    message: `Execution started for ${approval.data.action_type}`,
+    data: {
+      approval_id: approvalId,
+      action_type: approval.data.action_type,
+      execution_job_id: job.id,
+    },
+    agentKey: "engineering",
+  });
+
   const appBaseUrl =
     process.env.APP_BASE_URL ?? "https://greenlightstudio.vercel.app";
 
@@ -96,6 +109,18 @@ export async function handleApprovalExecute(
       .from("approval_queue")
       .update({ execution_status: "failed" })
       .eq("id", approvalId);
+
+    await recordProjectEvent(db, {
+      projectId,
+      eventType: "execution.failed",
+      message: `Execution failed for ${approval.data.action_type}`,
+      data: {
+        approval_id: approvalId,
+        action_type: approval.data.action_type,
+        error: err instanceof Error ? err.message : "Execution failed",
+      },
+      agentKey: "engineering",
+    });
     throw err;
   }
 
@@ -109,6 +134,18 @@ export async function handleApprovalExecute(
     jobId: job.id,
     type: "artifact",
     message: `${approval.data.action_type} executed successfully`,
+  });
+
+  await recordProjectEvent(db, {
+    projectId,
+    eventType: "execution.completed",
+    message: `Execution completed for ${approval.data.action_type}`,
+    data: {
+      approval_id: approvalId,
+      action_type: approval.data.action_type,
+      execution_job_id: job.id,
+    },
+    agentKey: "engineering",
   });
 
   await writeMemory(db, projectId, job.id, [
