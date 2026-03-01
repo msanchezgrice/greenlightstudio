@@ -135,6 +135,7 @@ export async function get_approval_queue(projectIds: string[]) {
 
 export async function log_task(projectId: string, agent: string, description: string, status: string, detail?: string) {
   const db = createServiceSupabase();
+  const now = new Date().toISOString();
   const taskPayload = {
     project_id: projectId,
     agent,
@@ -144,6 +145,7 @@ export async function log_task(projectId: string, agent: string, description: st
   };
 
   const isTerminal = status === "completed" || status === "failed";
+  const isProgress = status === "running" || status === "queued";
 
   const [{ error: taskError }, { error: logError }] = await withRetry(async () => {
     let taskResult;
@@ -154,7 +156,7 @@ export async function log_task(projectId: string, agent: string, description: st
         .eq("project_id", projectId)
         .eq("agent", agent)
         .eq("description", description)
-        .eq("status", "running")
+        .in("status", ["running", "queued"])
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -162,10 +164,47 @@ export async function log_task(projectId: string, agent: string, description: st
       if (existing) {
         taskResult = await db
           .from("tasks")
-          .update({ status, detail: detail ?? null, completed_at: new Date().toISOString() })
+          .update({ status, detail: detail ?? null, completed_at: now })
           .eq("id", existing.id);
       } else {
-        taskResult = await db.from("tasks").insert(taskPayload);
+        taskResult = await db
+          .from("tasks")
+          .insert({
+            ...taskPayload,
+            started_at: now,
+            completed_at: now,
+          });
+      }
+    } else if (isProgress) {
+      const { data: existing } = await db
+        .from("tasks")
+        .select("id,started_at")
+        .eq("project_id", projectId)
+        .eq("agent", agent)
+        .eq("description", description)
+        .in("status", ["running", "queued"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existing) {
+        const updatePayload: Record<string, unknown> = {
+          status,
+          detail: detail ?? null,
+          completed_at: null,
+        };
+        if (status === "running" && !existing.started_at) {
+          updatePayload.started_at = now;
+        }
+        taskResult = await db.from("tasks").update(updatePayload).eq("id", existing.id);
+      } else {
+        taskResult = await db
+          .from("tasks")
+          .insert({
+            ...taskPayload,
+            started_at: status === "running" ? now : null,
+            completed_at: null,
+          });
       }
     } else {
       taskResult = await db.from("tasks").insert(taskPayload);

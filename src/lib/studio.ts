@@ -308,16 +308,30 @@ export async function getAllRunningTasks(projectIds: string[]) {
   }));
 }
 
-const STALE_TASK_THRESHOLD_MIN = 15;
+const STALE_TASK_THRESHOLD_MIN = 45;
 
 export async function cleanupStaleTasks(projectIds: string[]) {
   if (!projectIds.length) return 0;
   const db = createServiceSupabase();
+  const { data: runningJobs, error: runningJobsError } = await withRetry(() =>
+    db
+      .from("agent_jobs")
+      .select("project_id")
+      .in("project_id", projectIds)
+      .eq("status", "running"),
+  );
+  if (runningJobsError) return 0;
+
+  const runningProjectIds = new Set((runningJobs ?? []).map((row) => String(row.project_id)));
+  const orphanCandidateProjectIds = projectIds.filter((projectId) => !runningProjectIds.has(projectId));
+  if (!orphanCandidateProjectIds.length) return 0;
+
   const cutoff = new Date(Date.now() - STALE_TASK_THRESHOLD_MIN * 60 * 1000).toISOString();
+  const completedAt = new Date().toISOString();
   const { data, error } = await db
     .from("tasks")
-    .update({ status: "failed", detail: "Timed out (stale task cleanup)" })
-    .in("project_id", projectIds)
+    .update({ status: "failed", detail: "Timed out (stale task cleanup)", completed_at: completedAt })
+    .in("project_id", orphanCandidateProjectIds)
     .eq("status", "running")
     .lt("created_at", cutoff)
     .select("id");
