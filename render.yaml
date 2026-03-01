@@ -49,7 +49,7 @@ services:
       - key: WORKER_JOB_TIMEOUT_MS
         value: "900000"
       - key: WORKER_MAX_JOBS_PER_PROCESS
-        value: "12"
+        value: "0"
       - key: WORKER_MAX_RSS_MB
         value: "700"
       - key: WORKER_MEMORY_LOG_INTERVAL_MS

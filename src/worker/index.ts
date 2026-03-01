@@ -245,8 +245,10 @@ async function runOnce(cfg: ReturnType<typeof getWorkerConfig>) {
         }
 
         if (err instanceof JobTimeoutError) {
-          throw new FatalWorkerError(
-            `[worker] timed out job ${job.id}; forcing recycle to clear lingering resources`,
+          // Do not crash the entire worker on a single timed-out job.
+          // The job is already marked/requeued above; keep polling remaining jobs.
+          console.error(
+            `[worker] timed out job ${job.id}; continuing without process recycle`,
           );
         }
       } finally {
