@@ -1612,6 +1612,37 @@ export async function generateBrandBriefDeckSpec(input: {
   landing_page: Phase1Packet["landing_page"];
   waitlist: Phase1Packet["waitlist"];
 }): Promise<BrandBriefDeckSpec> {
+  const repairDeckSpec = (value: unknown): unknown => {
+    if (!value || typeof value !== "object") return value;
+    const record = value as Record<string, unknown>;
+    const slidesRaw = Array.isArray(record.slides) ? record.slides : [];
+    const repairedSlides = slidesRaw.map((slide) => {
+      if (!slide || typeof slide !== "object") return slide;
+      const slideRecord = { ...(slide as Record<string, unknown>) };
+      const kind = typeof slideRecord.kind === "string" ? slideRecord.kind.toLowerCase() : "";
+      const imageKeyRaw = typeof slideRecord.image_key === "string" ? slideRecord.image_key.toLowerCase() : "";
+
+      if (imageKeyRaw.includes("logo")) {
+        slideRecord.image_key = "logo";
+      } else if (imageKeyRaw.includes("hero") || imageKeyRaw.includes("image") || imageKeyRaw.includes("photo")) {
+        slideRecord.image_key = "hero";
+      } else if (kind === "logo_system") {
+        slideRecord.image_key = "logo";
+      } else if (kind === "imagery") {
+        slideRecord.image_key = "hero";
+      } else if (slideRecord.image_key === "") {
+        slideRecord.image_key = null;
+      }
+
+      return slideRecord;
+    });
+
+    return {
+      ...record,
+      slides: repairedSlides,
+    };
+  };
+
   const prompt = `You are a world-class brand strategist and presentation designer creating a production-ready brand brief deck.
 
 Project:
@@ -1679,7 +1710,7 @@ Rules:
   return runDirectJsonQuery(
     prompt,
     brandBriefDeckSpecSchema,
-    undefined,
+    repairDeckSpec,
     AGENT_PROFILES.designer_full.timeoutMs,
     4500,
     input.project_id,
