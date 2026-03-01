@@ -449,13 +449,18 @@ export async function generatePhase1Deliverables(
         .eq("clerk_id", project.owner_clerk_id)
         .maybeSingle();
       if (userRow?.email) {
-        await sendPhase1ReadyDrip({
-          userId: userRow.id as string,
-          email: userRow.email as string,
-          projectId: project.id,
-          projectName: project.name,
-          landingUrl,
-        });
+        await Promise.race([
+          sendPhase1ReadyDrip({
+            userId: userRow.id as string,
+            email: userRow.email as string,
+            projectId: project.id,
+            projectName: project.name,
+            landingUrl,
+          }),
+          new Promise((resolve) =>
+            setTimeout(() => resolve({ sent: false, reason: "phase1_drip_timeout" }), 15000),
+          ),
+        ]);
       }
     } catch {
       // non-fatal

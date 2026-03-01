@@ -8,14 +8,31 @@ function requireRuntimeEnv(name: string) {
   return value;
 }
 
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs = 20000,
+) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function triggerVercelDeployHook(payload: Record<string, unknown>) {
   const deployHook = requireRuntimeEnv("VERCEL_DEPLOY_HOOK_URL");
   const res = await withRetry(() =>
-    fetch(deployHook, {
+    fetchWithTimeout(deployHook, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
-    }),
+    }, 15000),
   );
 
   if (!res.ok) {
@@ -30,7 +47,7 @@ export async function sendResendEmail(input: { to: string; subject: string; html
   const from = requireRuntimeEnv("RESEND_FROM_EMAIL");
 
   const res = await withRetry(() =>
-    fetch("https://api.resend.com/emails", {
+    fetchWithTimeout("https://api.resend.com/emails", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -42,7 +59,7 @@ export async function sendResendEmail(input: { to: string; subject: string; html
         subject: input.subject,
         html: input.html,
       }),
-    }),
+    }, 15000),
   );
 
   const json = (await res.json().catch(() => null)) as { id?: string; message?: string } | null;
@@ -75,11 +92,11 @@ export async function createMetaCampaign(input: {
   });
 
   const res = await withRetry(() =>
-    fetch(`https://graph.facebook.com/v21.0/act_${accountId}/campaigns`, {
+    fetchWithTimeout(`https://graph.facebook.com/v21.0/act_${accountId}/campaigns`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body,
-    }),
+    }, 20000),
   );
 
   const json = (await res.json().catch(() => null)) as { id?: string; error?: { message?: string } } | null;
@@ -109,7 +126,7 @@ export async function triggerGitHubRepositoryDispatch(input: {
   const repo = parsed[2];
 
   const res = await withRetry(() =>
-    fetch(`https://api.github.com/repos/${owner}/${repo}/dispatches`, {
+    fetchWithTimeout(`https://api.github.com/repos/${owner}/${repo}/dispatches`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -121,7 +138,7 @@ export async function triggerGitHubRepositoryDispatch(input: {
         event_type: input.eventType,
         client_payload: input.clientPayload,
       }),
-    }),
+    }, 20000),
   );
 
   if (!res.ok) {
