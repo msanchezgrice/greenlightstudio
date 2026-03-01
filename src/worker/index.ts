@@ -60,6 +60,70 @@ function formatMemorySnapshot() {
   };
 }
 
+async function reclaimStaleJobsFallback(
+  db: ReturnType<typeof createAdminSupabase>,
+  cfg: ReturnType<typeof getWorkerConfig>,
+) {
+  // Treat jobs as stale only after they exceed configured timeout + a buffer.
+  const staleThresholdMs = Math.max(cfg.jobTimeoutMs + 120_000, 10 * 60_000);
+  const cutoff = new Date(Date.now() - staleThresholdMs).toISOString();
+
+  const stale = await db
+    .from("agent_jobs")
+    .select("id,attempts,max_attempts")
+    .eq("status", "running")
+    .lt("locked_at", cutoff)
+    .limit(Math.max(100, cfg.claimBatch * 10));
+  if (stale.error) {
+    throw new Error(`fallback stale query failed: ${stale.error.message}`);
+  }
+
+  const rows = (stale.data ?? []) as Array<{ id: string; attempts: number; max_attempts: number }>;
+  if (!rows.length) return 0;
+
+  const retriableIds = rows.filter((row) => row.attempts < row.max_attempts).map((row) => row.id);
+  const exhaustedIds = rows.filter((row) => row.attempts >= row.max_attempts).map((row) => row.id);
+  let reclaimed = 0;
+
+  if (retriableIds.length) {
+    const runAfter = new Date(Date.now() + 15_000).toISOString();
+    const retriableUpdate = await db
+      .from("agent_jobs")
+      .update({
+        status: "queued",
+        run_after: runAfter,
+        locked_at: null,
+        locked_by: null,
+        last_error: "reclaimed: stale running job recovered by worker fallback",
+        completed_at: null,
+      })
+      .in("id", retriableIds);
+    if (retriableUpdate.error) {
+      throw new Error(`fallback reclaim retriable failed: ${retriableUpdate.error.message}`);
+    }
+    reclaimed += retriableIds.length;
+  }
+
+  if (exhaustedIds.length) {
+    const exhaustedUpdate = await db
+      .from("agent_jobs")
+      .update({
+        status: "failed",
+        locked_at: null,
+        locked_by: null,
+        last_error: "reclaimed: stale running job exceeded max attempts (worker fallback)",
+        completed_at: new Date().toISOString(),
+      })
+      .in("id", exhaustedIds);
+    if (exhaustedUpdate.error) {
+      throw new Error(`fallback reclaim exhausted failed: ${exhaustedUpdate.error.message}`);
+    }
+    reclaimed += exhaustedIds.length;
+  }
+
+  return reclaimed;
+}
+
 async function runOnce(cfg: ReturnType<typeof getWorkerConfig>) {
   const db = createAdminSupabase();
 
@@ -238,12 +302,20 @@ async function main() {
     if (now - lastReclaim > cfg.reclaimIntervalMs) {
       try {
         const db = createAdminSupabase();
-        const result = await db.rpc("reclaim_stale_jobs");
-        if (result.error) {
-          throw new Error(`reclaim_stale_jobs failed: ${result.error.message}`);
+        const rpcResult = await db.rpc("reclaim_stale_jobs");
+        if (rpcResult.error) {
+          throw new Error(`reclaim_stale_jobs failed: ${rpcResult.error.message}`);
         }
-        if (result.data && Number(result.data) > 0) {
-          console.log(`[worker] reclaimed ${result.data} stale jobs`);
+        const reclaimedViaRpc = Number(rpcResult.data ?? 0);
+        let reclaimedViaFallback = 0;
+        if (reclaimedViaRpc === 0) {
+          reclaimedViaFallback = await reclaimStaleJobsFallback(db, cfg);
+        }
+        const reclaimedTotal = reclaimedViaRpc + reclaimedViaFallback;
+        if (reclaimedTotal > 0) {
+          console.log(
+            `[worker] reclaimed ${reclaimedTotal} stale jobs${reclaimedViaFallback > 0 ? " (fallback reaper)" : ""}`,
+          );
         }
       } catch (e) {
         console.error("[worker] reclaim error:", e);
