@@ -1616,23 +1616,37 @@ export async function generateBrandBriefDeckSpec(input: {
     if (!value || typeof value !== "object") return value;
     const record = value as Record<string, unknown>;
     const slidesRaw = Array.isArray(record.slides) ? record.slides : [];
+
+    const normalizeImageKey = (kind: string, raw: unknown): "logo" | "hero" | null => {
+      if (kind === "logo_system") return "logo";
+      if (kind === "imagery") return "hero";
+
+      if (raw === null || raw === undefined) return null;
+      if (typeof raw !== "string") return null;
+
+      const token = raw
+        .trim()
+        .toLowerCase()
+        .replace(/^"+|"+$/g, "")
+        .replace(/^'+|'+$/g, "");
+
+      if (!token || token === "null" || token === "none" || token === "n/a" || token === "na") {
+        return null;
+      }
+      if (token.includes("logo")) return "logo";
+      if (token.includes("hero") || token.includes("image") || token.includes("photo")) return "hero";
+
+      const pieces = token.split(/[|/,]+/).map((piece) => piece.trim()).filter(Boolean);
+      if (pieces.includes("logo")) return "logo";
+      if (pieces.includes("hero")) return "hero";
+      return null;
+    };
+
     const repairedSlides = slidesRaw.map((slide) => {
       if (!slide || typeof slide !== "object") return slide;
       const slideRecord = { ...(slide as Record<string, unknown>) };
       const kind = typeof slideRecord.kind === "string" ? slideRecord.kind.toLowerCase() : "";
-      const imageKeyRaw = typeof slideRecord.image_key === "string" ? slideRecord.image_key.toLowerCase() : "";
-
-      if (imageKeyRaw.includes("logo")) {
-        slideRecord.image_key = "logo";
-      } else if (imageKeyRaw.includes("hero") || imageKeyRaw.includes("image") || imageKeyRaw.includes("photo")) {
-        slideRecord.image_key = "hero";
-      } else if (kind === "logo_system") {
-        slideRecord.image_key = "logo";
-      } else if (kind === "imagery") {
-        slideRecord.image_key = "hero";
-      } else if (slideRecord.image_key === "") {
-        slideRecord.image_key = null;
-      }
+      slideRecord.image_key = normalizeImageKey(kind, slideRecord.image_key);
 
       return slideRecord;
     });
@@ -1686,7 +1700,7 @@ Output STRICT JSON only with this shape:
       "bullets": ["bullet", "bullet"],
       "do": ["for guidelines slide"],
       "dont": ["for guidelines slide"],
-      "image_key": "logo|hero|null",
+      "image_key": null,
       "palette_focus": ["#RRGGBB", "#RRGGBB"]
     }
   ]
@@ -1697,7 +1711,9 @@ Rules:
 - Include exactly one "cover", one "palette", one "guidelines", and one "closing" slide.
 - For "palette" slide include 4 to 6 colors in palette_focus.
 - For "guidelines" slide include 3 to 5 do items and 3 to 5 dont items.
-- For "logo_system" and "imagery" slides set image_key explicitly.
+- For "logo_system" slide set image_key to "logo".
+- For "imagery" slide set image_key to "hero".
+- For all other slide kinds set image_key to null.
 - Build a coherent narrative arc from positioning -> visual system -> execution guidance.
 - Avoid generic filler copy. Be specific to this project and its market.
 - Keep bullets concise, concrete, and action-oriented.
