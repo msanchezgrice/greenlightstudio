@@ -263,16 +263,24 @@ async function runDirectTextPrompt(
 ) {
   const client = new Anthropic();
   const abort = new AbortController();
-  const timeout = setTimeout(() => abort.abort(), timeoutMs);
+  const abortTimeout = setTimeout(() => abort.abort(), timeoutMs);
+  let hardTimeout: ReturnType<typeof setTimeout> | null = null;
   try {
-    const response = await client.messages.create(
-      {
-        model: DIRECT_TEXT_MODEL,
-        max_tokens: maxTokens,
-        messages: [{ role: "user", content: prompt }],
-      },
-      { signal: abort.signal },
-    );
+    const response = await Promise.race([
+      client.messages.create(
+        {
+          model: DIRECT_TEXT_MODEL,
+          max_tokens: maxTokens,
+          messages: [{ role: "user", content: prompt }],
+        },
+        { signal: abort.signal },
+      ),
+      new Promise<never>((_, reject) => {
+        hardTimeout = setTimeout(() => {
+          reject(new Error(`Agent query timed out after ${Math.round(timeoutMs / 1000)}s`));
+        }, timeoutMs + 1_500);
+      }),
+    ]);
     const text = response.content
       .filter((block): block is Anthropic.TextBlock => block.type === "text")
       .map((block) => block.text)
@@ -288,7 +296,8 @@ async function runDirectTextPrompt(
     }
     throw error instanceof Error ? error : new Error("Agent query failed");
   } finally {
-    clearTimeout(timeout);
+    clearTimeout(abortTimeout);
+    if (hardTimeout) clearTimeout(hardTimeout);
   }
 }
 
