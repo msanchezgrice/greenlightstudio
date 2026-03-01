@@ -18,18 +18,29 @@ export type BrandImage = {
   label: string;
 };
 
-const NANOBANANA_MODEL = "nanobanana-pro-2";
+const NANOBANANA_CANONICAL_MODEL = "gemini-3-pro-image-preview";
+const NANOBANANA_MODEL_ALIASES: Record<string, string> = {
+  "gemini-3-pro-image-preview": NANOBANANA_CANONICAL_MODEL,
+  "nano-banana-pro-preview": NANOBANANA_CANONICAL_MODEL,
+  "nanobanana-pro-preview": NANOBANANA_CANONICAL_MODEL,
+  "nanobanana-pro-2": NANOBANANA_CANONICAL_MODEL,
+  "nano-banana-pro-2": NANOBANANA_CANONICAL_MODEL,
+  "nanobanana-pro": NANOBANANA_CANONICAL_MODEL,
+};
 
-function validateModelOverride(): void {
-  const requested =
+function resolveNanobananaModel(): string {
+  const requestedRaw =
     process.env.NANOBANANA_MODEL?.trim() ||
     process.env.GEMINI_IMAGE_MODEL?.trim() ||
-    NANOBANANA_MODEL;
-  if (requested !== NANOBANANA_MODEL) {
+    NANOBANANA_CANONICAL_MODEL;
+  const requestedKey = requestedRaw.toLowerCase();
+  const resolved = NANOBANANA_MODEL_ALIASES[requestedKey] ?? requestedRaw;
+  if (resolved !== NANOBANANA_CANONICAL_MODEL) {
     throw new Error(
-      `Brand image generation is locked to ${NANOBANANA_MODEL}; requested model "${requested}" is not allowed`,
+      `Brand image generation is locked to ${NANOBANANA_CANONICAL_MODEL}; requested model "${requestedRaw}" is not allowed`,
     );
   }
+  return resolved;
 }
 
 function getGeminiClient(): GoogleGenAI {
@@ -40,26 +51,30 @@ function getGeminiClient(): GoogleGenAI {
   return new GoogleGenAI({ apiKey: key });
 }
 
-async function generateImageFromGemini(ai: GoogleGenAI, prompt: string, label: string): Promise<Buffer> {
+async function generateImageFromGemini(ai: GoogleGenAI, model: string, prompt: string, label: string): Promise<Buffer> {
   let lastError: Error | null = null;
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
-      const response = await ai.models.generateImages({
-        model: NANOBANANA_MODEL,
-        prompt,
-        config: { numberOfImages: 1 },
+      const response = await ai.models.generateContent({
+        model,
+        contents: prompt,
+        config: {
+          responseModalities: ["TEXT", "IMAGE"],
+        },
       });
 
-      const image = response.generatedImages?.[0]?.image?.imageBytes;
-      if (!image) {
+      const parts = response.candidates?.[0]?.content?.parts ?? [];
+      const imagePart = parts.find((part) => typeof part.inlineData?.data === "string");
+      const image = imagePart?.inlineData?.data;
+      if (!image || typeof image !== "string") {
         throw new Error(`${label}: model returned no image bytes`);
       }
 
       return Buffer.from(image, "base64");
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(`${label}: unknown image generation failure`);
-      if (attempt < 2) {
-        await new Promise((resolve) => setTimeout(resolve, 700 * attempt));
+      if (attempt < 3) {
+        await new Promise((resolve) => setTimeout(resolve, 1200 * attempt));
       }
     }
   }
@@ -72,7 +87,7 @@ export async function generateBrandImages(
   projectName: string,
   brandKit: BrandKit,
 ): Promise<BrandImage[]> {
-  validateModelOverride();
+  const model = resolveNanobananaModel();
   const ai = getGeminiClient();
 
   await log_task(
@@ -80,7 +95,7 @@ export async function generateBrandImages(
     "brand_agent",
     "phase1_brand_img",
     "running",
-    `Generating brand images via Gemini model ${NANOBANANA_MODEL}`,
+    `Generating brand images via Gemini model ${model}`,
   ).catch(() => {});
 
   try {
@@ -102,8 +117,8 @@ export async function generateBrandImages(
     ].join(" ");
 
     const [logoBuffer, heroBuffer] = await Promise.all([
-      generateImageFromGemini(ai, logoPrompt, "logo"),
-      generateImageFromGemini(ai, heroPrompt, "hero"),
+      generateImageFromGemini(ai, model, logoPrompt, "logo"),
+      generateImageFromGemini(ai, model, heroPrompt, "hero"),
     ]);
 
     const images: BrandImage[] = [
@@ -128,7 +143,7 @@ export async function generateBrandImages(
       "brand_agent",
       "phase1_brand_img",
       "completed",
-      `Generated ${images.length} brand images with ${NANOBANANA_MODEL}`,
+      `Generated ${images.length} brand images with ${model}`,
     ).catch(() => {});
 
     return images;
