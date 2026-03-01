@@ -302,7 +302,13 @@ async function main() {
     if (now - lastReclaim > cfg.reclaimIntervalMs) {
       try {
         const db = createAdminSupabase();
-        const rpcResult = await db.rpc("reclaim_stale_jobs");
+        const staleThresholdMinutes = Math.max(
+          10,
+          Math.ceil((cfg.jobTimeoutMs + 120_000) / 60_000),
+        );
+        const rpcResult = await db.rpc("reclaim_stale_jobs", {
+          p_stale_threshold: `${staleThresholdMinutes} minutes`,
+        });
         if (rpcResult.error) {
           throw new Error(`reclaim_stale_jobs failed: ${rpcResult.error.message}`);
         }
