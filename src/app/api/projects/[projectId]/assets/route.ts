@@ -20,7 +20,7 @@ export async function GET(_: Request, context: { params: Promise<{ projectId: st
   const { data: assets, error: assetsError } = await withRetry(() =>
     db
       .from("project_assets")
-      .select("id,phase,kind,filename,mime_type,size_bytes,status,created_at,storage_bucket,storage_path")
+      .select("id,phase,kind,filename,mime_type,size_bytes,status,created_at,storage_bucket,storage_path,metadata")
       .eq("project_id", projectId)
       .order("created_at", { ascending: false }),
   );

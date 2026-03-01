@@ -106,6 +106,22 @@ function formatBytes(bytes: number | null) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function landingVariantIndex(asset: ProjectAssetRow) {
+  const value = asset.metadata?.variant_index;
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
+  return null;
+}
+
+function assetDisplayLabel(asset: ProjectAssetRow) {
+  const customLabel = typeof asset.metadata?.label === "string" ? asset.metadata.label : null;
+  if (customLabel) return customLabel;
+  if (asset.kind === "landing_html") {
+    const index = landingVariantIndex(asset);
+    return index ? `Landing Variant ${index}` : "Landing Variant";
+  }
+  return asset.filename;
+}
+
 function phaseRoute(phase: number) {
   return Math.min(3, Math.max(0, phase));
 }
@@ -201,6 +217,24 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const permissions = (project.permissions as ProjectPermissions | null) ?? {};
   const nightShiftSummary = (nightShiftSummaryQuery.data as NightShiftSummaryRow | null) ?? null;
   const nightShiftFailures = (nightShiftFailuresQuery.data ?? []) as NightShiftSummaryRow[];
+  const landingVariantAssets = projectAssets
+    .filter((asset) => asset.kind === "landing_html")
+    .sort((a, b) => {
+      const aIndex = landingVariantIndex(a) ?? Number.MAX_SAFE_INTEGER;
+      const bIndex = landingVariantIndex(b) ?? Number.MAX_SAFE_INTEGER;
+      if (aIndex !== bIndex) return aIndex - bIndex;
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    });
+  const landingVariantLinks = landingVariantAssets.map((asset) => {
+    const index = landingVariantIndex(asset);
+    const score = typeof asset.metadata?.design_score === "number" ? asset.metadata.design_score : null;
+    const isSelected = asset.metadata?.selected_variant === true;
+    return {
+      label: `${isSelected ? "Selected" : "Landing"} Variant ${index ?? "?"}${score !== null ? ` · ${score}/100` : ""}`,
+      href: `/api/projects/${projectId}/assets/${asset.id}/preview`,
+      external: true,
+    };
+  });
 
   return (
     <>
@@ -389,6 +423,25 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
                     🌐 Landing Page
                   </a>
                 )}
+                {landingVariantAssets.map((asset) => {
+                  const isSelected = asset.metadata?.selected_variant === true;
+                  const score = typeof asset.metadata?.design_score === "number" ? asset.metadata.design_score : null;
+                  const index = landingVariantIndex(asset);
+                  const label = index ? `Landing V${index}` : "Landing Variant";
+                  const scoreLabel = score !== null ? ` · ${score}/100` : "";
+                  return (
+                    <a
+                      key={asset.id}
+                      href={`/api/projects/${projectId}/assets/${asset.id}/preview`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={isSelected ? "btn btn-approve" : "btn btn-details"}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                    >
+                      {isSelected ? "Selected" : "Variant"} {label}{scoreLabel}
+                    </a>
+                  );
+                })}
                 {projectAssets.filter(a => a.filename === "brand-brief.html").map(a => (
                   <a
                     key={a.id}
@@ -430,7 +483,15 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
                   <tbody>
                     {projectAssets.map((asset) => (
                       <tr key={asset.id}>
-                        <td>{asset.filename}</td>
+                        <td>
+                          <div className="table-main">{assetDisplayLabel(asset)}</div>
+                          {asset.kind === "landing_html" && (
+                            <div className="table-sub">
+                              {asset.metadata?.selected_variant === true ? "Selected for live deploy" : "Alternate variant"}
+                              {typeof asset.metadata?.design_score === "number" ? ` · score ${asset.metadata.design_score}/100` : ""}
+                            </div>
+                          )}
+                        </td>
                         <td>{assetKindLabel(asset.kind)}</td>
                         <td>{asset.phase !== null ? phaseLabel(asset.phase) : "--"}</td>
                         <td>{formatBytes(asset.size_bytes)}</td>
@@ -551,12 +612,11 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
           projectId={projectId}
           title="CEO Chat Pane"
           deliverableLinks={
-            project.live_url
-              ? [
-                  { label: "Landing Page", href: project.live_url as string, external: true },
-                  { label: "Phase 1 Workspace", href: `/projects/${projectId}/phases/1` },
-                ]
-              : undefined
+            [
+              ...(project.live_url ? [{ label: "Landing Page", href: project.live_url as string, external: true }] : []),
+              ...landingVariantLinks,
+              { label: "Phase 1 Workspace", href: `/projects/${projectId}/phases/1` },
+            ]
           }
         />
       </main>

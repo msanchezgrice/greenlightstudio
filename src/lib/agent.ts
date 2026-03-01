@@ -1809,7 +1809,17 @@ export async function generatePhase1LandingHtml(input: {
   landing_page: { headline: string; subheadline: string; primary_cta: string; sections: string[]; launch_notes: string[] };
   waitlist_fields: string[];
   project_id?: string;
+  improvement_guidance?: string;
 }): Promise<{ html: string; traces: ToolTrace[] }> {
+  const improvementGuidance = input.improvement_guidance?.trim() ?? "";
+  const refinementBlock = improvementGuidance
+    ? `
+Iteration guidance (must be addressed explicitly):
+- ${improvementGuidance}
+- Preserve strong elements from the prior attempt while fixing the issues above.
+- Increase visual distinctiveness and polish; do not repeat the same composition.`
+    : "";
+
   const prompt = `You are an elite frontend designer building a production landing page. Your output will be deployed live.
 
 DESIGN PHILOSOPHY — read carefully:
@@ -1843,6 +1853,7 @@ Content:
 - Feature sections: ${JSON.stringify(input.landing_page.sections)}
 - Launch notes: ${JSON.stringify(input.landing_page.launch_notes)}
 - Idea: ${input.idea_description.slice(0, 400)}
+${refinementBlock}
 
 Waitlist form:
 - Fields: ${input.waitlist_fields.join(', ')}

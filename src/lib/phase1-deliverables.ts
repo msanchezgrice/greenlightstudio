@@ -29,8 +29,18 @@ export async function generatePhase1Deliverables(
   const db = createServiceSupabase();
   const assetIds: string[] = [];
   let landingUrl: string | null = null;
+  let landingVariants: Array<{
+    assetId: string;
+    index: number;
+    score: number;
+    pass: boolean;
+    selected: boolean;
+    previewUrl: string;
+    createdAt: string;
+  }> = [];
 
   const landingTrack = async () => {
+    const MAX_LANDING_VARIANTS = 3;
     await log_task(project.id, "design_agent", "phase1_landing_deploy", "running", "Agent designing production landing page (frontend-design skill)");
 
     const landingInput = {
@@ -43,58 +53,206 @@ export async function generatePhase1Deliverables(
       project_id: project.id,
     };
 
-    const agentResult = await generatePhase1LandingHtml(landingInput);
-    let html = agentResult.html;
-    let traces: ToolTrace[] = agentResult.traces;
+    const traces: ToolTrace[] = [];
+    const generatedVariants: Array<{
+      index: number;
+      html: string;
+      score: number;
+      pass: boolean;
+      feedback: string;
+      assetId: string;
+      storagePath: string;
+      createdAt: string;
+    }> = [];
 
-    const review = await verifyLandingDesign(html, packet.brand_kit);
-    await log_task(project.id, "design_agent", "phase1_landing_review", "completed", `Design score: ${review.score}/100 — ${review.feedback.slice(0, 200)}`).catch(() => {});
+    let reviewGuidance: string | undefined;
+    let regenTaskStarted = false;
+    let regenTaskFinalized = false;
 
-    if (!review.pass) {
-      await log_task(project.id, "design_agent", "phase1_landing_regen", "running", `Score ${review.score} below threshold, regenerating with feedback`);
-      const retry = await generatePhase1LandingHtml(landingInput);
-      html = retry.html;
-      traces = [...traces, ...retry.traces];
+    try {
+      for (let attempt = 1; attempt <= MAX_LANDING_VARIANTS; attempt += 1) {
+        await log_task(
+          project.id,
+          "design_agent",
+          `phase1_landing_variant_${attempt}`,
+          "running",
+          attempt === 1
+            ? "Generating initial landing variant"
+            : `Generating landing variant ${attempt} with design critique guidance`,
+        ).catch(() => {});
+
+        const agentResult = await generatePhase1LandingHtml({
+          ...landingInput,
+          improvement_guidance: reviewGuidance,
+        });
+        traces.push(...agentResult.traces);
+
+        const review = await verifyLandingDesign(agentResult.html, packet.brand_kit);
+        await log_task(
+          project.id,
+          "design_agent",
+          "phase1_landing_review",
+          "completed",
+          `Variant ${attempt} score: ${review.score}/100 — ${review.feedback.slice(0, 220)}`,
+        ).catch(() => {});
+
+        const createdAt = new Date().toISOString();
+        const storagePath = `${project.id}/deployments/landing-v${attempt}-${Date.now()}.html`;
+        const upload = await withRetry(() =>
+          db.storage.from("project-assets").upload(storagePath, new TextEncoder().encode(agentResult.html), {
+            contentType: "text/html; charset=utf-8",
+            upsert: true,
+          }),
+        );
+        if (upload.error) throw new Error(upload.error.message);
+
+        const assetMetadata = {
+          auto_generated: true,
+          landing_variant: true,
+          variant_index: attempt,
+          design_score: review.score,
+          design_pass: review.pass,
+          design_feedback: review.feedback.slice(0, 1200),
+          selected_variant: false,
+        };
+
+        const { data: asset, error: assetError } = await withRetry(() =>
+          db
+            .from("project_assets")
+            .insert({
+              project_id: project.id,
+              phase: 1,
+              kind: "landing_html",
+              storage_bucket: "project-assets",
+              storage_path: storagePath,
+              filename: `landing-v${attempt}.html`,
+              mime_type: "text/html",
+              size_bytes: Buffer.byteLength(agentResult.html, "utf8"),
+              status: "uploaded",
+              metadata: assetMetadata,
+              created_by: project.owner_clerk_id ?? "system",
+            })
+            .select("id")
+            .single(),
+        );
+        if (assetError || !asset?.id) throw new Error(assetError?.message ?? "Failed to save landing variant asset");
+
+        assetIds.push(asset.id);
+        generatedVariants.push({
+          index: attempt,
+          html: agentResult.html,
+          score: review.score,
+          pass: review.pass,
+          feedback: review.feedback,
+          assetId: asset.id as string,
+          storagePath,
+          createdAt,
+        });
+
+        await log_task(
+          project.id,
+          "design_agent",
+          `phase1_landing_variant_${attempt}`,
+          "completed",
+          `Stored landing variant ${attempt} (score ${review.score}/100)`,
+        ).catch(() => {});
+
+        if (review.pass) {
+          if (regenTaskStarted && !regenTaskFinalized) {
+            await log_task(
+              project.id,
+              "design_agent",
+              "phase1_landing_regen",
+              "completed",
+              `Refinement complete after ${attempt} variants. Selected variant ${attempt} (${review.score}/100).`,
+            ).catch(() => {});
+            regenTaskFinalized = true;
+          }
+          break;
+        }
+
+        if (attempt < MAX_LANDING_VARIANTS) {
+          if (!regenTaskStarted) {
+            regenTaskStarted = true;
+          }
+          await log_task(
+            project.id,
+            "design_agent",
+            "phase1_landing_regen",
+            "running",
+            `Variant ${attempt} scored ${review.score}/100. Regenerating with critique guidance.`,
+          ).catch(() => {});
+          reviewGuidance = review.feedback || "Increase visual hierarchy, stronger composition, and sharper typography contrast.";
+        }
+      }
+    } catch (error) {
+      if (regenTaskStarted && !regenTaskFinalized) {
+        const msg = error instanceof Error ? error.message : "Landing regeneration failed";
+        await log_task(project.id, "design_agent", "phase1_landing_regen", "failed", msg).catch(() => {});
+      }
+      throw error;
     }
+
+    if (!generatedVariants.length) {
+      throw new Error("Landing generation produced no variants.");
+    }
+
+    const selectedVariant = [...generatedVariants].sort((a, b) => {
+      if (Number(b.pass) !== Number(a.pass)) return Number(b.pass) - Number(a.pass);
+      if (b.score !== a.score) return b.score - a.score;
+      return a.index - b.index;
+    })[0];
+
+    if (regenTaskStarted && !regenTaskFinalized) {
+      await log_task(
+        project.id,
+        "design_agent",
+        "phase1_landing_regen",
+        "completed",
+        selectedVariant.pass
+          ? `Refinement complete. Selected variant ${selectedVariant.index} (${selectedVariant.score}/100).`
+          : `No variant met quality threshold. Selected best variant ${selectedVariant.index} (${selectedVariant.score}/100).`,
+      ).catch(() => {});
+      regenTaskFinalized = true;
+    }
+
+    await Promise.all(
+      generatedVariants.map((variant) =>
+        withRetry(() =>
+          db
+            .from("project_assets")
+            .update({
+              metadata: {
+                auto_generated: true,
+                landing_variant: true,
+                variant_index: variant.index,
+                design_score: variant.score,
+                design_pass: variant.pass,
+                design_feedback: variant.feedback.slice(0, 1200),
+                selected_variant: variant.assetId === selectedVariant.assetId,
+              },
+            })
+            .eq("id", variant.assetId),
+        ),
+      ),
+    );
+
+    landingVariants = generatedVariants.map((variant) => ({
+      assetId: variant.assetId,
+      index: variant.index,
+      score: variant.score,
+      pass: variant.pass,
+      selected: variant.assetId === selectedVariant.assetId,
+      previewUrl: `/api/projects/${project.id}/assets/${variant.assetId}/preview`,
+      createdAt: variant.createdAt,
+    }));
 
     if (traces.length > 0) {
       const traceLog = traces.map((t) => `${t.tool}(${t.input_preview.slice(0, 80)})`).join(" → ");
       await log_task(project.id, "design_agent", "phase1_landing_traces", "completed", `Tool trace: ${traceLog.slice(0, 300)}`).catch(() => {});
     }
 
-    const deploymentPath = `${project.id}/deployments/landing-${Date.now()}.html`;
-
-    const upload = await withRetry(() =>
-      db.storage.from("project-assets").upload(deploymentPath, new TextEncoder().encode(html), {
-        contentType: "text/html; charset=utf-8",
-        upsert: true,
-      }),
-    );
-    if (upload.error) throw new Error(upload.error.message);
-
-    const { data: asset } = await withRetry(() =>
-      db
-        .from("project_assets")
-        .insert({
-          project_id: project.id,
-          phase: 1,
-          kind: "landing_html",
-          storage_bucket: "project-assets",
-          storage_path: deploymentPath,
-          filename: "index.html",
-          mime_type: "text/html",
-          size_bytes: Buffer.byteLength(html, "utf8"),
-          status: "uploaded",
-          metadata: { auto_generated: true },
-          created_by: project.owner_clerk_id ?? "system",
-        })
-        .select("id")
-        .single(),
-    );
-    if (asset) assetIds.push(asset.id);
-
     landingUrl = buildLaunchUrl(project.id, appBaseUrl);
-
     await Promise.all([
       withRetry(() =>
         db.from("project_deployments").upsert(
@@ -102,8 +260,21 @@ export async function generatePhase1Deliverables(
             project_id: project.id,
             phase: 1,
             status: "ready",
-            html_content: html,
-            metadata: { asset_id: asset?.id, storage_path: deploymentPath, auto_generated: true },
+            html_content: selectedVariant.html,
+            metadata: {
+              asset_id: selectedVariant.assetId,
+              storage_path: selectedVariant.storagePath,
+              auto_generated: true,
+              selected_variant_index: selectedVariant.index,
+              selected_score: selectedVariant.score,
+              landing_variants: landingVariants.map((variant) => ({
+                asset_id: variant.assetId,
+                variant_index: variant.index,
+                score: variant.score,
+                pass: variant.pass,
+                selected: variant.selected,
+              })),
+            },
             deployed_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           },
@@ -118,7 +289,13 @@ export async function generatePhase1Deliverables(
       ),
     ]);
 
-    await log_task(project.id, "design_agent", "phase1_landing_deploy", "completed", landingUrl ?? "Landing page deployed");
+    await log_task(
+      project.id,
+      "design_agent",
+      "phase1_landing_deploy",
+      "completed",
+      `${landingUrl ?? "Landing page deployed"} | selected v${selectedVariant.index} (${selectedVariant.score}/100)`,
+    );
   };
 
   const brandTrack = async () => {
@@ -234,12 +411,24 @@ export async function generatePhase1Deliverables(
   }
 
   if (landingUrl) {
+    const landingDeliverables = landingVariants.length
+      ? landingVariants.map((variant) => ({
+          kind: "landing_html_variant",
+          label: `Landing Variant ${variant.index}${variant.selected ? " (Selected)" : ""}`,
+          url: variant.previewUrl,
+          status: variant.selected ? "deployed" : variant.pass ? "generated" : "rejected",
+          generated_at: variant.createdAt,
+          score: variant.score,
+        }))
+      : [];
+
     await withRetry(() =>
       db
         .from("phase_packets")
         .update({
           deliverables: [
             { kind: "landing_html", label: "Landing Page", url: landingUrl, status: "deployed", generated_at: new Date().toISOString() },
+            ...landingDeliverables,
             { kind: "brand_brief_html", label: "Brand Brief (Presentation)", status: "generated", generated_at: new Date().toISOString() },
             { kind: "brand_brief_pptx", label: "Brand Brief (PowerPoint)", status: "generated", generated_at: new Date().toISOString() },
             { kind: "brand_logo", label: "AI Logo", status: "generated", generated_at: new Date().toISOString() },

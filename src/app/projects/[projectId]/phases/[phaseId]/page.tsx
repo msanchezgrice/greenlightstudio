@@ -72,6 +72,12 @@ function safeParsePacket(phase: PhaseId, payload: unknown): { packet: PhasePacke
   }
 }
 
+function landingVariantIndex(metadata: Record<string, unknown> | null | undefined) {
+  const value = metadata?.variant_index;
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
+  return null;
+}
+
 export default async function ProjectPhaseWorkspacePage({
   params,
 }: {
@@ -183,10 +189,28 @@ export default async function ProjectPhaseWorkspacePage({
   const brandAssets = assets.filter((a) => a.metadata?.brand_asset === true);
   const brandBriefHtmlAsset = assets.find((a) => a.filename === "brand-brief.html" || a.metadata?.brand_brief === true);
   const brandBriefPptxAsset = assets.find((a) => a.filename === "brand-brief.pptx" || a.metadata?.brand_brief_pptx === true);
-  const landingAsset = assets.find((a) => a.kind === "landing_html");
+  const landingVariants = assets
+    .filter((a) => a.kind === "landing_html")
+    .sort((a, b) => {
+      const aIndex = landingVariantIndex(a.metadata) ?? Number.MAX_SAFE_INTEGER;
+      const bIndex = landingVariantIndex(b.metadata) ?? Number.MAX_SAFE_INTEGER;
+      if (aIndex !== bIndex) return aIndex - bIndex;
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    });
+  const landingAsset = landingVariants.find((a) => a.metadata?.selected_variant === true) ?? landingVariants[0];
   const previewUrl = deployment ? `/launch/${projectId}` : (landingAsset ? `/launch/${projectId}` : null);
   const rawLiveUrl = project.live_url;
   const liveUrl = rawLiveUrl && !rawLiveUrl.includes("localhost") ? rawLiveUrl : previewUrl;
+  const landingVariantLinks = landingVariants.map((variant) => {
+    const index = landingVariantIndex(variant.metadata);
+    const score = typeof variant.metadata?.design_score === "number" ? variant.metadata.design_score : null;
+    const isSelected = variant.metadata?.selected_variant === true;
+    return {
+      label: `${isSelected ? "Selected" : "Landing"} Variant ${index ?? "?"}${score !== null ? ` · ${score}/100` : ""}`,
+      href: `/api/projects/${projectId}/assets/${variant.id}/preview`,
+      external: true,
+    };
+  });
 
   const currentPhaseDefinition = PHASES.find((entry) => entry.id === phase) ?? PHASES[0];
   const status = phaseStatus(project.phase, phase);
@@ -297,6 +321,23 @@ export default async function ProjectPhaseWorkspacePage({
                       Open Live Page
                     </a>
                   )}
+                  {landingVariants.map((variant) => {
+                    const index = landingVariantIndex(variant.metadata);
+                    const score = typeof variant.metadata?.design_score === "number" ? variant.metadata.design_score : null;
+                    const isSelected = variant.metadata?.selected_variant === true;
+                    return (
+                      <a
+                        key={variant.id}
+                        href={`/api/projects/${projectId}/assets/${variant.id}/preview`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={isSelected ? "btn btn-approve btn-sm" : "btn btn-details btn-sm"}
+                      >
+                        {isSelected ? "Selected" : "Variant"} {index ?? "?"}
+                        {score !== null ? ` · ${score}/100` : ""}
+                      </a>
+                    );
+                  })}
                 </div>
               </div>
               {previewUrl ? (
@@ -689,6 +730,7 @@ export default async function ProjectPhaseWorkspacePage({
           title="CEO Chat Pane"
           deliverableLinks={phase === 1 ? [
             ...(liveUrl ? [{ label: "Landing Page", href: liveUrl, external: true }] : []),
+            ...landingVariantLinks,
             ...(brandBriefHtmlAsset ? [{ label: "Brand Brief", href: `/api/projects/${projectId}/assets/${brandBriefHtmlAsset.id}/preview`, external: true }] : []),
             ...(brandBriefPptxAsset ? [{ label: "Brand Deck (PPTX)", href: `/api/projects/${projectId}/assets/${brandBriefPptxAsset.id}/preview`, external: true }] : []),
             { label: "Phase 1 Workspace", href: `/projects/${projectId}/phases/1` },

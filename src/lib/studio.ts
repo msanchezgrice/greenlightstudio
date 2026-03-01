@@ -229,6 +229,7 @@ export type ProjectAssetRow = {
   size_bytes: number | null;
   status: "pending" | "uploaded" | "failed";
   storage_path: string | null;
+  metadata: Record<string, unknown> | null;
   created_at: string;
 };
 
@@ -237,7 +238,7 @@ export async function getProjectAssets(projectId: string) {
   const { data, error } = await withRetry(() =>
     db
       .from("project_assets")
-      .select("id,phase,kind,filename,mime_type,size_bytes,status,storage_path,created_at")
+      .select("id,phase,kind,filename,mime_type,size_bytes,status,storage_path,metadata,created_at")
       .eq("project_id", projectId)
       .order("created_at", { ascending: false })
       .limit(50),
