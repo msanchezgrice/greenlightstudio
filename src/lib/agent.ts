@@ -1616,6 +1616,92 @@ export async function generateBrandBriefDeckSpec(input: {
     if (!value || typeof value !== "object") return value;
     const record = value as Record<string, unknown>;
     const slidesRaw = Array.isArray(record.slides) ? record.slides : [];
+    const allowedKinds = [
+      "cover",
+      "positioning",
+      "logo_system",
+      "palette",
+      "typography",
+      "imagery",
+      "voice",
+      "guidelines",
+      "closing",
+    ] as const;
+    const allowedLayouts = [
+      "statement",
+      "split_image_left",
+      "split_image_right",
+      "full_image",
+      "grid",
+      "rules",
+      "spotlight",
+    ] as const;
+    const kindFallbackByIndex = [
+      "cover",
+      "positioning",
+      "logo_system",
+      "palette",
+      "typography",
+      "imagery",
+      "guidelines",
+      "closing",
+    ] as const;
+    const defaultStyleTokens = {
+      background: "#0B1020",
+      surface: "#111A33",
+      text: "#F6F8FF",
+      muted_text: "#9AA7D4",
+      accent: "#3ED6A3",
+      accent_secondary: "#4FA3FF",
+    } as const;
+
+    const normalizeText = (
+      raw: unknown,
+      min: number,
+      max: number,
+      fallback: string,
+    ) => {
+      const source = typeof raw === "string" ? raw : fallback;
+      const compact = source.replace(/\s+/g, " ").trim();
+      const withFallback = compact || fallback;
+      const clipped = withFallback.length > max ? withFallback.slice(0, max).trimEnd() : withFallback;
+      if (clipped.length >= min) return clipped;
+      if (fallback.length >= min) return fallback.slice(0, max);
+      return `${fallback} ${"x".repeat(Math.max(0, min - fallback.length - 1))}`.slice(0, max);
+    };
+
+    const normalizeOptionalText = (raw: unknown, max: number) => {
+      if (raw === null || raw === undefined) return null;
+      if (typeof raw !== "string") return null;
+      const compact = raw.replace(/\s+/g, " ").trim();
+      if (!compact) return null;
+      return compact.length > max ? compact.slice(0, max).trimEnd() : compact;
+    };
+
+    const normalizeHex = (raw: unknown, fallback: string) => {
+      if (typeof raw !== "string") return fallback;
+      const compact = raw.trim();
+      const direct = compact.match(/^#?[0-9a-f]{6}$/i)?.[0];
+      if (!direct) return fallback;
+      return direct.startsWith("#") ? direct.toUpperCase() : `#${direct.toUpperCase()}`;
+    };
+
+    const normalizeStringList = (
+      raw: unknown,
+      options: { minItem: number; maxItem: number; maxItems: number; fallbackPrefix: string },
+    ) => {
+      const values = Array.isArray(raw) ? raw : [];
+      const cleaned = values
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => entry.replace(/\s+/g, " ").trim())
+        .filter(Boolean)
+        .map((entry) => (entry.length > options.maxItem ? entry.slice(0, options.maxItem).trimEnd() : entry))
+        .filter((entry) => entry.length >= options.minItem)
+        .slice(0, options.maxItems);
+
+      if (cleaned.length) return cleaned;
+      return [normalizeText(`${options.fallbackPrefix} guidance`, options.minItem, options.maxItem, `${options.fallbackPrefix} guidance`)];
+    };
 
     const normalizeImageKey = (kind: string, raw: unknown): "logo" | "hero" | null => {
       if (kind === "logo_system") return "logo";
@@ -1642,17 +1728,105 @@ export async function generateBrandBriefDeckSpec(input: {
       return null;
     };
 
-    const repairedSlides = slidesRaw.map((slide) => {
-      if (!slide || typeof slide !== "object") return slide;
-      const slideRecord = { ...(slide as Record<string, unknown>) };
-      const kind = typeof slideRecord.kind === "string" ? slideRecord.kind.toLowerCase() : "";
-      slideRecord.image_key = normalizeImageKey(kind, slideRecord.image_key);
+    const repairedSlides = slidesRaw.map((slide, index) => {
+      const source = slide && typeof slide === "object" ? (slide as Record<string, unknown>) : {};
+      const rawKind = typeof source.kind === "string" ? source.kind.toLowerCase() : "";
+      const kind = (allowedKinds as readonly string[]).includes(rawKind)
+        ? rawKind
+        : kindFallbackByIndex[index] ?? "voice";
 
-      return slideRecord;
+      const rawLayout = typeof source.layout === "string" ? source.layout.toLowerCase() : "";
+      const layout = (allowedLayouts as readonly string[]).includes(rawLayout) ? rawLayout : "statement";
+
+      const styleTokensSource =
+        record.style_tokens && typeof record.style_tokens === "object"
+          ? (record.style_tokens as Record<string, unknown>)
+          : {};
+      const bullets = normalizeStringList(source.bullets, {
+        minItem: 4,
+        maxItem: 180,
+        maxItems: 7,
+        fallbackPrefix: "Actionable",
+      }).slice(0, 7);
+      let doItems = normalizeStringList(source.do, {
+        minItem: 4,
+        maxItem: 140,
+        maxItems: 6,
+        fallbackPrefix: "Do",
+      }).slice(0, 6);
+      let dontItems = normalizeStringList(source.dont, {
+        minItem: 4,
+        maxItem: 140,
+        maxItems: 6,
+        fallbackPrefix: "Do not",
+      }).slice(0, 6);
+      if (kind === "guidelines") {
+        while (doItems.length < 3) {
+          doItems.push(`Do keep brand rule ${doItems.length + 1}`);
+        }
+        while (dontItems.length < 3) {
+          dontItems.push(`Do not break brand rule ${dontItems.length + 1}`);
+        }
+      }
+      let paletteFocus = (Array.isArray(source.palette_focus) ? source.palette_focus : [])
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => normalizeHex(entry, ""))
+        .filter((entry) => entry.length === 7)
+        .slice(0, 6);
+      if (kind === "palette" && paletteFocus.length < 3) {
+        paletteFocus = [
+          normalizeHex(styleTokensSource.background, defaultStyleTokens.background),
+          normalizeHex(styleTokensSource.surface, defaultStyleTokens.surface),
+          normalizeHex(styleTokensSource.accent, defaultStyleTokens.accent),
+          normalizeHex(styleTokensSource.accent_secondary, defaultStyleTokens.accent_secondary),
+        ].slice(0, 6);
+      }
+
+      return {
+        kind,
+        layout,
+        kicker: normalizeText(source.kicker, 2, 80, "Brand Direction"),
+        title: normalizeText(source.title, 8, 140, "Brand System Overview"),
+        subtitle: normalizeOptionalText(source.subtitle, 220),
+        body: normalizeOptionalText(source.body, 700),
+        bullets,
+        do: doItems,
+        dont: dontItems,
+        image_key: normalizeImageKey(kind, source.image_key),
+        palette_focus: paletteFocus,
+      };
     });
+
+    const typographyRaw =
+      record.typography && typeof record.typography === "object"
+        ? (record.typography as Record<string, unknown>)
+        : {};
+    const styleTokensRaw =
+      record.style_tokens && typeof record.style_tokens === "object"
+        ? (record.style_tokens as Record<string, unknown>)
+        : {};
 
     return {
       ...record,
+      visual_direction: normalizeText(record.visual_direction, 12, 260, "Confident modern utility aesthetic"),
+      narrative: normalizeText(
+        record.narrative,
+        40,
+        700,
+        "The deck moves from strategic positioning to visual system decisions and closes with clear execution guidance for launch.",
+      ),
+      typography: {
+        heading_font: normalizeText(typographyRaw.heading_font, 2, 80, "Space Grotesk"),
+        body_font: normalizeText(typographyRaw.body_font, 2, 80, "Manrope"),
+      },
+      style_tokens: {
+        background: normalizeHex(styleTokensRaw.background, defaultStyleTokens.background),
+        surface: normalizeHex(styleTokensRaw.surface, defaultStyleTokens.surface),
+        text: normalizeHex(styleTokensRaw.text, defaultStyleTokens.text),
+        muted_text: normalizeHex(styleTokensRaw.muted_text, defaultStyleTokens.muted_text),
+        accent: normalizeHex(styleTokensRaw.accent, defaultStyleTokens.accent),
+        accent_secondary: normalizeHex(styleTokensRaw.accent_secondary, defaultStyleTokens.accent_secondary),
+      },
       slides: repairedSlides,
     };
   };
