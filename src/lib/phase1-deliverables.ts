@@ -411,6 +411,37 @@ export async function generatePhase1Deliverables(
   }
 
   if (landingUrl) {
+    const brandDeliverableUrls = {
+      brandBriefHtml: null as string | null,
+      brandBriefPptx: null as string | null,
+      brandLogo: null as string | null,
+      brandHero: null as string | null,
+    };
+    try {
+      const { data: brandAssets } = await withRetry(() =>
+        db
+          .from("project_assets")
+          .select("id,filename,created_at")
+          .eq("project_id", project.id)
+          .in("filename", ["brand-brief.html", "brand-brief.pptx", "logo.png", "hero.png"])
+          .order("created_at", { ascending: false }),
+      );
+      const byFilename = new Map<string, string>();
+      for (const asset of brandAssets ?? []) {
+        const filename = String(asset.filename ?? "");
+        if (!filename || byFilename.has(filename)) continue;
+        byFilename.set(filename, String(asset.id));
+      }
+      const preview = (assetId: string | undefined) =>
+        assetId ? `/api/projects/${project.id}/assets/${assetId}/preview` : null;
+      brandDeliverableUrls.brandBriefHtml = preview(byFilename.get("brand-brief.html"));
+      brandDeliverableUrls.brandBriefPptx = preview(byFilename.get("brand-brief.pptx"));
+      brandDeliverableUrls.brandLogo = preview(byFilename.get("logo.png"));
+      brandDeliverableUrls.brandHero = preview(byFilename.get("hero.png"));
+    } catch {
+      // Non-fatal: deliverables still render without direct URLs.
+    }
+
     const landingDeliverables = landingVariants.length
       ? landingVariants.map((variant) => ({
           kind: "landing_html_variant",
@@ -429,10 +460,10 @@ export async function generatePhase1Deliverables(
           deliverables: [
             { kind: "landing_html", label: "Landing Page", url: landingUrl, status: "deployed", generated_at: new Date().toISOString() },
             ...landingDeliverables,
-            { kind: "brand_brief_html", label: "Brand Brief (Presentation)", status: "generated", generated_at: new Date().toISOString() },
-            { kind: "brand_brief_pptx", label: "Brand Brief (PowerPoint)", status: "generated", generated_at: new Date().toISOString() },
-            { kind: "brand_logo", label: "AI Logo", status: "generated", generated_at: new Date().toISOString() },
-            { kind: "brand_hero", label: "Hero Image", status: "generated", generated_at: new Date().toISOString() },
+            { kind: "brand_brief_html", label: "Brand Brief (Presentation)", url: brandDeliverableUrls.brandBriefHtml, status: "generated", generated_at: new Date().toISOString() },
+            { kind: "brand_brief_pptx", label: "Brand Brief (PowerPoint)", url: brandDeliverableUrls.brandBriefPptx, status: "generated", generated_at: new Date().toISOString() },
+            { kind: "brand_logo", label: "AI Logo", url: brandDeliverableUrls.brandLogo, status: "generated", generated_at: new Date().toISOString() },
+            { kind: "brand_hero", label: "Hero Image", url: brandDeliverableUrls.brandHero, status: "generated", generated_at: new Date().toISOString() },
             { kind: "brand_system", label: "Brand System", status: "generated", generated_at: new Date().toISOString() },
           ],
         })
