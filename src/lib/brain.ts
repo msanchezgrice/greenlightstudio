@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { assembleCompanyContext, companyContextToMarkdown } from "@/lib/company-context";
+import { assembleCompanyContext, buildOperationalMemoryMarkdown } from "@/lib/company-context";
 
 function baselineMission(project: { name: string; domain: string | null; idea_description: string }) {
   return [
@@ -95,7 +95,7 @@ export async function refreshCompanyBrain(input: {
 
   try {
     const context = await assembleCompanyContext(db, input.projectId);
-    const nextMemory = companyContextToMarkdown(context);
+    const nextMemory = buildOperationalMemoryMarkdown(context);
 
     const currentBrain = await db
       .from("project_brain_documents")

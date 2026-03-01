@@ -224,6 +224,95 @@ export function companyContextToMarkdown(context: CompanyContext) {
   ].join("\n");
 }
 
+function compactValue(value: string, max = 180) {
+  const trimmed = value.trim().replace(/\s+/g, " ");
+  if (trimmed.length <= max) return trimmed;
+  return `${trimmed.slice(0, max - 3)}...`;
+}
+
+export function buildOperationalMemoryMarkdown(context: CompanyContext) {
+  const nowIso = new Date().toISOString();
+
+  const recentFacts = context.delta_events
+    .slice(0, 18)
+    .map((event) => {
+      const dataSuffix =
+        event.data && Object.keys(event.data).length
+          ? ` ${compactJsonForMemory(event.data)}`
+          : "";
+      return `- [${event.event_type}] ${compactValue(event.message ?? "(no message)", 200)}${dataSuffix}`;
+    });
+
+  const priorityItems = [
+    ...context.approvals
+      .filter((approval) => approval.status === "pending")
+      .slice(0, 6)
+      .map((approval) => `- Approval pending: ${compactValue(approval.title, 140)} (${approval.risk})`),
+    ...context.tasks
+      .filter((task) => task.status === "running" || task.status === "queued" || task.status === "failed")
+      .slice(0, 8)
+      .map(
+        (task) =>
+          `- Task ${task.status}: ${task.agent} -> ${compactValue(task.description, 120)}${task.detail ? ` (${compactValue(task.detail, 100)})` : ""}`,
+      ),
+  ];
+
+  const emailThreads = [
+    ...context.emails.inbound
+      .slice(0, 6)
+      .map((row) => `- Inbound: ${row.from_email} | ${compactValue(row.subject ?? "(no subject)", 120)}`),
+    ...context.emails.outbound
+      .slice(0, 6)
+      .map((row) => `- Outbound: ${row.to_email} | ${compactValue(row.subject, 120)} [${row.status}]`),
+  ];
+
+  const longTerm = context.memory_entries
+    .slice(0, 12)
+    .map((row) => `- ${row.category}.${row.key}: ${compactValue(row.value, 180)}`);
+
+  const packetSummary =
+    context.latest_packet?.summary && context.latest_packet.summary.trim().length > 0
+      ? compactValue(context.latest_packet.summary, 280)
+      : "No packet summary available yet.";
+
+  return [
+    "# Operating Memory",
+    "",
+    `- refreshed_at: ${nowIso}`,
+    `- project: ${context.project.name}`,
+    `- phase: ${context.project.phase}`,
+    `- runtime_mode: ${context.project.runtime_mode}`,
+    `- latest_packet: ${context.latest_packet ? `phase ${context.latest_packet.phase}, confidence ${context.latest_packet.confidence}` : "none"}`,
+    "",
+    "## Current Summary",
+    packetSummary,
+    "",
+    "## Recent Cross-Channel Facts",
+    recentFacts.length ? recentFacts.join("\n") : "- none",
+    "",
+    "## Current Priorities",
+    priorityItems.length ? priorityItems.join("\n") : "- no active priorities",
+    "",
+    "## KPI Snapshot",
+    `- traffic_7d=${context.kpis.traffic_7d}, leads_7d=${context.kpis.leads_7d}, conversion_7d=${context.kpis.conversion_proxy_7d}`,
+    `- traffic_30d=${context.kpis.traffic_30d}, leads_30d=${context.kpis.leads_30d}, conversion_30d=${context.kpis.conversion_proxy_30d}`,
+    `- payments_7d=${context.kpis.payments_succeeded_7d}, revenue_7d_cents=${context.kpis.revenue_cents_7d}`,
+    `- payments_30d=${context.kpis.payments_succeeded_30d}, revenue_30d_cents=${context.kpis.revenue_cents_30d}`,
+    "",
+    "## Email Threads",
+    emailThreads.length ? emailThreads.join("\n") : "- none",
+    "",
+    "## Long-Term Memory",
+    longTerm.length ? longTerm.join("\n") : "- none",
+  ].join("\n");
+}
+
+function compactJsonForMemory(value: Record<string, unknown>) {
+  const raw = JSON.stringify(value);
+  if (raw.length <= 140) return raw;
+  return `${raw.slice(0, 137)}...`;
+}
+
 export async function assembleCompanyContext(db: SupabaseClient, projectId: string): Promise<CompanyContext> {
   const [projectRes, brainRes, packetRes, approvalsRes, tasksRes, executionsRes, assetsRes, inboundRes, outboundRes, memoryRes] =
     await Promise.all([
