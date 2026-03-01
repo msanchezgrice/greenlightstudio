@@ -60,6 +60,11 @@ const domainSeparatorPattern = /[\n,;]+/;
 const defaultForm = {
   domain: "",
   idea_description: "",
+  app_description: "",
+  value_prop: "",
+  mission: "",
+  target_demo: "",
+  demo_url: "",
   repo_url: "",
   uploaded_files: [] as UploadMeta[],
   runtime_mode: "attached" as "shared" | "attached",
@@ -412,9 +417,15 @@ export function OnboardingWizard() {
           ? `${domainDisplay} (PARKED)`
           : domainDisplay || "Not scanned";
     const ideaText = form.idea_description.trim();
+    const appDescription = form.app_description.trim();
+    const valueProp = form.value_prop.trim();
+    const mission = form.mission.trim();
+    const targetDemo = form.target_demo.trim();
+    const demoUrl = form.demo_url.trim();
     const repoDisplay = repo?.repo ?? (normalizeRepo(form.repo_url) || "None");
-    const projectSeed = ideaText
-      ? ideaText
+    const contextSeed = appDescription || ideaText || valueProp || mission || targetDemo;
+    const projectSeed = contextSeed
+      ? contextSeed
       : primaryDomain
         ? `Seeded from domain ${primaryDomain}.`
         : repoDisplay !== "None"
@@ -426,8 +437,24 @@ export function OnboardingWizard() {
       domainStatus,
       repoDisplay,
       projectSeed,
+      appDescription,
+      valueProp,
+      mission,
+      targetDemo,
+      demoUrl,
     };
-  }, [additionalDomains.length, form.idea_description, form.repo_url, form.scan_results, primaryDomain]);
+  }, [
+    additionalDomains.length,
+    form.app_description,
+    form.demo_url,
+    form.idea_description,
+    form.mission,
+    form.repo_url,
+    form.scan_results,
+    form.target_demo,
+    form.value_prop,
+    primaryDomain,
+  ]);
 
   function ensureDomainRepoShapeIsValid() {
     if (parsedDomains.length > 10) {
@@ -446,6 +473,19 @@ export function OnboardingWizard() {
       return false;
     }
 
+    if (form.demo_url.trim()) {
+      try {
+        const demo = new URL(form.demo_url.trim());
+        if (!["http:", "https:"].includes(demo.protocol)) {
+          setError("Demo URL must use http or https.");
+          return false;
+        }
+      } catch {
+        setError("Demo URL must be a valid URL.");
+        return false;
+      }
+    }
+
     return true;
   }
 
@@ -453,8 +493,13 @@ export function OnboardingWizard() {
     const hasDomain = parsedDomains.length > 0;
     const hasRepo = Boolean(form.repo_url.trim());
     const hasIdea = form.idea_description.trim().length >= 20;
-    if (!hasDomain && !hasRepo && !hasIdea) {
-      setError("Provide at least one domain, repository URL, or an idea description with 20+ characters.");
+    const hasContext =
+      form.app_description.trim().length >= 20 ||
+      form.value_prop.trim().length >= 20 ||
+      form.mission.trim().length >= 20 ||
+      form.target_demo.trim().length >= 20;
+    if (!hasDomain && !hasRepo && !hasIdea && !hasContext) {
+      setError("Provide at least one domain, repository URL, or strong context (description/value prop/mission/target demo).");
       return false;
     }
     return true;
@@ -642,7 +687,15 @@ export function OnboardingWizard() {
 
       const parsed = scanResultSchema.parse(json);
       setCacheHit(Boolean(json.cache_hit));
-      setForm((prev) => ({ ...prev, scan_results: parsed }));
+      setForm((prev) => {
+        const inferredDescription = parsed.meta?.desc?.trim() ?? "";
+        return {
+          ...prev,
+          scan_results: parsed,
+          app_description: prev.app_description.trim() ? prev.app_description : inferredDescription,
+          idea_description: prev.idea_description.trim() ? prev.idea_description : inferredDescription,
+        };
+      });
 
       const hasUsableData =
         parsed.dns !== null ||
@@ -666,6 +719,11 @@ export function OnboardingWizard() {
       ...form,
       domain: primaryDomain || null,
       domains: parsedDomains,
+      app_description: form.app_description.trim(),
+      value_prop: form.value_prop.trim(),
+      mission: form.mission.trim(),
+      target_demo: form.target_demo.trim(),
+      demo_url: form.demo_url.trim() ? form.demo_url.trim() : null,
       repo_url: form.repo_url.trim() ? normalizeRepo(form.repo_url) : null,
       focus_areas: form.focus_areas.filter(Boolean),
     });
@@ -1041,6 +1099,56 @@ export function OnboardingWizard() {
             </div>
           </div>
 
+          <div style={{ marginTop: 16, padding: "14px 16px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--card)" }}>
+            <div className="wizard-title-row" style={{ marginBottom: 8 }}>
+              <h3 style={{ margin: 0, fontSize: 16 }}>Refine Strategic Context</h3>
+              <span className="pill cyan">S1.6</span>
+            </div>
+            <p className="field-note" style={{ marginTop: 0, marginBottom: 10 }}>
+              This context is fed into packet and landing-page generation. Edit now for more focused outputs.
+            </p>
+
+            <label className="field-label">App Description</label>
+            <textarea
+              className="mock-textarea"
+              placeholder="What the product does in 1-3 sentences."
+              value={form.app_description}
+              onChange={(event) => setForm((prev) => ({ ...prev, app_description: event.target.value }))}
+            />
+
+            <label className="field-label">Value Proposition</label>
+            <textarea
+              className="mock-textarea"
+              placeholder="Why this product is uniquely valuable."
+              value={form.value_prop}
+              onChange={(event) => setForm((prev) => ({ ...prev, value_prop: event.target.value }))}
+            />
+
+            <label className="field-label">Mission</label>
+            <textarea
+              className="mock-textarea"
+              placeholder="Mission statement and long-term direction."
+              value={form.mission}
+              onChange={(event) => setForm((prev) => ({ ...prev, mission: event.target.value }))}
+            />
+
+            <label className="field-label">Target Demo</label>
+            <textarea
+              className="mock-textarea"
+              placeholder="Who this product is for."
+              value={form.target_demo}
+              onChange={(event) => setForm((prev) => ({ ...prev, target_demo: event.target.value }))}
+            />
+
+            <label className="field-label">Demo URL (optional)</label>
+            <input
+              className="mock-input"
+              placeholder="https://..."
+              value={form.demo_url}
+              onChange={(event) => setForm((prev) => ({ ...prev, demo_url: event.target.value }))}
+            />
+          </div>
+
           {repoSummary?.key_files?.length ? (
             <div className="repo-tree">
               {repoSummary.key_files.map((file) => (
@@ -1320,6 +1428,26 @@ export function OnboardingWizard() {
           <button type="button" className="confirm-row interactive" onClick={() => setStep("import")}>
             <span className="confirm-label">Project Seed</span>
             <span className="confirm-value">{summary.projectSeed.slice(0, 75)}{summary.projectSeed.length > 75 ? "…" : ""}</span>
+          </button>
+          <button type="button" className="confirm-row interactive" onClick={() => setStep("results")}>
+            <span className="confirm-label">App Description</span>
+            <span className="confirm-value">{summary.appDescription || "Not provided"}</span>
+          </button>
+          <button type="button" className="confirm-row interactive" onClick={() => setStep("results")}>
+            <span className="confirm-label">Value Proposition</span>
+            <span className="confirm-value">{summary.valueProp || "Not provided"}</span>
+          </button>
+          <button type="button" className="confirm-row interactive" onClick={() => setStep("results")}>
+            <span className="confirm-label">Mission</span>
+            <span className="confirm-value">{summary.mission || "Not provided"}</span>
+          </button>
+          <button type="button" className="confirm-row interactive" onClick={() => setStep("results")}>
+            <span className="confirm-label">Target Demo</span>
+            <span className="confirm-value">{summary.targetDemo || "Not provided"}</span>
+          </button>
+          <button type="button" className="confirm-row interactive" onClick={() => setStep("results")}>
+            <span className="confirm-label">Demo URL</span>
+            <span className="confirm-value blue">{summary.demoUrl || "Not provided"}</span>
           </button>
           <button type="button" className="confirm-row interactive" onClick={() => setStep("import")}>
             <span className="confirm-label">Domain</span>

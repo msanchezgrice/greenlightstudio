@@ -80,6 +80,11 @@ export const onboardingSchema = z.object({
   domain: z.string().optional().nullable(),
   domains: z.array(z.string()).max(10).optional().default([]),
   idea_description: z.string().trim().max(2000).optional().default(""),
+  app_description: z.string().trim().max(2000).optional().default(""),
+  value_prop: z.string().trim().max(1200).optional().default(""),
+  mission: z.string().trim().max(1200).optional().default(""),
+  target_demo: z.string().trim().max(1200).optional().default(""),
+  demo_url: z.string().url().optional().nullable(),
   repo_url: z.string().url().optional().nullable(),
   uploaded_files: z
     .array(

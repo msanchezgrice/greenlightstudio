@@ -76,6 +76,38 @@ function deriveIdeaDescription(input: {
   throw new Error("Provide at least one domain, repository URL, or an idea description with 20+ characters.");
 }
 
+function cleanContextLine(value: string | null | undefined, maxLength = 600) {
+  if (!value) return "";
+  return value.trim().replace(/\s+/g, " ").slice(0, maxLength);
+}
+
+function composeIdeaContext(input: {
+  baseDescription: string;
+  appDescription: string;
+  valueProp: string;
+  mission: string;
+  targetDemo: string;
+  demoUrl: string | null;
+}) {
+  const base = cleanContextLine(input.baseDescription, 2200);
+  const appDescription = cleanContextLine(input.appDescription);
+  const valueProp = cleanContextLine(input.valueProp);
+  const mission = cleanContextLine(input.mission);
+  const targetDemo = cleanContextLine(input.targetDemo);
+  const demoUrl = cleanContextLine(input.demoUrl ?? null, 300);
+
+  const lines: string[] = [];
+  if (base) lines.push(base);
+  if (appDescription && appDescription !== base) lines.push(`App description: ${appDescription}`);
+  if (valueProp) lines.push(`Value proposition: ${valueProp}`);
+  if (mission) lines.push(`Mission: ${mission}`);
+  if (targetDemo) lines.push(`Target demo: ${targetDemo}`);
+  if (demoUrl) lines.push(`Demo URL: ${demoUrl}`);
+
+  const composed = lines.join("\n\n").trim();
+  return composed.slice(0, 3600);
+}
+
 export async function POST(req: Request) {
   const { userId } = await auth();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -109,29 +141,55 @@ export async function POST(req: Request) {
     const scanMetaDesc = body.scan_results?.meta?.desc ?? null;
     const scanMetaTitle = body.scan_results?.meta?.title ?? null;
     const repoUrl = body.repo_url?.trim() ? body.repo_url.trim() : null;
+    const appDescription = body.app_description?.trim() ?? "";
+    const valueProp = body.value_prop?.trim() ?? "";
+    const mission = body.mission?.trim() ?? "";
+    const targetDemo = body.target_demo?.trim() ?? "";
+    const demoUrl = body.demo_url?.trim() ? body.demo_url.trim() : null;
+    const providedSeedText = cleanContextLine(
+      body.idea_description ||
+      [appDescription, valueProp, mission, targetDemo].filter(Boolean).join(". "),
+      2200,
+    );
 
-    const seedIdeaDescription = deriveIdeaDescription({
-      provided: body.idea_description,
+    const seedIdeaBase = deriveIdeaDescription({
+      provided: providedSeedText,
       domain: normalizedDomains[0] ?? null,
       repoUrl,
       scanMetaDesc,
       scanMetaTitle,
+    });
+    const seedIdeaDescription = composeIdeaContext({
+      baseDescription: seedIdeaBase,
+      appDescription,
+      valueProp,
+      mission,
+      targetDemo,
+      demoUrl,
     });
 
     const targetDomains = normalizedDomains.length ? normalizedDomains : [null];
     const projectIds: string[] = [];
 
     for (const [index, domain] of targetDomains.entries()) {
-      const ideaDescription =
+      const ideaDescriptionBase =
         domain === normalizedDomains[0]
-          ? seedIdeaDescription
+          ? seedIdeaBase
           : deriveIdeaDescription({
-              provided: body.idea_description,
+              provided: providedSeedText,
               domain,
               repoUrl,
               scanMetaDesc,
               scanMetaTitle,
             });
+      const ideaDescription = composeIdeaContext({
+        baseDescription: ideaDescriptionBase,
+        appDescription,
+        valueProp,
+        mission,
+        targetDemo,
+        demoUrl,
+      });
 
       const projectId = await withRetry(() =>
         create_project({
@@ -157,6 +215,13 @@ export async function POST(req: Request) {
             domains: normalizedDomains,
             batch_index: index,
             batch_size: targetDomains.length,
+            context_brief: {
+              app_description: appDescription,
+              value_prop: valueProp,
+              mission,
+              target_demo: targetDemo,
+              demo_url: demoUrl,
+            },
           },
         }),
       );
