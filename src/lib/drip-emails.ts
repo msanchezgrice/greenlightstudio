@@ -10,8 +10,21 @@ import {
   nudgeNoSignoffsEmail,
 } from "@/lib/email-templates";
 
+function normalizeEnvValue(raw: string | undefined): string | null {
+  if (!raw) return null;
+  let value = raw.trim();
+  if (
+    (value.startsWith("\"") && value.endsWith("\"")) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    value = value.slice(1, -1);
+  }
+  value = value.replace(/\\r/g, "").replace(/\\n/g, "").trim();
+  return value || null;
+}
+
 function isResendConfigured() {
-  return Boolean(process.env.RESEND_API_KEY && process.env.RESEND_FROM_EMAIL);
+  return Boolean(normalizeEnvValue(process.env.RESEND_API_KEY) && normalizeEnvValue(process.env.RESEND_FROM_EMAIL));
 }
 
 function getAppBaseUrl() {
@@ -32,6 +45,43 @@ function getISOWeek(date: Date): string {
 
 type DripResult = { sent: boolean; reason?: string };
 
+let missingDripLogWarned = false;
+
+function isMissingDripLogError(error: unknown) {
+  const code = typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
+  return code === "PGRST205" || code === "42P01";
+}
+
+function isUniqueViolation(error: unknown) {
+  const code = typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
+  return code === "23505";
+}
+
+function formatDbError(error: unknown, fallback = "Database query failed") {
+  if (typeof error === "object" && error !== null && "message" in error) {
+    return String((error as { message?: unknown }).message ?? fallback);
+  }
+  return fallback;
+}
+
+function warnMissingDripLog() {
+  if (missingDripLogWarned) return;
+  missingDripLogWarned = true;
+  console.warn("[drip] drip_email_log table missing; sends will continue without dedupe logging.");
+}
+
+async function getDripCount(query: () => PromiseLike<{ count: number | null; error: unknown }>) {
+  const result = await withRetry(() => Promise.resolve(query()));
+  if (result.error) {
+    if (isMissingDripLogError(result.error)) {
+      warnMissingDripLog();
+      return 0;
+    }
+    throw new Error(formatDbError(result.error, "Failed reading drip dedupe log"));
+  }
+  return result.count ?? 0;
+}
+
 async function recordDrip(input: {
   userId: string;
   emailType: string;
@@ -44,7 +94,7 @@ async function recordDrip(input: {
   error: string | null;
 }) {
   const db = createServiceSupabase();
-  await withRetry(() =>
+  const insertResult = await withRetry(() =>
     db.from("drip_email_log").insert({
       user_id: input.userId,
       email_type: input.emailType,
@@ -57,6 +107,36 @@ async function recordDrip(input: {
       error: input.error,
     }),
   );
+  if (insertResult.error) {
+    if (isMissingDripLogError(insertResult.error)) {
+      warnMissingDripLog();
+      return;
+    }
+    if (!isUniqueViolation(insertResult.error)) {
+      throw new Error(formatDbError(insertResult.error, "Failed writing drip log"));
+    }
+
+    // Retry path: update existing row (created by a prior failed attempt) instead of dropping the new result.
+    let updateQuery = db
+      .from("drip_email_log")
+      .update({
+        to_email: input.toEmail,
+        subject: input.subject,
+        resend_message_id: input.resendMessageId,
+        status: input.status,
+        error: input.error,
+      })
+      .eq("user_id", input.userId)
+      .eq("email_type", input.emailType);
+
+    updateQuery = input.projectId ? updateQuery.eq("project_id", input.projectId) : updateQuery.is("project_id", null);
+    updateQuery = input.digestWeek ? updateQuery.eq("digest_week", input.digestWeek) : updateQuery.is("digest_week", null);
+
+    const updateResult = await withRetry(() => updateQuery);
+    if (updateResult.error && !isMissingDripLogError(updateResult.error)) {
+      throw new Error(formatDbError(updateResult.error, "Failed updating existing drip log row"));
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -69,14 +149,15 @@ export async function sendWelcomeDrip(userId: string, email: string, projectName
   const db = createServiceSupabase();
   const baseUrl = getAppBaseUrl();
 
-  const { count } = await withRetry(() =>
+  const alreadySent = await getDripCount(() =>
     db
       .from("drip_email_log")
       .select("id", { count: "exact", head: true })
       .eq("user_id", userId)
-      .eq("email_type", "welcome"),
+      .eq("email_type", "welcome")
+      .eq("status", "sent"),
   );
-  if ((count ?? 0) > 0) return { sent: false, reason: "already_sent" };
+  if (alreadySent > 0) return { sent: false, reason: "already_sent" };
 
   const { subject, html } = welcomeEmail({ projectName, baseUrl });
 
@@ -128,15 +209,16 @@ export async function sendPhase0ReadyDrip(input: {
   const db = createServiceSupabase();
   const baseUrl = getAppBaseUrl();
 
-  const { count } = await withRetry(() =>
+  const alreadySent = await getDripCount(() =>
     db
       .from("drip_email_log")
       .select("id", { count: "exact", head: true })
       .eq("user_id", input.userId)
       .eq("email_type", "phase0_ready")
+      .eq("status", "sent")
       .eq("project_id", input.projectId),
   );
-  if ((count ?? 0) > 0) return { sent: false, reason: "already_sent" };
+  if (alreadySent > 0) return { sent: false, reason: "already_sent" };
 
   const { subject, html } = phase0ReadyEmail({
     projectName: input.projectName,
@@ -193,15 +275,16 @@ export async function sendPhase1ReadyDrip(input: {
   const db = createServiceSupabase();
   const baseUrl = getAppBaseUrl();
 
-  const { count } = await withRetry(() =>
+  const alreadySent = await getDripCount(() =>
     db
       .from("drip_email_log")
       .select("id", { count: "exact", head: true })
       .eq("user_id", input.userId)
       .eq("email_type", "phase1_ready")
+      .eq("status", "sent")
       .eq("project_id", input.projectId),
   );
-  if ((count ?? 0) > 0) return { sent: false, reason: "already_sent" };
+  if (alreadySent > 0) return { sent: false, reason: "already_sent" };
 
   const { subject, html } = phase1ReadyEmail({
     projectName: input.projectName,
@@ -270,15 +353,16 @@ export async function processWeeklyDigests(): Promise<{ processed: number; sent:
     if (!email || !clerkId) continue;
     processed += 1;
 
-    const { count: alreadySent } = await withRetry(() =>
+    const alreadySent = await getDripCount(() =>
       db
         .from("drip_email_log")
         .select("id", { count: "exact", head: true })
         .eq("user_id", userId)
         .eq("email_type", "weekly_digest")
+        .eq("status", "sent")
         .eq("digest_week", currentWeek),
     );
-    if ((alreadySent ?? 0) > 0) {
+    if (alreadySent > 0) {
       skipped += 1;
       continue;
     }
@@ -429,14 +513,15 @@ export async function processNudgeEmails(): Promise<{
     const projectIds = projects.map((p) => p.id as string);
 
     // --- Nudge: no packet reviews ---
-    const { count: alreadySentReview } = await withRetry(() =>
+    const alreadySentReview = await getDripCount(() =>
       db
         .from("drip_email_log")
         .select("id", { count: "exact", head: true })
         .eq("user_id", userId)
-        .eq("email_type", "nudge_no_reviews"),
+        .eq("email_type", "nudge_no_reviews")
+        .eq("status", "sent"),
     );
-    if ((alreadySentReview ?? 0) === 0) {
+    if (alreadySentReview === 0) {
       const { count: reviewDecisions } = await withRetry(() =>
         db
           .from("approval_queue")
@@ -504,14 +589,15 @@ export async function processNudgeEmails(): Promise<{
     }
 
     // --- Nudge: no phase signoffs ---
-    const { count: alreadySentSignoff } = await withRetry(() =>
+    const alreadySentSignoff = await getDripCount(() =>
       db
         .from("drip_email_log")
         .select("id", { count: "exact", head: true })
         .eq("user_id", userId)
-        .eq("email_type", "nudge_no_signoffs"),
+        .eq("email_type", "nudge_no_signoffs")
+        .eq("status", "sent"),
     );
-    if ((alreadySentSignoff ?? 0) === 0) {
+    if (alreadySentSignoff === 0) {
       const allStillPhase0 = projects.every((p) => (p.phase as number) === 0);
       const { count: approvedAdvances } = await withRetry(() =>
         db

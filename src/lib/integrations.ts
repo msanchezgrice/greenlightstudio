@@ -1,9 +1,20 @@
 import { withRetry } from "@/lib/retry";
 
 function requireRuntimeEnv(name: string) {
-  const value = process.env[name];
-  if (!value) {
+  const rawValue = process.env[name];
+  if (!rawValue) {
     throw new Error(`Missing required environment variable: ${name}`);
+  }
+  let value = rawValue.trim();
+  if (
+    (value.startsWith("\"") && value.endsWith("\"")) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    value = value.slice(1, -1);
+  }
+  value = value.replace(/\\r/g, "").replace(/\\n/g, "").trim();
+  if (!value) {
+    throw new Error(`Environment variable is empty after normalization: ${name}`);
   }
   return value;
 }
