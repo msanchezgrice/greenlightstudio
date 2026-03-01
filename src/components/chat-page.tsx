@@ -21,6 +21,15 @@ type Message = {
   created_at: string;
 };
 
+type SSEEvent = {
+  id: string;
+  jobId: string;
+  type: string;
+  message: string | null;
+  data: Record<string, unknown>;
+  createdAt: string;
+};
+
 function phaseLabel(phase: number): string {
   switch (phase) {
     case 0:
@@ -393,6 +402,9 @@ export function ChatPage() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [streamingJobId, setStreamingJobId] = useState<string | null>(null);
+  const [streamingProjectId, setStreamingProjectId] = useState<string | null>(null);
+  const [streamBuffer, setStreamBuffer] = useState("");
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -491,12 +503,74 @@ export function ChatPage() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length, sending]);
+  }, [messages.length, sending, streamBuffer]);
+
+  const finalizeStream = useCallback(async (projectId: string, status?: string | null) => {
+    setStreamingJobId(null);
+    setStreamingProjectId(null);
+    setStreamBuffer("");
+    setSending(false);
+
+    delete messageCacheRef.current[projectId];
+    await loadMessages(projectId);
+
+    if (status === "failed") {
+      setError("CEO agent failed to respond. Please retry.");
+    }
+  }, [loadMessages]);
+
+  useEffect(() => {
+    if (!streamingJobId || !streamingProjectId) return;
+
+    const source = new EventSource(`/api/projects/${streamingProjectId}/events?jobId=${streamingJobId}`);
+
+    source.onmessage = (rawEvent) => {
+      if (!rawEvent.data) return;
+      try {
+        const event = JSON.parse(rawEvent.data) as SSEEvent;
+        if (event.type === "delta" && event.message) {
+          setStreamBuffer((prev) => prev + event.message);
+          return;
+        }
+
+        if (event.type === "done") {
+          source.close();
+          void finalizeStream(streamingProjectId, event.message);
+          return;
+        }
+
+        if (event.type === "status" && event.message === "failed") {
+          source.close();
+          void finalizeStream(streamingProjectId, "failed");
+          return;
+        }
+
+        if (event.type === "error" && event.message) {
+          setError(event.message);
+        }
+      } catch {
+        // Ignore malformed events and keep listening.
+      }
+    };
+
+    source.onerror = () => {
+      source.close();
+      void finalizeStream(streamingProjectId);
+    };
+
+    return () => {
+      source.close();
+    };
+  }, [finalizeStream, streamingJobId, streamingProjectId]);
 
   function selectProject(id: string) {
     setSelectedId(id);
     setInput("");
     setError(null);
+    setSending(false);
+    setStreamingJobId(null);
+    setStreamingProjectId(null);
+    setStreamBuffer("");
     router.replace(`/chat?project=${id}`, { scroll: false });
   }
 
@@ -524,6 +598,7 @@ export function ChatPage() {
     setMessages((prev) => [...prev, optimisticMsg]);
 
     try {
+      let keepSending = false;
       const res = await fetch(`/api/projects/${selectedId}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -531,20 +606,31 @@ export function ChatPage() {
       });
 
       const raw = await res.text();
-      const json = raw.trim() ? (JSON.parse(raw) as { error?: string }) : null;
+      const json = raw.trim()
+        ? (JSON.parse(raw) as { error?: string; jobId?: string; streaming?: boolean })
+        : null;
 
       if (!res.ok) {
         throw new Error(json?.error ?? `Failed to send message (HTTP ${res.status})`);
       }
 
-      delete messageCacheRef.current[selectedId];
-      await loadMessages(selectedId);
+      if (json?.streaming && json.jobId) {
+        keepSending = true;
+        setStreamingProjectId(selectedId);
+        setStreamingJobId(json.jobId);
+      } else {
+        delete messageCacheRef.current[selectedId];
+        await loadMessages(selectedId);
+      }
+
+      if (!keepSending) {
+        setSending(false);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send message");
       setInput(message);
       // Remove optimistic message on error
       setMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id));
-    } finally {
       setSending(false);
     }
   }
@@ -718,17 +804,27 @@ export function ChatPage() {
                 })
               )}
 
-              {sending && (
+              {sending && (!streamingProjectId || streamingProjectId === selectedProject.id) && (
                 <div className="thinking-bubble">
                   <div className="thinking-avatar">
                     {CEO.icon}
                     <span className="pulse-ring" />
                   </div>
-                  <div className="thinking-content">
-                    <div className="thinking-dots">
-                      <span /><span /><span />
+                  <div
+                    className="thinking-content"
+                    style={{ flexDirection: "column", alignItems: "flex-start", maxWidth: "min(100%, 760px)" }}
+                  >
+                    <div className="thinking-dots" style={{ alignItems: "center" }}>
+                      <span />
+                      <span />
+                      <span />
                     </div>
-                    <span className="thinking-label">{CEO.statusPhrase}</span>
+                    <span className="thinking-label">{streamBuffer ? "typing…" : CEO.statusPhrase}</span>
+                    {streamBuffer ? (
+                      <div className="chat-msg-text" style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>
+                        {streamBuffer}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               )}
