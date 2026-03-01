@@ -1419,6 +1419,8 @@ Routing rules:
 - Choose "queue_execution_approval" only when the user is explicitly requesting execution (not just asking a question).
 - Map intents:
   - "remake/rebuild/redeploy landing page" -> deploy_landing_page
+  - "change landing design/style/copy/button/colors" -> deploy_landing_page
+  - "make CTA/button purple" -> deploy_landing_page
   - "send/resend welcome sequence" -> send_welcome_email_sequence
   - "send lifecycle email" -> send_phase2_lifecycle_email
   - "activate/run ads" -> activate_meta_ads_campaign

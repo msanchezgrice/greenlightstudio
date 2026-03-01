@@ -181,6 +181,16 @@ export async function executeApprovedAction(input: {
 
     if (input.approval.action_type === "deploy_landing_page") {
       const phasePacket = phase1PacketSchema.parse(payload.phase_packet ?? payload);
+      const improvementGuidance =
+        (typeof payload.improvement_guidance === "string" && payload.improvement_guidance.trim().length > 0
+          ? payload.improvement_guidance
+          : null) ??
+        (typeof payload.user_message === "string" && payload.user_message.trim().length > 0
+          ? payload.user_message
+          : null) ??
+        (typeof payload.derived_action === "string" && payload.derived_action.trim().length > 0
+          ? payload.derived_action
+          : null);
 
       await withRetry(() =>
         log_task(input.project.id, "design_agent", "phase1_design_agent_html", "running", "Design Agent generating landing page"),
@@ -193,6 +203,7 @@ export async function executeApprovedAction(input: {
         landing_page: phasePacket.landing_page,
         waitlist_fields: phasePacket.waitlist.form_fields,
         project_id: input.project.id,
+        improvement_guidance: improvementGuidance ?? undefined,
       });
       const html = agentResult.html;
       const traceLog = agentResult.traces.length > 0

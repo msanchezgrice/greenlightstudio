@@ -57,9 +57,9 @@ const ACTION_RULES: Record<ChatExecutionActionType, ActionRule> = {
 };
 
 const EXECUTION_VERB_REGEX =
-  /\b(remake|rebuild|redo|regenerate|deploy|redeploy|publish|launch|ship|send|resend|activate|trigger|run)\b/i;
+  /\b(remake|rebuild|redo|regenerate|deploy|redeploy|publish|launch|ship|send|resend|activate|trigger|run|make|change|update|edit|tweak)\b/i;
 const EXECUTION_OBJECT_REGEX =
-  /\b(landing page|landing|welcome email|email sequence|lifecycle email|ads|campaign|repo workflow|workflow|deploy|go live)\b/i;
+  /\b(landing page|landing|button|cta|color|purple|headline|subheadline|copy|hero|style|design|welcome email|email sequence|lifecycle email|ads|campaign|repo workflow|workflow|deploy|go live)\b/i;
 
 function shouldEvaluateExecutionIntent(message: string) {
   const trimmed = message.trim();
@@ -252,6 +252,7 @@ async function evaluateAndQueueChatAction(params: {
         requested_by: params.ownerClerkId,
         requested_at: new Date().toISOString(),
         user_message: params.message.slice(0, 1200),
+        improvement_guidance: params.message.slice(0, 1200),
         rationale: intent.rationale,
       },
       status: "pending",
