@@ -61,6 +61,47 @@ function formatMemorySnapshot() {
   };
 }
 
+type WorkerHeartbeatStatus = "running" | "draining" | "stopped" | "error";
+
+async function writeWorkerHeartbeat(
+  db: ReturnType<typeof createAdminSupabase>,
+  cfg: ReturnType<typeof getWorkerConfig>,
+  input: {
+    status: WorkerHeartbeatStatus;
+    startedAt: string;
+    jobsProcessed: number;
+    consecutivePollErrors: number;
+    memory?: ReturnType<typeof formatMemorySnapshot>;
+    details?: Record<string, unknown>;
+  },
+) {
+  const nowIso = new Date().toISOString();
+  const memory = input.memory ?? formatMemorySnapshot();
+
+  const { error } = await db.from("worker_heartbeats").upsert(
+    {
+      worker_id: cfg.workerId,
+      service_name: cfg.workerServiceName,
+      status: input.status,
+      started_at: input.startedAt,
+      last_seen_at: nowIso,
+      jobs_processed: input.jobsProcessed,
+      consecutive_poll_errors: input.consecutivePollErrors,
+      rss_mb: Number(memory.rssMb.toFixed(2)),
+      heap_used_mb: Number(memory.heapUsedMb.toFixed(2)),
+      heap_total_mb: Number(memory.heapTotalMb.toFixed(2)),
+      external_mb: Number(memory.externalMb.toFixed(2)),
+      details: input.details ?? {},
+      updated_at: nowIso,
+    },
+    { onConflict: "worker_id" },
+  );
+
+  if (error) {
+    console.error("[worker] heartbeat write error:", error.message);
+  }
+}
+
 async function reclaimStaleJobsFallback(
   db: ReturnType<typeof createAdminSupabase>,
   cfg: ReturnType<typeof getWorkerConfig>,
@@ -268,17 +309,33 @@ async function main() {
   createAdminSupabase();
 
   const cfg = getWorkerConfig();
+  const heartbeatDb = createAdminSupabase();
+  const startedAtIso = new Date().toISOString();
+  let heartbeatStatus: WorkerHeartbeatStatus = "running";
+  let lastHeartbeatAt = 0;
   console.log(
-    `[worker] starting id=${cfg.workerId} concurrency=${cfg.concurrency} heavyConcurrency=${cfg.heavyConcurrency} pollMs=${cfg.pollMs} timeoutMs=${cfg.jobTimeoutMs} maxJobs=${cfg.maxJobsPerProcess} maxRssMb=${cfg.maxRssMb}`
+    `[worker] starting id=${cfg.workerId} service=${cfg.workerServiceName} concurrency=${cfg.concurrency} heavyConcurrency=${cfg.heavyConcurrency} pollMs=${cfg.pollMs} timeoutMs=${cfg.jobTimeoutMs} maxJobs=${cfg.maxJobsPerProcess} maxRssMb=${cfg.maxRssMb}`
   );
+
+  await writeWorkerHeartbeat(heartbeatDb, cfg, {
+    status: "running",
+    startedAt: startedAtIso,
+    jobsProcessed: 0,
+    consecutivePollErrors: 0,
+    details: {
+      event: "startup",
+    },
+  });
 
   process.on("SIGTERM", () => {
     console.log("[worker] SIGTERM received, draining...");
     shuttingDown = true;
+    heartbeatStatus = "draining";
   });
   process.on("SIGINT", () => {
     console.log("[worker] SIGINT received, draining...");
     shuttingDown = true;
+    heartbeatStatus = "draining";
   });
 
   let lastReclaim = 0;
@@ -300,6 +357,17 @@ async function main() {
       throw new FatalWorkerError(
         `[worker] rss ${memory.rssMb.toFixed(1)}MB exceeded limit ${cfg.maxRssMb}MB`,
       );
+    }
+
+    if (now - lastHeartbeatAt >= cfg.heartbeatIntervalMs) {
+      await writeWorkerHeartbeat(heartbeatDb, cfg, {
+        status: heartbeatStatus,
+        startedAt: startedAtIso,
+        jobsProcessed: processedJobs,
+        consecutivePollErrors,
+        memory,
+      });
+      lastHeartbeatAt = now;
     }
 
     if (now - lastReclaim > cfg.reclaimIntervalMs) {
@@ -360,10 +428,34 @@ async function main() {
     await sleep(cfg.pollMs);
   }
 
+  await writeWorkerHeartbeat(heartbeatDb, cfg, {
+    status: "stopped",
+    startedAt: startedAtIso,
+    jobsProcessed: processedJobs,
+    consecutivePollErrors,
+    details: {
+      event: "shutdown",
+    },
+  });
+
   console.log("[worker] shutdown complete");
 }
 
-main().catch((e) => {
+main().catch(async (e) => {
   console.error("[worker] fatal:", e);
+  try {
+    const db = createAdminSupabase();
+    const cfg = getWorkerConfig();
+    await writeWorkerHeartbeat(db, cfg, {
+      status: "error",
+      startedAt: new Date().toISOString(),
+      jobsProcessed: 0,
+      consecutivePollErrors: 0,
+      details: {
+        event: "fatal",
+        error: e instanceof Error ? e.message : "unknown",
+      },
+    });
+  } catch {}
   process.exit(1);
 });

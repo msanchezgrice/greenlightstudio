@@ -54,3 +54,7 @@ services:
         value: "700"
       - key: WORKER_MEMORY_LOG_INTERVAL_MS
         value: "60000"
+      - key: WORKER_HEARTBEAT_INTERVAL_MS
+        value: "15000"
+      - key: WORKER_SERVICE_NAME
+        value: greenlight-worker

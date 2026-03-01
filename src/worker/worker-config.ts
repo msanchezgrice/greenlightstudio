@@ -7,6 +7,7 @@ export function getWorkerConfig() {
   const heavyConcurrency = Math.max(1, Number.isFinite(requestedHeavyConcurrency) ? requestedHeavyConcurrency : 1);
   return {
     workerId: process.env.WORKER_ID ?? "worker-local",
+    workerServiceName: process.env.WORKER_SERVICE_NAME?.trim() || "greenlight-worker",
     concurrency,
     pollMs: Math.max(250, Number(process.env.WORKER_POLL_MS ?? 400)),
     claimBatch,
@@ -17,5 +18,6 @@ export function getWorkerConfig() {
     maxJobsPerProcess: Math.max(0, Number(process.env.WORKER_MAX_JOBS_PER_PROCESS ?? 0)),
     maxRssMb: Math.max(0, Number(process.env.WORKER_MAX_RSS_MB ?? 700)),
     memoryLogIntervalMs: Math.max(10_000, Number(process.env.WORKER_MEMORY_LOG_INTERVAL_MS ?? 60_000)),
+    heartbeatIntervalMs: Math.max(5_000, Number(process.env.WORKER_HEARTBEAT_INTERVAL_MS ?? 15_000)),
   };
 }

@@ -12,6 +12,7 @@ const isPublicRoute = createRouteMatcher([
   "/api/waitlist",
   "/api/nightshift/run",
   "/api/scheduler/run",
+  "/api/worker/health",
   "/api/email/inbound",
   "/api/cron/drip-emails",
   "/api/projects/(.*)/launch",
