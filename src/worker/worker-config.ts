@@ -14,6 +14,8 @@ export function getWorkerConfig() {
     heavyConcurrency,
     reclaimIntervalMs: Math.max(10_000, Number(process.env.WORKER_RECLAIM_INTERVAL_MS ?? 60_000)),
     jobTimeoutMs: Math.max(60_000, Number(process.env.WORKER_JOB_TIMEOUT_MS ?? 900_000)),
+    maxConsecutivePollErrors: Math.max(0, Number(process.env.WORKER_MAX_CONSECUTIVE_POLL_ERRORS ?? 0)),
+    pollErrorBackoffMaxMs: Math.max(1_000, Number(process.env.WORKER_POLL_ERROR_BACKOFF_MAX_MS ?? 30_000)),
     // Disabled by default to avoid intentional process exits that trigger host-level crash alerts.
     maxJobsPerProcess: Math.max(0, Number(process.env.WORKER_MAX_JOBS_PER_PROCESS ?? 0)),
     maxRssMb: Math.max(0, Number(process.env.WORKER_MAX_RSS_MB ?? 700)),

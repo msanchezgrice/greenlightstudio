@@ -78,24 +78,25 @@ async function writeWorkerHeartbeat(
   const nowIso = new Date().toISOString();
   const memory = input.memory ?? formatMemorySnapshot();
 
-  const { error } = await db.from("worker_heartbeats").upsert(
-    {
-      worker_id: cfg.workerId,
-      service_name: cfg.workerServiceName,
-      status: input.status,
-      started_at: input.startedAt,
-      last_seen_at: nowIso,
-      jobs_processed: input.jobsProcessed,
-      consecutive_poll_errors: input.consecutivePollErrors,
-      rss_mb: Number(memory.rssMb.toFixed(2)),
-      heap_used_mb: Number(memory.heapUsedMb.toFixed(2)),
-      heap_total_mb: Number(memory.heapTotalMb.toFixed(2)),
-      external_mb: Number(memory.externalMb.toFixed(2)),
-      details: input.details ?? {},
-      updated_at: nowIso,
-    },
-    { onConflict: "worker_id" },
-  );
+  const payload: Record<string, unknown> = {
+    worker_id: cfg.workerId,
+    service_name: cfg.workerServiceName,
+    status: input.status,
+    started_at: input.startedAt,
+    last_seen_at: nowIso,
+    jobs_processed: input.jobsProcessed,
+    consecutive_poll_errors: input.consecutivePollErrors,
+    rss_mb: Number(memory.rssMb.toFixed(2)),
+    heap_used_mb: Number(memory.heapUsedMb.toFixed(2)),
+    heap_total_mb: Number(memory.heapTotalMb.toFixed(2)),
+    external_mb: Number(memory.externalMb.toFixed(2)),
+    updated_at: nowIso,
+  };
+  if (input.details) {
+    payload.details = input.details;
+  }
+
+  const { error } = await db.from("worker_heartbeats").upsert(payload, { onConflict: "worker_id" });
 
   if (error) {
     console.error("[worker] heartbeat write error:", error.message);
@@ -340,8 +341,10 @@ async function main() {
 
   let lastReclaim = 0;
   let consecutivePollErrors = 0;
+  let lastPollError: string | null = null;
   let processedJobs = 0;
   let lastMemoryLogAt = 0;
+  let nextSleepMs = cfg.pollMs;
 
   while (!shuttingDown) {
     const now = Date.now();
@@ -360,12 +363,22 @@ async function main() {
     }
 
     if (now - lastHeartbeatAt >= cfg.heartbeatIntervalMs) {
+      const heartbeatDetails =
+        consecutivePollErrors > 0
+          ? {
+              poll_error_streak: consecutivePollErrors,
+              last_poll_error: (lastPollError ?? "").slice(0, 500),
+              next_retry_ms: nextSleepMs,
+            }
+          : undefined;
+
       await writeWorkerHeartbeat(heartbeatDb, cfg, {
         status: heartbeatStatus,
         startedAt: startedAtIso,
         jobsProcessed: processedJobs,
         consecutivePollErrors,
         memory,
+        details: heartbeatDetails,
       });
       lastHeartbeatAt = now;
     }
@@ -403,6 +416,8 @@ async function main() {
     try {
       const { ran } = await runOnce(cfg);
       consecutivePollErrors = 0;
+      lastPollError = null;
+      nextSleepMs = cfg.pollMs;
       if (ran > 0) {
         processedJobs += ran;
         console.log(`[worker] processed ${ran} jobs`);
@@ -417,15 +432,27 @@ async function main() {
         throw e;
       }
       consecutivePollErrors += 1;
-      console.error("[worker] poll error:", e);
-      if (consecutivePollErrors >= 10) {
+      const pollErrorMessage =
+        e instanceof Error ? e.message : "Unknown worker poll error";
+      lastPollError = pollErrorMessage;
+      nextSleepMs = Math.min(
+        cfg.pollErrorBackoffMaxMs,
+        cfg.pollMs * Math.max(1, 2 ** Math.min(consecutivePollErrors, 6)),
+      );
+      console.error(
+        `[worker] poll error (${consecutivePollErrors}): ${pollErrorMessage}`,
+      );
+      if (
+        cfg.maxConsecutivePollErrors > 0 &&
+        consecutivePollErrors >= cfg.maxConsecutivePollErrors
+      ) {
         throw new Error(
-          `[worker] exiting after ${consecutivePollErrors} consecutive poll errors`
+          `[worker] exiting after ${consecutivePollErrors} consecutive poll errors (max=${cfg.maxConsecutivePollErrors})`
         );
       }
     }
 
-    await sleep(cfg.pollMs);
+    await sleep(nextSleepMs);
   }
 
   await writeWorkerHeartbeat(heartbeatDb, cfg, {

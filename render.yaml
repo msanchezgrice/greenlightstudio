@@ -48,6 +48,10 @@ services:
         value: "1000"
       - key: WORKER_JOB_TIMEOUT_MS
         value: "900000"
+      - key: WORKER_MAX_CONSECUTIVE_POLL_ERRORS
+        value: "0"
+      - key: WORKER_POLL_ERROR_BACKOFF_MAX_MS
+        value: "30000"
       - key: WORKER_MAX_JOBS_PER_PROCESS
         value: "0"
       - key: WORKER_MAX_RSS_MB
