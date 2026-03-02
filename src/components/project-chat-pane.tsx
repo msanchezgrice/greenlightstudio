@@ -21,6 +21,30 @@ type ProjectChatPaneProps = {
   deliverableLinks?: DeliverableLink[];
 };
 
+const CHAT_CACHE_KEY = "sm_chat_cache";
+const CHAT_CACHE_TTL_MS = 5 * 60 * 1000;
+
+type CacheStore = Record<string, { messages: ChatMessage[]; ts: number }>;
+
+function loadChatCacheStore(): CacheStore {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(CHAT_CACHE_KEY);
+    return raw ? (JSON.parse(raw) as CacheStore) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveChatCacheStore(store: CacheStore) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(CHAT_CACHE_KEY, JSON.stringify(store));
+  } catch {
+    // ignore localStorage write failures
+  }
+}
+
 function roleLabel(role: ChatMessage["role"]) {
   if (role === "assistant") return "CEO Agent";
   if (role === "system") return "System";
@@ -84,8 +108,21 @@ export function ProjectChatPane({ projectId, title = "Project Chat", deliverable
   const [streamingJobId, setStreamingJobId] = useState<string | null>(null);
   const [streamBuffer, setStreamBuffer] = useState("");
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const cacheRef = useRef<CacheStore>(loadChatCacheStore());
 
-  const reloadMessages = useCallback(async () => {
+  const reloadMessages = useCallback(async (forceNetwork = false) => {
+    const cached = cacheRef.current[projectId];
+    const isFresh = Boolean(cached && Date.now() - cached.ts < CHAT_CACHE_TTL_MS);
+
+    if (cached?.messages) {
+      setMessages(cached.messages);
+      setLoading(false);
+    }
+
+    if (isFresh && !forceNetwork) {
+      return;
+    }
+
     const response = await fetch(`/api/projects/${projectId}/chat`, { cache: "no-store" });
     const raw = await response.text();
     const json = raw.trim() ? (JSON.parse(raw) as { messages?: ChatMessage[]; error?: string }) : null;
@@ -94,12 +131,16 @@ export function ProjectChatPane({ projectId, title = "Project Chat", deliverable
       throw new Error(json?.error || `Failed to load chat (HTTP ${response.status})`);
     }
 
-    setMessages(Array.isArray(json?.messages) ? json.messages : []);
+    const freshMessages = Array.isArray(json?.messages) ? json.messages : [];
+    cacheRef.current[projectId] = { messages: freshMessages, ts: Date.now() };
+    saveChatCacheStore(cacheRef.current);
+    setMessages(freshMessages);
   }, [projectId]);
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
+    const cached = cacheRef.current[projectId];
+    setLoading(!cached?.messages?.length);
     setError(null);
 
     reloadMessages()
@@ -133,8 +174,10 @@ export function ProjectChatPane({ projectId, title = "Project Chat", deliverable
     setStreamingJobId(null);
     setStreamBuffer("");
     setSending(false);
-    reloadMessages().catch(() => {});
-  }, [reloadMessages]);
+    delete cacheRef.current[projectId];
+    saveChatCacheStore(cacheRef.current);
+    reloadMessages(true).catch(() => {});
+  }, [projectId, reloadMessages]);
 
   useJobStream(projectId, streamingJobId, handleDelta, handleStreamDone);
 
@@ -177,7 +220,9 @@ export function ProjectChatPane({ projectId, title = "Project Chat", deliverable
       if (json?.streaming && json.jobId) {
         setStreamingJobId(json.jobId);
       } else {
-        await reloadMessages();
+        delete cacheRef.current[projectId];
+        saveChatCacheStore(cacheRef.current);
+        await reloadMessages(true);
         setSending(false);
       }
     } catch (err) {
@@ -198,7 +243,7 @@ export function ProjectChatPane({ projectId, title = "Project Chat", deliverable
           onClick={() => {
             setError(null);
             setLoading(true);
-            reloadMessages()
+            reloadMessages(true)
               .catch((err: unknown) => setError(err instanceof Error ? err.message : "Failed to load chat"))
               .finally(() => setLoading(false));
           }}

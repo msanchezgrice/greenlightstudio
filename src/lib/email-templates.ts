@@ -80,12 +80,12 @@ export function welcomeEmail(input: { projectName: string; baseUrl: string }) {
     heading("Welcome aboard"),
     paragraph(
       `Your first project &mdash; <strong style="color:#F1F5F9">${esc(input.projectName)}</strong> &mdash; ` +
-      `has been created. Our AI agents are already working on your Phase&nbsp;0 pitch packet.`,
+      `has been created. Our AI agents are already working on your Phase&nbsp;0 pitch deck.`,
     ),
     paragraph("Here's what happens next:"),
     `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 8px">
       ${stepRow("1", "Research agents scan your market, competitors, and positioning.")}
-      ${stepRow("2", "A pitch packet lands in your Inbox with a confidence score and CEO recommendation.")}
+      ${stepRow("2", "A pitch deck lands in your Inbox with a confidence score and CEO recommendation.")}
       ${stepRow("3", "Review, approve or revise — then advance through Validate, Distribute, and Go-Live.")}
     </table>`,
     btn("Open your dashboard", `${input.baseUrl}/board`),
@@ -118,7 +118,7 @@ export function phase0ReadyEmail(input: {
   const recColor = input.recommendation === "greenlight" ? "#22C55E" : input.recommendation === "revise" ? "#F59E0B" : "#EF4444";
   const subject = `Phase 0 report ready — ${input.projectName}`;
   const body = [
-    heading("Your pitch packet is ready"),
+    heading("Your pitch deck is ready"),
     paragraph(
       `The research agents have finished analyzing <strong style="color:#F1F5F9">${esc(input.projectName)}</strong>. ` +
       `Your Phase&nbsp;0 report is waiting for review.`,
@@ -270,7 +270,7 @@ export function weeklyDigestEmail(input: {
 }
 
 // ---------------------------------------------------------------------------
-// Nudge: no packet reviews
+// Nudge: no pitch deck reviews
 // ---------------------------------------------------------------------------
 
 export function nudgeNoReviewsEmail(input: {
@@ -278,21 +278,21 @@ export function nudgeNoReviewsEmail(input: {
   oldestProjectName: string;
   baseUrl: string;
 }) {
-  const subject = "Your pitch packets are waiting for review";
+  const subject = "Your pitch decks are waiting for review";
   const body = [
-    heading("Packets ready for your eyes"),
+    heading("Pitch decks ready for your review"),
     paragraph(
-      `You have <strong style="color:#F59E0B">${input.pendingCount} packet${input.pendingCount === 1 ? "" : "s"}</strong> ` +
+      `You have <strong style="color:#F59E0B">${input.pendingCount} pitch deck${input.pendingCount === 1 ? "" : "s"}</strong> ` +
       `waiting in your Inbox — starting with <strong style="color:#F1F5F9">${esc(input.oldestProjectName)}</strong>.`,
     ),
     paragraph(
-      "Each packet contains market research, competitor analysis, and a CEO recommendation. " +
+      "Each pitch deck contains market research, competitor analysis, and a CEO recommendation. " +
       "Review and approve to advance your project to the next phase.",
     ),
-    btn("Review packets", `${input.baseUrl}/inbox`),
+    btn("Review pitch decks", `${input.baseUrl}/inbox`),
   ].join("");
 
-  return { subject, html: wrap(subject, `${input.pendingCount} packets need your review`, body) };
+  return { subject, html: wrap(subject, `${input.pendingCount} pitch deck${input.pendingCount === 1 ? "" : "s"} need your review`, body) };
 }
 
 // ---------------------------------------------------------------------------

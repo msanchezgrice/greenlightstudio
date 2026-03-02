@@ -18,7 +18,7 @@ export default async function PacketSharePage({ params }: { params: Promise<{ to
     return (
       <main className="page studio-page">
         <section className="studio-card">
-          <h1 className="page-title">Shared Packet Not Found</h1>
+          <h1 className="page-title">Shared Pitch Deck Not Found</h1>
           <p className="meta-line">This share link is invalid.</p>
         </section>
       </main>
@@ -45,8 +45,8 @@ export default async function PacketSharePage({ params }: { params: Promise<{ to
     return (
       <main className="page studio-page">
         <section className="studio-card">
-          <h1 className="page-title">Shared Packet Not Available</h1>
-          <p className="meta-line">The linked project packet could not be loaded.</p>
+          <h1 className="page-title">Shared Pitch Deck Not Available</h1>
+          <p className="meta-line">The linked project pitch deck could not be loaded.</p>
         </section>
       </main>
     );
@@ -57,8 +57,8 @@ export default async function PacketSharePage({ params }: { params: Promise<{ to
     return (
       <main className="page studio-page">
         <section className="studio-card">
-          <h1 className="page-title">Shared Packet Invalid</h1>
-          <p className="meta-line">Packet data failed validation.</p>
+          <h1 className="page-title">Shared Pitch Deck Invalid</h1>
+          <p className="meta-line">Pitch deck data failed validation.</p>
         </section>
       </main>
     );
@@ -69,7 +69,7 @@ export default async function PacketSharePage({ params }: { params: Promise<{ to
   return (
     <main className="page studio-page">
       <section className="studio-card">
-        <h1 className="page-title">{project.name} · Phase 0 Packet (Shared)</h1>
+        <h1 className="page-title">{project.name} · Phase 0 Pitch Deck (Shared)</h1>
         <p className="meta-line">
           {project.domain ?? "No domain"} · confidence {packetRow.confidence}/100 · generated{" "}
           {new Date(packetRow.created_at).toLocaleString()}

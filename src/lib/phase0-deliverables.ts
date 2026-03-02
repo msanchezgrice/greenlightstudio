@@ -4,6 +4,7 @@ import { log_task } from "@/lib/supabase-mcp";
 import type { Packet } from "@/types/domain";
 import { generatePhase0BrandKit, generateBrandBriefDeckSpec } from "@/lib/agent";
 import { generateBrandImages, uploadBrandImages } from "@/lib/brand-generator";
+import { runBrandConsistencyReview } from "@/lib/brand-consistency";
 import { renderBrandBriefHtml, generateBrandBriefPptx } from "@/lib/brand-presentation";
 import { createPhasePacketPresentationAssets, readPacketSummaryForPhase } from "@/lib/phase-presentations";
 import { refreshProjectTechNewsInsights } from "@/lib/tech-news";
@@ -23,7 +24,7 @@ export async function generatePhase0Foundations(input: Input) {
   const db = createServiceSupabase();
   const deliverables: Array<Record<string, unknown>> = [];
 
-  await log_task(input.projectId, "ceo_agent", "phase0_packet_deck", "running", "Generating Phase 0 packet deck assets").catch(() => {});
+  await log_task(input.projectId, "ceo_agent", "phase0_packet_deck", "running", "Generating Phase 0 pitch deck assets").catch(() => {});
   const packetDeck = await createPhasePacketPresentationAssets({
     projectId: input.projectId,
     phase: 0,
@@ -33,12 +34,12 @@ export async function generatePhase0Foundations(input: Input) {
     summary: readPacketSummaryForPhase(0, input.packet),
     ownerClerkId: input.ownerClerkId,
   });
-  await log_task(input.projectId, "ceo_agent", "phase0_packet_deck", "completed", "Phase 0 packet deck assets generated").catch(() => {});
+  await log_task(input.projectId, "ceo_agent", "phase0_packet_deck", "completed", "Phase 0 pitch deck assets generated").catch(() => {});
 
   if (packetDeck.htmlPreviewUrl) {
     deliverables.push({
       kind: "phase0_packet_html",
-      label: "Phase 0 Packet Deck (HTML)",
+      label: "Phase 0 Pitch Deck (HTML)",
       url: packetDeck.htmlPreviewUrl,
       storage_path: null,
       status: "generated",
@@ -48,7 +49,7 @@ export async function generatePhase0Foundations(input: Input) {
   if (packetDeck.pptxPreviewUrl) {
     deliverables.push({
       kind: "phase0_packet_pptx",
-      label: "Phase 0 Packet Deck (PowerPoint)",
+      label: "Phase 0 Pitch Deck (PowerPoint)",
       url: packetDeck.pptxPreviewUrl,
       storage_path: null,
       status: "generated",
@@ -232,6 +233,34 @@ export async function generatePhase0Foundations(input: Input) {
     "completed",
     `Generated ${brandImages.length + 2} Phase 0 brand assets`,
   ).catch(() => {});
+
+  try {
+    const review = await runBrandConsistencyReview({
+      db,
+      projectId: input.projectId,
+      ownerClerkId: input.ownerClerkId ?? null,
+      phase: 0,
+      reason: "phase0_auto",
+    });
+    if (review.reportAssetId) {
+      deliverables.push({
+        kind: "phase0_brand_consistency_review",
+        label: "Brand Consistency Review",
+        url: `/api/projects/${input.projectId}/assets/${review.reportAssetId}/preview`,
+        storage_path: `${input.projectId}/brand/consistency-review-phase-0.md`,
+        status: review.consistent ? "generated" : "needs_revision",
+        generated_at: new Date().toISOString(),
+      });
+    }
+  } catch (error) {
+    await log_task(
+      input.projectId,
+      "brand_agent",
+      "brand_consistency_review",
+      "failed",
+      error instanceof Error ? error.message.slice(0, 240) : "Brand consistency review failed",
+    ).catch(() => {});
+  }
 
   const techNews = await refreshProjectTechNewsInsights({
     db,

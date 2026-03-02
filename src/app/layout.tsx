@@ -39,12 +39,14 @@ const fontUrl =
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const publishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  const themeBootScript = `(function(){try{var t=localStorage.getItem("sm_theme")==="light"?"light":"dark";document.documentElement.dataset.theme=t;document.documentElement.style.colorScheme=t==="light"?"light":"dark";}catch(_){document.documentElement.dataset.theme="dark";document.documentElement.style.colorScheme="dark";}})();`;
 
   const head = (
     <>
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       <link href={fontUrl} rel="stylesheet" />
+      <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
     </>
   );
 

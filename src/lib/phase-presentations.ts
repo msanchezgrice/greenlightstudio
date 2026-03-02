@@ -22,6 +22,14 @@ type PresentationAssetResult = {
   highlights: string[];
 };
 
+type SlideDescriptor = {
+  title: string;
+  subtitle?: string;
+  metrics?: Array<{ label: string; value: string }>;
+  bullets?: string[];
+  paragraphs?: string[];
+};
+
 function esc(value: string) {
   return value
     .replaceAll("&", "&amp;")
@@ -48,6 +56,14 @@ function asStringArray(value: unknown, max = 8) {
     .map((entry) => asString(entry))
     .filter((entry) => entry.length > 0)
     .slice(0, max);
+}
+
+function chunk<T>(list: T[], size: number) {
+  const out: T[][] = [];
+  for (let i = 0; i < list.length; i += size) {
+    out.push(list.slice(i, i + size));
+  }
+  return out;
 }
 
 function phaseLabel(phase: number) {
@@ -107,10 +123,102 @@ export function derivePhaseHighlights(phase: number, packet: unknown, summary: s
   }
 
   if (!out.length && summary.trim().length > 0) out.push(summary.trim());
-  return out.slice(0, 6);
+  return out.slice(0, 8);
 }
 
-function renderPhasePacketHtml(input: {
+function buildSlides(input: {
+  phase: number;
+  packet: unknown;
+  projectName: string;
+  domain: string | null;
+  summary: string;
+  highlights: string[];
+}): SlideDescriptor[] {
+  const slides: SlideDescriptor[] = [
+    {
+      title: `${input.projectName} · ${phaseLabel(input.phase)}`,
+      subtitle: `${input.domain ?? "No domain"} · Generated ${new Date().toLocaleString()}`,
+      metrics: [{ label: "Project", value: input.projectName }, { label: "Phase", value: `${input.phase}` }],
+      paragraphs: [input.summary || "Summary pending."],
+    },
+  ];
+
+  if (input.phase === 0) {
+    const parsed = packetSchema.safeParse(input.packet);
+    if (parsed.success) {
+      const data = parsed.data;
+      slides.push({
+        title: "Recommendation",
+        subtitle: `${data.recommendation.toUpperCase()} · Confidence ${data.reasoning_synopsis.confidence}/100`,
+        paragraphs: [data.tagline, data.elevator_pitch],
+        bullets: data.reasoning_synopsis.rationale.slice(0, 5),
+      });
+      slides.push({
+        title: "Market Sizing",
+        metrics: [
+          { label: "TAM", value: data.market_sizing.tam },
+          { label: "SAM", value: data.market_sizing.sam },
+          { label: "SOM", value: data.market_sizing.som },
+        ],
+        paragraphs: [
+          "Sizing assumptions and market framing should be validated with first-customer interviews and pricing tests.",
+        ],
+      });
+      slides.push({
+        title: "Competitor Snapshot",
+        bullets: data.competitor_analysis
+          .slice(0, 6)
+          .map((entry) => `${entry.name}: ${entry.positioning} | Gap: ${entry.gap}`),
+      });
+      slides.push({
+        title: "Target Persona + MVP Scope",
+        paragraphs: [`${data.target_persona.name}: ${data.target_persona.description}`],
+        bullets: [
+          ...data.target_persona.pain_points.slice(0, 3).map((point) => `Pain: ${point}`),
+          ...data.mvp_scope.in_scope.slice(0, 3).map((item) => `In scope: ${item}`),
+          ...data.mvp_scope.deferred.slice(0, 2).map((item) => `Deferred: ${item}`),
+        ],
+      });
+      slides.push({
+        title: "Risks + Next Actions",
+        bullets: [
+          ...data.reasoning_synopsis.risks.slice(0, 4).map((risk) => `Risk: ${risk}`),
+          ...data.reasoning_synopsis.next_actions.slice(0, 4).map((action) => `Action: ${action}`),
+        ],
+      });
+      return slides;
+    }
+  }
+
+  slides.push({
+    title: "Executive Highlights",
+    bullets: input.highlights,
+  });
+  const chunks = chunk(input.highlights, 3);
+  for (let index = 0; index < chunks.length; index += 1) {
+    slides.push({
+      title: `Highlights ${index + 1}`,
+      bullets: chunks[index],
+      paragraphs: index === chunks.length - 1 ? [input.summary || "Summary pending."] : undefined,
+    });
+  }
+
+  return slides;
+}
+
+function renderMetricCards(metrics: Array<{ label: string; value: string }> | undefined) {
+  if (!metrics || !metrics.length) return "";
+  return `<div class="metrics">${metrics
+    .map(
+      (metric) => `<div class="metric">
+  <div class="metric-label">${esc(metric.label)}</div>
+  <div class="metric-value">${esc(metric.value)}</div>
+</div>`,
+    )
+    .join("\n")}</div>`;
+}
+
+function renderPhaseDeckHtml(input: {
   projectName: string;
   phase: number;
   domain: string | null;
@@ -118,226 +226,436 @@ function renderPhasePacketHtml(input: {
   highlights: string[];
   packet: unknown;
 }) {
-  const generatedAt = new Date().toISOString();
-  const serializedPacket = JSON.stringify(input.packet, null, 2);
+  const slides = buildSlides({
+    phase: input.phase,
+    packet: input.packet,
+    projectName: input.projectName,
+    domain: input.domain,
+    summary: input.summary,
+    highlights: input.highlights,
+  });
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>${esc(input.projectName)} ${esc(phaseLabel(input.phase))} Deck</title>
+  <title>${esc(input.projectName)} ${esc(phaseLabel(input.phase))} Pitch Deck</title>
   <style>
     :root {
-      --bg:#060b17;
-      --surface:#0c1427;
-      --surface2:#111b31;
-      --text:#e6edf9;
-      --muted:#8fa0bf;
+      --bg:#050b18;
+      --surface:#0d162c;
+      --surface2:#121d35;
+      --text:#e8eefc;
+      --muted:#9aabd0;
       --accent:#22c55e;
-      --border:rgba(143,160,191,.22);
+      --accent2:#60a5fa;
+      --border:rgba(154,171,208,.3);
     }
     * { box-sizing:border-box; }
     body {
       margin:0;
       font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: radial-gradient(circle at 10% 0%, rgba(34,197,94,.15), transparent 35%), var(--bg);
       color:var(--text);
-      line-height:1.5;
+      background:
+        radial-gradient(ellipse at 10% 0%, rgba(34,197,94,.18), transparent 40%),
+        radial-gradient(ellipse at 85% 100%, rgba(96,165,250,.12), transparent 45%),
+        var(--bg);
+      min-height:100vh;
+      overflow:hidden;
     }
-    .deck {
-      max-width: 1080px;
-      margin: 0 auto;
-      padding: 28px 18px 56px;
-      display:grid;
-      gap:14px;
+    .deck-shell {
+      width: 100%;
+      height: 100vh;
+      display:flex;
+      flex-direction:column;
+      padding: 16px;
+      gap: 12px;
     }
-    .card {
+    .deck-header {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      border:1px solid var(--border);
+      background: linear-gradient(150deg, var(--surface), var(--surface2));
+      border-radius: 12px;
+      padding: 12px 14px;
+    }
+    .deck-title {
+      font-size: 14px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      font-weight: 700;
+    }
+    .deck-controls {
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
+    .deck-btn {
+      border:1px solid var(--border);
+      background:#091126;
+      color:var(--text);
+      border-radius:8px;
+      font-size:12px;
+      padding:7px 10px;
+      cursor:pointer;
+      font-weight:700;
+    }
+    .deck-count {
+      font-size:12px;
+      color:var(--muted);
+      min-width:58px;
+      text-align:center;
+      font-weight:600;
+    }
+    .deck-viewport {
+      flex:1;
+      min-height:0;
+      position:relative;
+      overflow:hidden;
+    }
+    .slide {
+      position:absolute;
+      inset:0;
       border:1px solid var(--border);
       background: linear-gradient(160deg, var(--surface), var(--surface2));
-      border-radius: 14px;
-      padding: 18px 20px;
+      border-radius:16px;
+      padding: 26px 28px;
+      display:flex;
+      flex-direction:column;
+      gap:14px;
+      opacity:0;
+      transform: translateX(14px) scale(.985);
+      pointer-events:none;
+      transition: opacity .28s ease, transform .28s ease;
+      overflow:auto;
     }
-    .label {
-      color:var(--accent);
-      text-transform:uppercase;
-      font-size:12px;
-      letter-spacing:.08em;
-      font-weight:700;
-      margin-bottom:6px;
+    .slide.active {
+      opacity:1;
+      transform: translateX(0) scale(1);
+      pointer-events:auto;
     }
-    h1 {
+    .slide-title {
       margin:0;
       font-size:34px;
-      letter-spacing:-.02em;
       line-height:1.12;
+      letter-spacing:-.02em;
     }
-    .meta {
+    .slide-subtitle {
+      margin:0;
       color:var(--muted);
-      margin-top:8px;
-      font-size:13px;
+      font-size:14px;
     }
-    .summary {
+    .metrics {
+      display:grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px,1fr));
+      gap:10px;
+    }
+    .metric {
+      border:1px solid var(--border);
+      background:#081127;
+      border-radius:10px;
+      padding:10px 12px;
+    }
+    .metric-label {
+      font-size:10px;
+      text-transform:uppercase;
+      letter-spacing:.08em;
+      color:var(--muted);
+      margin-bottom:4px;
+      font-weight:700;
+    }
+    .metric-value {
+      font-size:14px;
+      color:var(--text);
+      font-weight:700;
+      line-height:1.35;
+    }
+    .slide p {
       margin:0;
       color:var(--text);
       font-size:16px;
+      line-height:1.5;
     }
     ul {
-      margin:8px 0 0;
-      padding-left: 20px;
+      margin:0;
+      padding-left:20px;
       display:grid;
       gap:8px;
     }
-    li { color:var(--text); }
-    pre {
-      margin:0;
-      white-space:pre-wrap;
-      overflow-wrap:anywhere;
-      font-size:12px;
-      color:#bfd0ee;
-      background:#060d1f;
-      border:1px solid rgba(191,208,238,.18);
-      border-radius:10px;
-      padding:14px;
-      max-height:520px;
-      overflow:auto;
+    li {
+      color:var(--text);
+      font-size:15px;
+      line-height:1.42;
+    }
+    .dot-nav {
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:6px;
+      flex-wrap:wrap;
+    }
+    .dot {
+      width:10px;
+      height:10px;
+      border-radius:50%;
+      border:1px solid var(--border);
+      background:transparent;
+      cursor:pointer;
+    }
+    .dot.active {
+      background:var(--accent);
+      border-color:var(--accent);
+      box-shadow: 0 0 0 3px rgba(34,197,94,.2);
+    }
+    @media (max-width: 900px) {
+      .deck-shell { padding: 10px; }
+      .slide { padding: 16px; border-radius: 12px; }
+      .slide-title { font-size: 24px; }
+      .slide p, li { font-size: 14px; }
     }
   </style>
 </head>
 <body>
-  <main class="deck">
-    <section class="card">
-      <div class="label">Startup Machine · ${esc(phaseLabel(input.phase))}</div>
-      <h1>${esc(input.projectName)}</h1>
-      <p class="meta">${esc(input.domain ?? "No domain")} · generated ${esc(new Date(generatedAt).toLocaleString())}</p>
-    </section>
-
-    <section class="card">
-      <div class="label">Condensed Summary</div>
-      <p class="summary">${esc(input.summary || "Summary pending.")}</p>
-    </section>
-
-    <section class="card">
-      <div class="label">Highlights</div>
-      <ul>
-        ${(input.highlights.length ? input.highlights : ["No highlights available yet."]).map((item) => `<li>${esc(item)}</li>`).join("\n")}
-      </ul>
-    </section>
-
-    <section class="card">
-      <div class="label">Packet JSON</div>
-      <pre>${esc(serializedPacket)}</pre>
-    </section>
+  <main class="deck-shell">
+    <header class="deck-header">
+      <div class="deck-title">${esc(input.projectName)} · ${esc(phaseLabel(input.phase))} Pitch Deck</div>
+      <div class="deck-controls">
+        <button type="button" class="deck-btn" id="prev-btn">Prev</button>
+        <div class="deck-count" id="deck-count">1 / ${slides.length}</div>
+        <button type="button" class="deck-btn" id="next-btn">Next</button>
+      </div>
+    </header>
+    <div class="deck-viewport">
+      ${slides
+        .map(
+          (slide, index) => `<section class="slide${index === 0 ? " active" : ""}" data-slide="${index}">
+        <h1 class="slide-title">${esc(slide.title)}</h1>
+        ${slide.subtitle ? `<p class="slide-subtitle">${esc(slide.subtitle)}</p>` : ""}
+        ${renderMetricCards(slide.metrics)}
+        ${(slide.paragraphs ?? []).map((paragraph) => `<p>${esc(paragraph)}</p>`).join("\n")}
+        ${slide.bullets && slide.bullets.length ? `<ul>${slide.bullets.map((item) => `<li>${esc(item)}</li>`).join("\n")}</ul>` : ""}
+      </section>`,
+        )
+        .join("\n")}
+    </div>
+    <nav class="dot-nav" id="dot-nav">
+      ${slides.map((_, index) => `<button class="dot${index === 0 ? " active" : ""}" data-dot="${index}" aria-label="Go to slide ${index + 1}"></button>`).join("\n")}
+    </nav>
   </main>
+  <script>
+    (function () {
+      const slides = Array.from(document.querySelectorAll('.slide'));
+      const dots = Array.from(document.querySelectorAll('.dot'));
+      const count = document.getElementById('deck-count');
+      const prev = document.getElementById('prev-btn');
+      const next = document.getElementById('next-btn');
+      let index = 0;
+
+      function show(nextIndex) {
+        index = (nextIndex + slides.length) % slides.length;
+        slides.forEach((slide, slideIndex) => slide.classList.toggle('active', slideIndex === index));
+        dots.forEach((dot, dotIndex) => dot.classList.toggle('active', dotIndex === index));
+        if (count) count.textContent = String(index + 1) + " / " + String(slides.length);
+      }
+
+      prev && prev.addEventListener('click', function () { show(index - 1); });
+      next && next.addEventListener('click', function () { show(index + 1); });
+      dots.forEach((dot) => {
+        dot.addEventListener('click', function () {
+          const target = Number(dot.getAttribute('data-dot') || 0);
+          show(target);
+        });
+      });
+      document.addEventListener('keydown', function (event) {
+        if (event.key === 'ArrowLeft') show(index - 1);
+        if (event.key === 'ArrowRight') show(index + 1);
+      });
+    })();
+  </script>
 </body>
 </html>`;
 }
 
-async function renderPhasePacketPptx(input: {
+function addSlideFrame(slide: PptxGenJS.Slide, title: string, subtitle?: string) {
+  slide.background = { color: "0B1221" };
+  slide.addShape("rect", {
+    x: 0.4,
+    y: 0.35,
+    w: 12.55,
+    h: 6.8,
+    line: { color: "2A3A5D", pt: 1 },
+    fill: { color: "0F1931" },
+  });
+  slide.addText(title, {
+    x: 0.9,
+    y: 0.7,
+    w: 10.8,
+    h: 0.7,
+    color: "EAF0FF",
+    fontSize: 28,
+    bold: true,
+  });
+  if (subtitle) {
+    slide.addText(subtitle, {
+      x: 0.9,
+      y: 1.35,
+      w: 10.8,
+      h: 0.4,
+      color: "9CB0D8",
+      fontSize: 12,
+      italic: true,
+    });
+  }
+}
+
+function addMetricBoxes(slide: PptxGenJS.Slide, metrics: Array<{ label: string; value: string }>, startY: number) {
+  const width = 3.8;
+  const gap = 0.3;
+  metrics.slice(0, 3).forEach((metric, index) => {
+    const x = 0.9 + index * (width + gap);
+    slide.addShape("roundRect", {
+      x,
+      y: startY,
+      w: width,
+      h: 1.05,
+      line: { color: "2E436C", pt: 1 },
+      fill: { color: "0A1430" },
+    });
+    slide.addText(metric.label, {
+      x: x + 0.18,
+      y: startY + 0.13,
+      w: width - 0.3,
+      h: 0.2,
+      color: "8CA2CF",
+      fontSize: 10,
+      bold: true,
+    });
+    slide.addText(metric.value, {
+      x: x + 0.18,
+      y: startY + 0.38,
+      w: width - 0.3,
+      h: 0.56,
+      color: "EAF0FF",
+      fontSize: 13,
+      bold: true,
+      valign: "top",
+    });
+  });
+}
+
+function toBulletRuns(items: string[]) {
+  return items.map((item) => ({ text: item, options: { bullet: { indent: 10 }, breakLine: true } }));
+}
+
+async function renderPhasePitchDeckPptx(input: {
   projectName: string;
   phase: number;
   domain: string | null;
   summary: string;
   highlights: string[];
+  packet: unknown;
 }) {
   const pptx = new PptxGenJS();
   pptx.layout = "LAYOUT_WIDE";
   pptx.author = "Startup Machine";
   pptx.company = "Startup Machine";
   pptx.subject = phaseLabel(input.phase);
-  pptx.title = `${input.projectName} ${phaseLabel(input.phase)} Deck`;
+  pptx.title = `${input.projectName} ${phaseLabel(input.phase)} Pitch Deck`;
 
   const cover = pptx.addSlide();
-  cover.background = { color: "050B18" };
-  cover.addShape(pptx.ShapeType.rect, {
+  cover.background = { color: "060C18" };
+  cover.addShape("rect", {
     x: 0,
     y: 0,
     w: 13.333,
     h: 7.5,
-    fill: { color: "050B18" },
-    line: { color: "050B18" },
+    fill: { color: "060C18" },
+    line: { color: "060C18" },
   });
   cover.addText("Startup Machine", {
-    x: 0.7,
-    y: 0.5,
-    w: 5.5,
-    h: 0.4,
+    x: 0.8,
+    y: 0.6,
+    w: 4.8,
+    h: 0.35,
     color: "22C55E",
-    fontSize: 16,
+    fontSize: 15,
     bold: true,
   });
   cover.addText(input.projectName, {
-    x: 0.7,
-    y: 1.3,
-    w: 11.6,
+    x: 0.8,
+    y: 1.35,
+    w: 11.8,
     h: 1.1,
-    color: "E6EDF9",
-    fontSize: 42,
+    color: "EAF0FF",
+    fontSize: 40,
     bold: true,
   });
-  cover.addText(phaseLabel(input.phase), {
-    x: 0.7,
-    y: 2.55,
-    w: 5,
-    h: 0.6,
-    color: "9FB1D3",
-    fontSize: 20,
+  cover.addText(`${phaseLabel(input.phase)} Pitch Deck`, {
+    x: 0.8,
+    y: 2.6,
+    w: 8,
+    h: 0.45,
+    color: "9CB0D8",
+    fontSize: 18,
     bold: true,
   });
   cover.addText(`${input.domain ?? "No domain"} · ${new Date().toLocaleDateString()}`, {
-    x: 0.7,
-    y: 3.3,
-    w: 8,
-    h: 0.4,
-    color: "8FA0BF",
-    fontSize: 13,
+    x: 0.8,
+    y: 3.2,
+    w: 9,
+    h: 0.3,
+    color: "8CA2CF",
+    fontSize: 12,
   });
 
-  const summarySlide = pptx.addSlide();
-  summarySlide.background = { color: "0C1427" };
-  summarySlide.addText("Condensed Summary", {
-    x: 0.7,
-    y: 0.6,
-    w: 11,
-    h: 0.5,
-    color: "22C55E",
-    fontSize: 20,
-    bold: true,
-  });
-  summarySlide.addText(input.summary || "Summary pending.", {
-    x: 0.7,
-    y: 1.35,
-    w: 11.8,
-    h: 2.1,
-    color: "E6EDF9",
-    fontSize: 20,
-    valign: "top",
-  });
+  const slides = buildSlides({
+    phase: input.phase,
+    packet: input.packet,
+    projectName: input.projectName,
+    domain: input.domain,
+    summary: input.summary,
+    highlights: input.highlights,
+  }).slice(1);
 
-  const highlightsSlide = pptx.addSlide();
-  highlightsSlide.background = { color: "101B31" };
-  highlightsSlide.addText("Key Highlights", {
-    x: 0.7,
-    y: 0.6,
-    w: 11,
-    h: 0.5,
-    color: "22C55E",
-    fontSize: 20,
-    bold: true,
-  });
-  const bullets = (input.highlights.length ? input.highlights : ["No highlights available yet."]).map((item) => ({
-    text: item,
-    options: { bullet: { indent: 12 }, breakLine: true },
-  }));
-  highlightsSlide.addText(bullets as Parameters<typeof highlightsSlide.addText>[0], {
-    x: 0.95,
-    y: 1.4,
-    w: 11.5,
-    h: 5.2,
-    color: "D7E2F6",
-    fontSize: 18,
-    lineSpacingMultiple: 1.18,
-  });
+  for (const descriptor of slides) {
+    const slide = pptx.addSlide();
+    addSlideFrame(slide, descriptor.title, descriptor.subtitle);
+
+    let cursorY = 1.9;
+    if (descriptor.metrics && descriptor.metrics.length > 0) {
+      addMetricBoxes(slide, descriptor.metrics, cursorY);
+      cursorY += 1.3;
+    }
+
+    if (descriptor.paragraphs && descriptor.paragraphs.length > 0) {
+      slide.addText(descriptor.paragraphs.join("\n\n"), {
+        x: 0.95,
+        y: cursorY,
+        w: 11.9,
+        h: 2,
+        color: "E5ECFF",
+        fontSize: 17,
+        valign: "top",
+      });
+      cursorY += 2.1;
+    }
+
+    if (descriptor.bullets && descriptor.bullets.length > 0) {
+      slide.addText(toBulletRuns(descriptor.bullets) as Parameters<typeof slide.addText>[0], {
+        x: 1.05,
+        y: cursorY,
+        w: 11.7,
+        h: 2.8,
+        color: "D9E4FA",
+        fontSize: 14,
+        lineSpacingMultiple: 1.2,
+      });
+    }
+  }
 
   return (await pptx.write({ outputType: "nodebuffer" })) as Buffer;
 }
@@ -346,7 +664,7 @@ export async function createPhasePacketPresentationAssets(input: PresentationInp
   const db = createServiceSupabase();
   const phase = Math.max(0, Math.min(3, Math.trunc(input.phase)));
   const highlights = derivePhaseHighlights(phase, input.packet, input.summary);
-  const html = renderPhasePacketHtml({
+  const html = renderPhaseDeckHtml({
     projectName: input.projectName,
     phase,
     domain: input.domain,
@@ -354,12 +672,13 @@ export async function createPhasePacketPresentationAssets(input: PresentationInp
     highlights,
     packet: input.packet,
   });
-  const pptxBuffer = await renderPhasePacketPptx({
+  const pptxBuffer = await renderPhasePitchDeckPptx({
     projectName: input.projectName,
     phase,
     domain: input.domain,
     summary: input.summary,
     highlights,
+    packet: input.packet,
   });
 
   const htmlPath = `${input.projectId}/phase-${phase}/phase-${phase}-packet.html`;
@@ -383,54 +702,67 @@ export async function createPhasePacketPresentationAssets(input: PresentationInp
     withRetry(() =>
       db
         .from("project_assets")
-        .insert({
-          project_id: input.projectId,
-          phase,
-          kind: "upload",
-          storage_bucket: "project-assets",
-          storage_path: htmlPath,
-          filename: `phase-${phase}-packet.html`,
-          mime_type: "text/html",
-          size_bytes: Buffer.byteLength(html, "utf8"),
-          status: "uploaded",
-          metadata: {
-            label: `Phase ${phase} Packet Deck (HTML)`,
-            phase_packet_deck: true,
-            phase_packet_embed: true,
+        .upsert(
+          {
+            project_id: input.projectId,
             phase,
-            auto_generated: true,
+            kind: "upload",
+            storage_bucket: "project-assets",
+            storage_path: htmlPath,
+            filename: `phase-${phase}-packet.html`,
+            mime_type: "text/html",
+            size_bytes: Buffer.byteLength(html, "utf8"),
+            status: "uploaded",
+            metadata: {
+              label: `Phase ${phase} Pitch Deck (HTML)`,
+              phase_packet_deck: true,
+              phase_packet_embed: true,
+              phase,
+              auto_generated: true,
+            },
+            created_by: createdBy,
           },
-          created_by: createdBy,
-        })
+          { onConflict: "project_id,storage_path" },
+        )
         .select("id")
         .single(),
     ),
     withRetry(() =>
       db
         .from("project_assets")
-        .insert({
-          project_id: input.projectId,
-          phase,
-          kind: "upload",
-          storage_bucket: "project-assets",
-          storage_path: pptxPath,
-          filename: `phase-${phase}-packet.pptx`,
-          mime_type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-          size_bytes: pptxBuffer.length,
-          status: "uploaded",
-          metadata: {
-            label: `Phase ${phase} Packet Deck (PPTX)`,
-            phase_packet_deck: true,
-            phase_packet_pptx: true,
+        .upsert(
+          {
+            project_id: input.projectId,
             phase,
-            auto_generated: true,
+            kind: "upload",
+            storage_bucket: "project-assets",
+            storage_path: pptxPath,
+            filename: `phase-${phase}-packet.pptx`,
+            mime_type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            size_bytes: pptxBuffer.length,
+            status: "uploaded",
+            metadata: {
+              label: `Phase ${phase} Pitch Deck (PPTX)`,
+              phase_packet_deck: true,
+              phase_packet_pptx: true,
+              phase,
+              auto_generated: true,
+            },
+            created_by: createdBy,
           },
-          created_by: createdBy,
-        })
+          { onConflict: "project_id,storage_path" },
+        )
         .select("id")
         .single(),
     ),
   ]);
+
+  if (htmlAssetRes.error) {
+    throw new Error(htmlAssetRes.error.message);
+  }
+  if (pptxAssetRes.error) {
+    throw new Error(pptxAssetRes.error.message);
+  }
 
   const htmlAssetId = (htmlAssetRes.data?.id as string | undefined) ?? null;
   const pptxAssetId = (pptxAssetRes.data?.id as string | undefined) ?? null;
@@ -452,7 +784,7 @@ export function readPacketSummaryForPhase(phase: number, packet: unknown) {
       return `${parsed.data.tagline}. ${parsed.data.elevator_pitch}`.trim();
     }
   }
-  return asString(record.summary, "Packet summary pending.");
+  return asString(record.summary, "Pitch deck summary pending.");
 }
 
 export function parsePacketForPhase(phase: number, packet: unknown) {

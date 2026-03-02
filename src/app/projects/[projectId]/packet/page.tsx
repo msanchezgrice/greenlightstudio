@@ -12,14 +12,14 @@ export async function generateMetadata({ params }: { params: Promise<{ projectId
   const { projectId } = await params;
   const db = createServiceSupabase();
   const { data } = await db.from("projects").select("name,domain").eq("id", projectId).maybeSingle();
-  if (!data) return { title: "Phase 0 Packet" };
+  if (!data) return { title: "Phase 0 Pitch Deck" };
   const name = data.name as string;
   return {
-    title: `${name} — Phase 0 Packet`,
-    description: `AI-generated decision packet for ${name}: market sizing, competitor analysis, and confidence score.`,
+    title: `${name} — Phase 0 Pitch Deck`,
+    description: `AI-generated decision pitch deck for ${name}: market sizing, competitor analysis, and confidence score.`,
     openGraph: {
-      title: `${name} — Phase 0 Packet | Startup Machine`,
-      description: `AI-generated decision packet with market sizing, competitor analysis, and go/no-go recommendation.`,
+      title: `${name} — Phase 0 Pitch Deck | Startup Machine`,
+      description: `AI-generated decision pitch deck with market sizing, competitor analysis, and go/no-go recommendation.`,
       type: "article",
     },
   };
@@ -118,15 +118,15 @@ export default async function PacketPage({ params }: { params: Promise<{ project
           <div className="nav-left">
             <div className="logo">▲ <span>Startup Machine</span></div>
             <div className="breadcrumb">
-              <Link href="/board">Board</Link> / <Link href={`/projects/${projectId}`}>{project.name}</Link> / <strong>Phase 0 Packet</strong>
+              <Link href="/board">Board</Link> / <Link href={`/projects/${projectId}`}>{project.name}</Link> / <strong>Phase 0 Pitch Deck</strong>
             </div>
           </div>
         </nav>
 
         <main className="page packet-page">
           <section className="studio-card">
-            <h1 className="page-title">Phase 0 Packet</h1>
-            <p className="meta-line">The packet is not available yet for this project.</p>
+            <h1 className="page-title">Phase 0 Pitch Deck</h1>
+            <p className="meta-line">The pitch deck is not available yet for this project.</p>
 
             {latestFailure && (
               <div className="alert error" style={{ marginTop: 12 }}>
@@ -171,8 +171,8 @@ export default async function PacketPage({ params }: { params: Promise<{ project
   if (!parsed.success) {
     return (
       <main className="page">
-        <h1 className="page-title">Phase 0 Packet</h1>
-        <p className="meta-line">Packet failed schema validation and cannot be rendered safely.</p>
+        <h1 className="page-title">Phase 0 Pitch Deck</h1>
+        <p className="meta-line">Pitch deck failed schema validation and cannot be rendered safely.</p>
       </main>
     );
   }
@@ -186,7 +186,7 @@ export default async function PacketPage({ params }: { params: Promise<{ project
         <div className="nav-left">
           <div className="logo">▲ <span>Startup Machine</span></div>
           <div className="breadcrumb">
-            <Link href="/board">Board</Link> / <Link href="/inbox">Inbox</Link> / <strong>Phase 0 Packet</strong>
+            <Link href="/board">Board</Link> / <Link href="/inbox">Inbox</Link> / <strong>Phase 0 Pitch Deck</strong>
           </div>
         </div>
         <div className="nav-right">
@@ -207,7 +207,7 @@ export default async function PacketPage({ params }: { params: Promise<{ project
                 <div className="ph-tagline">{packet.tagline}</div>
               </div>
             </div>
-            <div className="ph-phase">Phase 0 Packet</div>
+            <div className="ph-phase">Phase 0 Pitch Deck</div>
           </div>
           <div className="ph-pitch">{packet.elevator_pitch}</div>
           <div className="ph-meta">

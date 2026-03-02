@@ -440,7 +440,7 @@ export function BulkImportWizard() {
           <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>Bulk Import Projects</h1>
           <p style={{ color: "var(--text2)", fontSize: 15, marginBottom: 36 }}>
             Paste a list of domains, upload a CSV, or drop a screenshot &mdash; we&apos;ll scan each one and prepare
-            Phase 0 packets in batch.
+            Phase 0 pitch decks in batch.
           </p>
 
           {/* Method tabs */}

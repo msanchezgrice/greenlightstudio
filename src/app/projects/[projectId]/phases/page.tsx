@@ -41,6 +41,27 @@ type PacketRow = {
   created_at: string;
 };
 
+type RecommendationEventRow = {
+  created_at: string;
+  data: {
+    recommendations?: Array<{
+      priority?: number;
+      description?: string;
+      approval_action_type?: string | null;
+    }>;
+    approvals_queued?: number;
+  } | null;
+};
+
+type TechNewsEventRow = {
+  created_at: string;
+  data: {
+    asset_id?: string | null;
+    summary_preview?: string | null;
+    advances_count?: number | null;
+  } | null;
+};
+
 function gateClass(status: ApprovalRow["status"] | null) {
   if (status === "approved") return "good";
   if (status === "pending" || status === "revised") return "warn";
@@ -82,7 +103,15 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
   const projects = await getOwnedProjects(userId);
   const projectIds = projects.map((project) => project.id);
 
-  const [{ total: pendingCount }, projectQuery, approvalsQuery, tasksQuery, packetQuery] = await Promise.all([
+  const [
+    { total: pendingCount },
+    projectQuery,
+    approvalsQuery,
+    tasksQuery,
+    packetQuery,
+    recommendationEventQuery,
+    techNewsEventQuery,
+  ] = await Promise.all([
     getPendingApprovalsByProject(projectIds),
     withRetry(() =>
       db
@@ -116,6 +145,26 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
         .order("created_at", { ascending: false })
         .limit(10),
     ),
+    withRetry(() =>
+      db
+        .from("project_events")
+        .select("created_at,data")
+        .eq("project_id", projectId)
+        .eq("event_type", "nightshift.recommendations_generated")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ),
+    withRetry(() =>
+      db
+        .from("project_events")
+        .select("created_at,data")
+        .eq("project_id", projectId)
+        .eq("event_type", "research.tech_news_refreshed")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ),
   ]);
 
   if (projectQuery.error || !projectQuery.data) {
@@ -136,6 +185,24 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
   const approvals = (approvalsQuery.data ?? []) as ApprovalRow[];
   const tasks = (tasksQuery.data ?? []) as TaskRow[];
   const packets = (packetQuery.data ?? []) as PacketRow[];
+  const latestRecommendationEvent = (recommendationEventQuery.data as RecommendationEventRow | null) ?? null;
+  const recommendations = Array.isArray(latestRecommendationEvent?.data?.recommendations)
+    ? latestRecommendationEvent?.data?.recommendations ?? []
+    : [];
+  const topRecommendations = recommendations.slice(0, 3);
+  const latestTechNewsEvent = (techNewsEventQuery.data as TechNewsEventRow | null) ?? null;
+  const techNewsAssetId =
+    typeof latestTechNewsEvent?.data?.asset_id === "string" && latestTechNewsEvent.data.asset_id.trim().length > 0
+      ? latestTechNewsEvent.data.asset_id
+      : null;
+  const techNewsSummary =
+    typeof latestTechNewsEvent?.data?.summary_preview === "string"
+      ? latestTechNewsEvent.data.summary_preview
+      : null;
+  const techNewsAdvances =
+    typeof latestTechNewsEvent?.data?.advances_count === "number"
+      ? latestTechNewsEvent.data.advances_count
+      : null;
 
   const tasksByPhase = new Map<PhaseId, TaskRow[]>();
   for (const phase of PHASES) tasksByPhase.set(phase.id, []);
@@ -150,11 +217,20 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
 
   const activePhase = clampPhaseRoute(project.phase);
   const activePacket = packets.find((row) => row.phase === activePhase) ?? null;
+  const runningTaskCount = tasks.filter((item) => item.status === "running").length;
+  const pendingApprovalCount = approvals.filter((item) => item.status === "pending").length;
   const chatLinks: Array<{ label: string; href: string; external?: boolean }> = [
     { label: "Phase Overview", href: `/projects/${projectId}/phases` },
     { label: "Current Workspace", href: `/projects/${projectId}/phases/${activePhase}` },
     { label: "Approvals Inbox", href: `/inbox?project=${projectId}` },
   ];
+  if (techNewsAssetId) {
+    chatLinks.unshift({
+      label: "Tech + AI News",
+      href: `/api/projects/${projectId}/assets/${techNewsAssetId}/preview`,
+      external: true,
+    });
+  }
   if (project.live_url) {
     chatLinks.unshift({ label: "Live Landing", href: project.live_url, external: true });
   }
@@ -214,6 +290,57 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
               <p className="meta-line" style={{ marginTop: 10 }}>
                 Current phase: {activePhase} · confidence {activePacket ? `${activePacket.confidence}/100` : "--"}.
               </p>
+            </section>
+
+            <section className="studio-card">
+              <h2>Status Summary</h2>
+              <p className="meta-line">
+                {project.name} is in Phase {activePhase} with {pendingApprovalCount} pending approvals, {runningTaskCount} running tasks, and latest pitch deck confidence{" "}
+                {activePacket ? `${activePacket.confidence}/100` : "not generated"}.
+              </p>
+              {topRecommendations.length > 0 && (
+                <div style={{ marginTop: 10 }}>
+                  <div className="metric-label">Top Recommendations</div>
+                  <ul style={{ margin: "8px 0 0 16px", padding: 0, color: "var(--text2)", lineHeight: 1.5 }}>
+                    {topRecommendations.map((rec, index) => (
+                      <li key={`phase-summary-rec-${index}`}>{rec.description ?? "No description"}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </section>
+
+            <section className="studio-card">
+              <h2>Tech + AI News</h2>
+              {!techNewsAssetId ? (
+                <p className="meta-line">No tech-news insight has been generated yet.</p>
+              ) : (
+                <>
+                  <p className="meta-line" style={{ marginBottom: 10 }}>
+                    {techNewsSummary ?? "Latest technical and AI advances relevant to this project."}
+                  </p>
+                  <div className="project-metrics">
+                    <div>
+                      <div className="metric-label">Generated</div>
+                      <div className="metric-value">{new Date(latestTechNewsEvent?.created_at ?? new Date().toISOString()).toLocaleString()}</div>
+                    </div>
+                    <div>
+                      <div className="metric-label">Advances Tracked</div>
+                      <div className="metric-value">{techNewsAdvances ?? "--"}</div>
+                    </div>
+                  </div>
+                  <div className="card-actions" style={{ marginTop: 12 }}>
+                    <a
+                      href={`/api/projects/${projectId}/assets/${techNewsAssetId}/preview`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn-details"
+                    >
+                      Open Tech + AI News Brief
+                    </a>
+                  </div>
+                </>
+              )}
             </section>
 
             {PHASES.map((phase) => {
@@ -282,7 +409,7 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
                       <div className="metric-value bad">{failed}</div>
                     </div>
                     <div>
-                      <div className="metric-label">Packet Confidence</div>
+                      <div className="metric-label">Pitch Deck Confidence</div>
                       <div className="metric-value">{packet ? `${packet.confidence}/100` : "--"}</div>
                     </div>
                   </div>
@@ -371,15 +498,6 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
                     <Link href={`/projects/${projectId}/phases/${phase.id}`} className="btn btn-details">
                       Open Workspace
                     </Link>
-                    {packet ? (
-                      <Link href={`/projects/${projectId}/phases/${phase.id}`} className="btn btn-preview">
-                        Open Packet
-                      </Link>
-                    ) : (
-                      <span className="btn btn-preview btn-disabled" aria-disabled="true">
-                        No Packet
-                      </span>
-                    )}
                     {phase.id === 1 && project.live_url && (
                       <a
                         href={project.live_url}

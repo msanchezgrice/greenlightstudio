@@ -424,9 +424,16 @@ async function main() {
         console.log(`[worker] processed ${ran} jobs`);
       }
       if (cfg.maxJobsPerProcess > 0 && processedJobs >= cfg.maxJobsPerProcess) {
-        throw new FatalWorkerError(
-          `[worker] recycling process after ${processedJobs} jobs`,
-        );
+        console.warn(`[worker] soft recycle threshold reached after ${processedJobs} jobs`);
+        // Prefer an in-process recycle over fatal exit so single-instance workers stay available.
+        if (typeof global.gc === "function") {
+          try {
+            global.gc();
+          } catch {
+            // Ignore gc failures and continue polling.
+          }
+        }
+        processedJobs = 0;
       }
     } catch (e) {
       if (e instanceof FatalWorkerError) {

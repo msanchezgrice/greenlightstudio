@@ -72,7 +72,7 @@ async function runPhase0Inner({ projectId, userId, revisionGuidance, forceNewApp
       );
     }
 
-    await logPhaseTask(projectId, "ceo_agent", "phase0_init", "running", "Initializing packet generation");
+    await logPhaseTask(projectId, "ceo_agent", "phase0_init", "running", "Initializing pitch deck generation");
     initRunning = true;
 
     const { data: project, error: fetchError } = await withRetry(() =>
@@ -142,7 +142,7 @@ async function runPhase0Inner({ projectId, userId, revisionGuidance, forceNewApp
     await logPhaseTask(projectId, "research_agent", "phase0_research", "completed", `Research complete (${confidence}/100 confidence)`);
     researchRunning = false;
 
-    await logPhaseTask(projectId, "ceo_agent", "phase0_synthesis", "running", "Synthesizing packet output");
+    await logPhaseTask(projectId, "ceo_agent", "phase0_synthesis", "running", "Synthesizing pitch deck output");
     synthesisRunning = true;
 
     const packetId = await withRetry(() => save_packet(projectId, 0, packet));
@@ -163,7 +163,7 @@ async function runPhase0Inner({ projectId, userId, revisionGuidance, forceNewApp
       const detail = foundationError instanceof Error ? foundationError.message : "Phase 0 foundations failed";
       await logPhaseTask(projectId, "brand_agent", "phase0_brand_foundation", "failed", truncateDetail(detail)).catch(() => {});
       await logPhaseTask(projectId, "research_agent", "tech_news_refresh", "failed", truncateDetail(detail)).catch(() => {});
-      // Non-fatal: packet + approval should continue even if optional foundation assets fail.
+      // Non-fatal: pitch deck + approval should continue even if optional foundation assets fail.
     }
 
     if (shouldForceNewApproval) {
@@ -211,7 +211,7 @@ async function runPhase0Inner({ projectId, userId, revisionGuidance, forceNewApp
           packet_id: packetId,
           phase: 0,
           type: "phase_advance",
-          title: "Startup Machine Phase 0 Packet for Review",
+          title: "Startup Machine Phase 0 Pitch Deck for Review",
           description: `CEO recommendation: ${packet.recommendation.toUpperCase()} (${confidence}/100 confidence).`,
           risk,
           risk_level: risk,
@@ -226,7 +226,7 @@ async function runPhase0Inner({ projectId, userId, revisionGuidance, forceNewApp
       }
     }
 
-    await logPhaseTask(projectId, "ceo_agent", "phase0_synthesis", "completed", "Packet and approval queue saved");
+    await logPhaseTask(projectId, "ceo_agent", "phase0_synthesis", "completed", "Pitch deck and approval queue saved");
     synthesisRunning = false;
 
     if (trimmedGuidance) {
@@ -249,7 +249,7 @@ async function runPhase0Inner({ projectId, userId, revisionGuidance, forceNewApp
     throw error;
   }
 
-  await withRetry(() => log_task(projectId, "ceo_agent", "phase0_complete", "completed", "Phase 0 packet generated"));
+  await withRetry(() => log_task(projectId, "ceo_agent", "phase0_complete", "completed", "Phase 0 pitch deck generated"));
 
   // Fire-and-forget drip notification for first Phase 0 report
   try {

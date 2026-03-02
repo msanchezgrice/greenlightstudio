@@ -235,6 +235,9 @@ export default async function ProjectPhaseWorkspacePage({
   const packetParse = packetRow ? safeParsePacket(phase as PhaseId, packetRow.packet) : { packet: null, error: null };
   const phasePacketSummary = packetParse.packet ? readPacketSummaryForPhase(phase, packetParse.packet) : null;
   const phaseHighlights = packetParse.packet ? derivePhaseHighlights(phase, packetParse.packet, phasePacketSummary ?? "") : [];
+  const normalizedPitchSummary = (phasePacketSummary ?? "").replace(/\s+/g, " ").trim();
+  const pitchSummaryPreview =
+    normalizedPitchSummary.length > 320 ? `${normalizedPitchSummary.slice(0, 320).trimEnd()}…` : normalizedPitchSummary;
 
   return (
     <>
@@ -255,16 +258,6 @@ export default async function ProjectPhaseWorkspacePage({
             <Link href={`/projects/${projectId}/phases`} className="btn btn-details">
               All Phases
             </Link>
-            {phase === 0 &&
-              (packetRow ? (
-                <Link href={`/projects/${projectId}/phases/0`} className="btn btn-preview">
-                  Open Phase 0 Packet
-                </Link>
-              ) : (
-                <span className="btn btn-preview btn-disabled" aria-disabled="true">
-                  Open Phase 0 Packet
-                </span>
-              ))}
             <Link href="/inbox" className="btn btn-details">
               Inbox
             </Link>
@@ -293,7 +286,7 @@ export default async function ProjectPhaseWorkspacePage({
             <div className={`metric-value ${statusClass(gate?.status ?? "pending")}`}>{gate?.status ?? "not created"}</div>
           </div>
           <div>
-            <div className="metric-label">Packet Confidence</div>
+            <div className="metric-label">Pitch Deck Confidence</div>
             <div className="metric-value">{packetRow ? `${packetRow.confidence}/100` : "--"}</div>
           </div>
         </section>
@@ -311,22 +304,22 @@ export default async function ProjectPhaseWorkspacePage({
 
         {!packetRow && (
           <section className="studio-card">
-            <h2>Phase Packet</h2>
-            <p className="meta-line">No phase packet generated yet for this phase.</p>
+            <h2>Phase Pitch Deck</h2>
+            <p className="meta-line">No phase pitch deck generated yet for this phase.</p>
           </section>
         )}
 
         {packetRow && packetParse.error && (
           <section className="studio-card">
-            <h2>Phase Packet</h2>
-            <p className="meta-line">Packet exists but failed validation: {packetParse.error}</p>
+            <h2>Phase Pitch Deck</h2>
+            <p className="meta-line">Pitch deck exists but failed validation: {packetParse.error}</p>
           </section>
         )}
 
         {packetRow && packetParse.packet && (
           <section className="studio-card">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <h2 style={{ margin: 0 }}>Phase Packet Deck</h2>
+              <h2 style={{ margin: 0 }}>Phase Pitch Deck</h2>
               <div className="table-actions">
                 {packetDeckHtmlAsset && (
                   <a
@@ -350,7 +343,23 @@ export default async function ProjectPhaseWorkspacePage({
                 )}
               </div>
             </div>
-            <p className="meta-line" style={{ marginBottom: 10 }}>{phasePacketSummary ?? "No summary available yet."}</p>
+            <p className="meta-line" style={{ marginBottom: 10 }}>
+              {pitchSummaryPreview || "No summary available yet."}
+            </p>
+            {normalizedPitchSummary.length > pitchSummaryPreview.length && (
+              <details
+                style={{
+                  marginBottom: 12,
+                  border: "1px solid var(--border)",
+                  borderRadius: 10,
+                  padding: "8px 10px",
+                  background: "var(--surface, rgba(255,255,255,.03))",
+                }}
+              >
+                <summary style={{ cursor: "pointer", color: "var(--text2)", fontSize: 13 }}>View full narrative</summary>
+                <p style={{ margin: "8px 0 0", color: "var(--text2)", lineHeight: 1.55, fontSize: 13 }}>{normalizedPitchSummary}</p>
+              </details>
+            )}
             {phaseHighlights.length > 0 && (
               <div style={{ display: "grid", gap: 8, marginBottom: 14 }}>
                 {phaseHighlights.slice(0, 6).map((item, idx) => (
@@ -374,7 +383,7 @@ export default async function ProjectPhaseWorkspacePage({
               <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)", background: "#000" }}>
                 <iframe
                   src={`/api/projects/${projectId}/assets/${packetDeckHtmlAsset.id}/preview`}
-                  title={`Phase ${phase} Packet Deck`}
+                  title={`Phase ${phase} Pitch Deck`}
                   style={{ width: "100%", height: 520, border: "none", display: "block" }}
                   sandbox="allow-scripts allow-same-origin"
                 />
@@ -384,7 +393,7 @@ export default async function ProjectPhaseWorkspacePage({
               projectId={projectId}
               phase={phase}
               assetId={packetDeckHtmlAsset?.id ?? null}
-              label={`Refine Phase ${phase} Packet + Assets`}
+              label={`Refine Phase ${phase} Pitch Deck + Assets`}
               placeholder="Example: tighten the market narrative, make competitor comparison more specific, and improve visual hierarchy."
             />
           </section>
@@ -662,7 +671,7 @@ export default async function ProjectPhaseWorkspacePage({
                 projectId={projectId}
                 phase={1}
                 assetId={brandBriefHtmlAsset?.id ?? null}
-                label="Refine Brand Packet"
+                label="Refine Brand Pitch Deck"
                 placeholder="Example: make brand voice less generic, update palette to warmer tones, and regenerate deck visuals."
               />
             </section>

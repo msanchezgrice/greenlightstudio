@@ -145,7 +145,7 @@ export async function POST(req: Request, context: { params: Promise<{ projectId:
     await recordProjectEvent(db, {
       projectId,
       eventType: "phase0.launch_requested",
-      message: "Phase 0 packet generation requested",
+      message: "Phase 0 pitch deck generation requested",
       data: {
         launch_job_id: jobId,
         force_new_approval: forceNewApproval,
@@ -156,7 +156,7 @@ export async function POST(req: Request, context: { params: Promise<{ projectId:
 
     return NextResponse.json({ ok: true, started: true, jobId });
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Failed generating Phase 0 packet";
+    const errorMessage = error instanceof Error ? error.message : "Failed generating Phase 0 pitch deck";
     const statusCode = errorMessage === "Project not found" ? 404 : 500;
     return NextResponse.json(
       { error: errorMessage },

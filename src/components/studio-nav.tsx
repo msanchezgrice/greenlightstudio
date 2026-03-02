@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 type StudioTab = "dashboard" | "board" | "projects" | "inbox" | "chat" | "tasks" | "settings";
 
@@ -61,6 +62,7 @@ export function StudioNav({ active, pendingCount, runningCount = 0, urgentCount 
         </div>
       </div>
       <div className="nav-right">
+        <ThemeToggle />
         <div className={`agent-ticker ${isAlive ? "" : "idle"}`}>
           <span className="ticker-dot" />
           <span>

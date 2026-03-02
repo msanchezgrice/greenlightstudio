@@ -4,6 +4,7 @@ import { log_task } from "@/lib/supabase-mcp";
 import { sendPhase1ReadyDrip } from "@/lib/drip-emails";
 import { generateBrandBriefDeckSpec, generatePhase1LandingHtml, verifyLandingDesign, type ToolTrace } from "@/lib/agent";
 import { generateBrandImages, uploadBrandImages } from "@/lib/brand-generator";
+import { runBrandConsistencyReview } from "@/lib/brand-consistency";
 import { renderBrandBriefHtml, generateBrandBriefPptx } from "@/lib/brand-presentation";
 import type { Phase1Packet } from "@/types/phase-packets";
 
@@ -19,6 +20,91 @@ function buildLaunchUrl(projectId: string, appBaseUrl?: string) {
   const rawBase = (appBaseUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? "").trim();
   const normalizedBase = rawBase.replace(/\/+$/, "");
   return normalizedBase ? `${normalizedBase}/launch/${projectId}` : `/launch/${projectId}`;
+}
+
+type LandingReferenceImage = {
+  label: string;
+  mime_type: string;
+  data_base64: string;
+};
+
+function shouldUseGeminiLandingGenerator() {
+  const requestedModel = process.env.PHASE1_LANDING_MODEL?.trim().toLowerCase() ?? "";
+  if (requestedModel.includes("gemini-3.1-pro-preview")) return true;
+  return process.env.PHASE1_LANDING_USE_GEMINI === "1";
+}
+
+async function loadLandingReferenceImages(projectId: string): Promise<LandingReferenceImage[]> {
+  const db = createServiceSupabase();
+  const { data: rows, error } = await withRetry(() =>
+    db
+      .from("project_assets")
+      .select("id,filename,mime_type,storage_bucket,storage_path,metadata")
+      .eq("project_id", projectId)
+      .eq("status", "uploaded")
+      .order("created_at", { ascending: false })
+      .limit(80),
+  );
+  if (error) return [];
+
+  const ranked = (rows ?? [])
+    .map((row) => {
+      const metadata = (row.metadata as Record<string, unknown> | null) ?? {};
+      const filename = String(row.filename ?? "");
+      const isImage = typeof row.mime_type === "string" && row.mime_type.startsWith("image/");
+      if (!isImage) return null;
+      const isBrandAsset = metadata.brand_asset === true || metadata.phase0_brand_foundation === true;
+      if (!isBrandAsset) return null;
+      const rank =
+        filename === "logo.png"
+          ? 0
+          : filename === "hero.png"
+            ? 1
+            : filename === "website-feature.png"
+              ? 2
+              : filename === "website-product.png"
+                ? 3
+                : filename === "social-square.png"
+                  ? 4
+                  : 8;
+      return {
+        id: String(row.id),
+        filename,
+        mime_type: String(row.mime_type),
+        storage_bucket: String(row.storage_bucket),
+        storage_path: String(row.storage_path),
+        label: typeof metadata.label === "string" ? metadata.label : filename,
+        rank,
+      };
+    })
+    .filter(
+      (
+        row,
+      ): row is {
+        id: string;
+        filename: string;
+        mime_type: string;
+        storage_bucket: string;
+        storage_path: string;
+        label: string;
+        rank: number;
+      } => Boolean(row),
+    )
+    .sort((left, right) => left.rank - right.rank)
+    .slice(0, 4);
+
+  const out: LandingReferenceImage[] = [];
+  for (const asset of ranked) {
+    const { data: file, error: downloadError } = await db.storage.from(asset.storage_bucket).download(asset.storage_path);
+    if (downloadError || !file) continue;
+    const bytes = Buffer.from(await file.arrayBuffer());
+    out.push({
+      label: asset.label,
+      mime_type: asset.mime_type,
+      data_base64: bytes.toString("base64"),
+    });
+  }
+  return out;
 }
 
 export async function generatePhase1Deliverables(
@@ -41,6 +127,8 @@ export async function generatePhase1Deliverables(
 
   const landingTrack = async () => {
     const MAX_LANDING_VARIANTS = 3;
+    const useGeminiLanding = shouldUseGeminiLandingGenerator();
+    const referenceImages = useGeminiLanding ? await loadLandingReferenceImages(project.id) : [];
     await log_task(project.id, "design_agent", "phase1_landing_deploy", "running", "Agent designing production landing page (frontend-design skill)");
 
     const landingInput = {
@@ -84,6 +172,8 @@ export async function generatePhase1Deliverables(
         const agentResult = await generatePhase1LandingHtml({
           ...landingInput,
           improvement_guidance: reviewGuidance,
+          reference_images: referenceImages,
+          preferred_model: useGeminiLanding ? "gemini" : "anthropic",
         });
         traces.push(...agentResult.traces);
 
@@ -395,6 +485,24 @@ export async function generatePhase1Deliverables(
 
     const totalAssets = brandImages.length + 2;
     await log_task(project.id, "brand_agent", "phase1_brand_assets", "completed", `Generated ${totalAssets} brand assets (${brandImages.length} images + HTML brief + PPTX)`);
+
+    try {
+      await runBrandConsistencyReview({
+        db,
+        projectId: project.id,
+        ownerClerkId: project.owner_clerk_id ?? "system",
+        phase: 1,
+        reason: "phase1_auto",
+      });
+    } catch (error) {
+      await log_task(
+        project.id,
+        "brand_agent",
+        "brand_consistency_review",
+        "failed",
+        error instanceof Error ? error.message.slice(0, 240) : "Brand consistency review failed",
+      ).catch(() => {});
+    }
   };
 
   try {

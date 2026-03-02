@@ -49,7 +49,7 @@ const TASK_LABELS: Record<string, string> = {
   phase0_init: "Initializing project",
   phase0_research: "Researching market & competitors",
   phase0_research_query: "Running research queries",
-  phase0_packet: "Building pitch packet",
+  phase0_packet: "Building Phase 0 pitch deck",
   phase0_packet_deck: "Building phase deck",
   phase0_brand_foundation: "Creating brand foundation",
   phase0_failed: "Research failed",
@@ -93,14 +93,14 @@ export function taskOutputLink(description: string, projectId: string): { href: 
     return { href: `/projects/${projectId}/phases/1`, label: "View Brand Kit" };
   }
   if (description === "phase0_complete" || description === "phase0_packet") {
-    return { href: `/projects/${projectId}/phases/0`, label: "View Packet" };
+    return { href: `/projects/${projectId}/phases/0`, label: "Open Phase 0 Workspace" };
   }
   if (description === "nightshift_summary") {
     return { href: `/projects/${projectId}/phases`, label: "View Phases" };
   }
   const phase = taskPhase(description);
   if (phase === null) return null;
-  if (phase === 0) return { href: `/projects/${projectId}/phases/0`, label: "View Packet" };
+  if (phase === 0) return { href: `/projects/${projectId}/phases/0`, label: "Open Phase 0 Workspace" };
   return { href: `/projects/${projectId}/phases/${phase}`, label: `View Phase ${phase}` };
 }
 
@@ -108,7 +108,7 @@ export const PHASES: PhaseDefinition[] = [
   {
     id: 0,
     label: "Phase 0",
-    title: "Pitch Packet",
+    title: "Pitch Deck",
     summary: "Research, market sizing, competitor analysis, and CEO recommendation.",
     deliverables: [
       "Competitor Analysis",

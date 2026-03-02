@@ -90,10 +90,10 @@ function progressForProject(p: ProjectRow): { pct: number; label: string; gradie
     return { pct, label, gradient: phaseGradient(p.phase) };
   }
 
-  // Idle with packet ready
+  // Idle with pitch deck ready
   if (p.confidence !== null) {
     const pct = Math.min(base + 25, 100);
-    const label = "Packet ready";
+    const label = "Pitch deck ready";
     return { pct, label, gradient: phaseGradient(p.phase) };
   }
 

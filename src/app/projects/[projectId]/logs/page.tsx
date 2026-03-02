@@ -79,14 +79,6 @@ type RecommendationEventRow = {
   } | null;
 };
 
-type ProjectPermissions = {
-  repo_write?: boolean;
-  deploy?: boolean;
-  email_send?: boolean;
-  ads_enabled?: boolean;
-  ads_budget_cap?: number;
-};
-
 function riskClass(risk: ApprovalRow["risk"]) {
   if (risk === "high") return "bad";
   if (risk === "medium") return "warn";
@@ -114,7 +106,7 @@ function assetKindLabel(kind: string) {
     email_template: "Email Template",
     ads_creative: "Ad Creative",
     release_note: "Release Note",
-    packet_export: "Packet Export",
+    packet_export: "Pitch Deck Export",
   };
   return labels[kind] ?? kind;
 }
@@ -161,7 +153,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
     withRetry(() =>
       db
         .from("projects")
-        .select("id,name,domain,repo_url,phase,runtime_mode,permissions,night_shift,focus_areas,live_url,deploy_status,created_at,updated_at")
+        .select("id,name,domain,repo_url,phase,runtime_mode,night_shift,focus_areas,live_url,deploy_status,created_at,updated_at")
         .eq("id", projectId)
         .eq("owner_clerk_id", userId)
         .maybeSingle(),
@@ -252,7 +244,6 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const approvals = (approvalsQuery.data ?? []) as ApprovalRow[];
   const tasks = (tasksQuery.data ?? []) as TaskRow[];
   const packet = packetQuery.data;
-  const permissions = (project.permissions as ProjectPermissions | null) ?? {};
   const nightShiftSummary = (nightShiftSummaryQuery.data as NightShiftSummaryRow | null) ?? null;
   const nightShiftFailures = (nightShiftFailuresQuery.data ?? []) as NightShiftSummaryRow[];
   const brain = (brainQuery.data as BrainRow | null) ?? null;
@@ -320,25 +311,6 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
           </div>
             </div>
 
-        <section className="studio-card">
-          <h2>Status Summary</h2>
-          <p className="meta-line">
-            {project.name} is in {phaseLabel(project.phase)} with {approvals.filter((item) => item.status === "pending").length} pending approvals,{" "}
-            {tasks.filter((item) => item.status === "running").length} running tasks, and latest packet confidence{" "}
-            {packet ? `${packet.confidence}/100` : "not generated"}.
-          </p>
-          {recommendationsLimited.length > 0 && (
-            <div style={{ marginTop: 10 }}>
-              <div className="metric-label">Top Recommendations</div>
-              <ul style={{ margin: "8px 0 0 16px", padding: 0, color: "var(--text2)", lineHeight: 1.5 }}>
-                {recommendationsLimited.map((rec, idx) => (
-                  <li key={`status-rec-${idx}`}>{rec.description ?? "No description"}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </section>
-
         <section className="studio-card project-meta-grid">
           <div>
             <div className="metric-label">Phase</div>
@@ -349,7 +321,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
             <div className="metric-value">{project.runtime_mode === "attached" ? "Attached" : "Shared"}</div>
           </div>
           <div>
-            <div className="metric-label">Latest Packet</div>
+            <div className="metric-label">Latest Pitch Deck</div>
             <div className="metric-value">{packet ? `${packet.confidence}/100` : "Not generated"}</div>
           </div>
           <div>
@@ -363,28 +335,6 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
           <div>
             <div className="metric-label">Focus Areas</div>
             <div className="metric-value">{project.focus_areas?.length ? project.focus_areas.join(", ") : "None"}</div>
-          </div>
-        </section>
-
-        <section className="studio-card">
-          <h2>Permission Ladder</h2>
-          <div className="project-metrics">
-            <div>
-              <div className="metric-label">Repo Write</div>
-              <div className={`metric-value ${permissions.repo_write ? "good" : "tone-muted"}`}>{permissions.repo_write ? "On" : "Off"}</div>
-            </div>
-            <div>
-              <div className="metric-label">Deploy</div>
-              <div className={`metric-value ${permissions.deploy ? "good" : "tone-muted"}`}>{permissions.deploy ? "On" : "Off"}</div>
-            </div>
-            <div>
-              <div className="metric-label">Email</div>
-              <div className={`metric-value ${permissions.email_send ? "good" : "tone-muted"}`}>{permissions.email_send ? "On" : "Off"}</div>
-            </div>
-            <div>
-              <div className="metric-label">Ads Budget</div>
-              <div className="metric-value">{permissions.ads_enabled ? `$${Number(permissions.ads_budget_cap ?? 0)}/day` : "$0/day"}</div>
-            </div>
           </div>
         </section>
 
@@ -484,9 +434,9 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
         </section>
 
         <section className="studio-card">
-          <h2>Phases &amp; Packets</h2>
+          <h2>Phases &amp; Pitch Decks</h2>
           {!allPacketsLimited.length ? (
-            <p className="meta-line">No packets generated yet across any phase.</p>
+            <p className="meta-line">No pitch decks generated yet across any phase.</p>
           ) : (
             <div className="table-shell">
               <table className="studio-table compact">
@@ -507,15 +457,9 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
                       </td>
                       <td>{new Date(pkt.created_at).toLocaleString()}</td>
                       <td>
-                        {pkt.phase === 0 ? (
-                          <Link href={`/projects/${projectId}/phases/0`} className="btn btn-details btn-sm">
-                            View Packet
-                          </Link>
-                        ) : (
-                          <Link href={`/projects/${projectId}/phases/${pkt.phase}`} className="btn btn-details btn-sm">
-                            View Phase
-                          </Link>
-                        )}
+                        <Link href={`/projects/${projectId}/phases/${pkt.phase}`} className="btn btn-details btn-sm">
+                          Open Workspace
+                        </Link>
                       </td>
                     </tr>
                   ))}

@@ -1,5 +1,6 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenAI } from "@google/genai";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { requireEnv } from "@/lib/env";
@@ -2188,7 +2189,80 @@ export async function generatePhase1LandingHtml(input: {
   waitlist_fields: string[];
   project_id?: string;
   improvement_guidance?: string;
+  reference_images?: Array<{ label: string; mime_type: string; data_base64: string }>;
+  preferred_model?: "anthropic" | "gemini";
 }): Promise<{ html: string; traces: ToolTrace[] }> {
+  function sanitizeGeneratedHtml(rawHtml: string) {
+    let html = rawHtml;
+    html = html.replace(/^```(?:html)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
+
+    const docTypeMatch = html.match(/<!DOCTYPE\s+html[^>]*>/i);
+    if (docTypeMatch) {
+      const startIdx = html.indexOf(docTypeMatch[0]);
+      const endIdx = html.lastIndexOf("</html>");
+      if (startIdx >= 0 && endIdx > startIdx) {
+        html = html.slice(startIdx, endIdx + "</html>".length);
+      }
+    }
+
+    if (!html.includes("<!DOCTYPE") && !html.includes("<!doctype")) {
+      const htmlTagMatch = html.match(/<html[\s>]/i);
+      if (htmlTagMatch) {
+        const startIdx = html.indexOf(htmlTagMatch[0]);
+        const endIdx = html.lastIndexOf("</html>");
+        if (startIdx >= 0 && endIdx > startIdx) {
+          html = "<!DOCTYPE html>\n" + html.slice(startIdx, endIdx + "</html>".length);
+        }
+      }
+    }
+
+    if (!html.includes("<!DOCTYPE") && !html.includes("<!doctype") && !html.includes("<html")) {
+      throw new Error("Agent did not produce a valid HTML document");
+    }
+
+    return html;
+  }
+
+  async function generateLandingHtmlWithGemini(prompt: string, references: Array<{ label: string; mime_type: string; data_base64: string }>) {
+    const apiKey = process.env.GEMINI_API_KEY?.trim() || process.env.NANOBANANA_GEMINI_API_KEY?.trim();
+    if (!apiKey) {
+      throw new Error("Gemini landing generation requires GEMINI_API_KEY or NANOBANANA_GEMINI_API_KEY");
+    }
+    const model = process.env.PHASE1_LANDING_MODEL?.trim() || "gemini-3.1-pro-preview";
+    const ai = new GoogleGenAI({ apiKey });
+
+    const parts: Array<Record<string, unknown>> = [{ text: prompt }];
+    if (references.length > 0) {
+      parts.push({
+        text:
+          "Use the following reference images generated in the first pass to keep visual direction consistent. Integrate their style, palette, and composition cues into the landing page layout.",
+      });
+      for (const ref of references.slice(0, 4)) {
+        parts.push({ text: `Reference image: ${ref.label}` });
+        parts.push({
+          inlineData: {
+            mimeType: ref.mime_type,
+            data: ref.data_base64,
+          },
+        });
+      }
+    }
+
+    const response = await ai.models.generateContent({
+      model,
+      contents: [{ role: "user", parts }],
+    });
+    const raw = (response.candidates?.[0]?.content?.parts ?? [])
+      .map((part) => (typeof part.text === "string" ? part.text : ""))
+      .join("\n")
+      .trim();
+    if (!raw) throw new Error("Gemini returned an empty landing response");
+    return raw;
+  }
+
+  const requestedModel = input.preferred_model ?? "anthropic";
+  const envModel = process.env.PHASE1_LANDING_MODEL?.trim().toLowerCase() ?? "";
+  const useGemini = requestedModel === "gemini" || envModel.includes("gemini-3.1-pro-preview");
   const improvementGuidance = input.improvement_guidance?.trim() ?? "";
   const refinementBlock = improvementGuidance
     ? `
@@ -2251,42 +2325,15 @@ Do NOT include commentary, explanations, or JSON. Just the HTML.`;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      const htmlText = await runDirectTextPrompt(
-        prompt,
-        AGENT_PROFILES.designer_frontend.timeoutMs,
-        8192,
-      );
-      let html = htmlText;
+      const htmlText = useGemini
+        ? await generateLandingHtmlWithGemini(prompt, input.reference_images ?? [])
+        : await runDirectTextPrompt(
+            prompt,
+            AGENT_PROFILES.designer_frontend.timeoutMs,
+            8192,
+          );
 
-      // Strip markdown code fences that some models wrap around HTML
-      html = html.replace(/^```(?:html)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
-
-      const docTypeMatch = html.match(/<!DOCTYPE\s+html[^>]*>/i);
-      if (docTypeMatch) {
-        const startIdx = html.indexOf(docTypeMatch[0]);
-        const endIdx = html.lastIndexOf("</html>");
-        if (startIdx >= 0 && endIdx > startIdx) {
-          html = html.slice(startIdx, endIdx + "</html>".length);
-        }
-      }
-
-      // Fallback: look for <html> tag even without DOCTYPE
-      if (!html.includes("<!DOCTYPE") && !html.includes("<!doctype")) {
-        const htmlTagMatch = html.match(/<html[\s>]/i);
-        if (htmlTagMatch) {
-          const startIdx = html.indexOf(htmlTagMatch[0]);
-          const endIdx = html.lastIndexOf("</html>");
-          if (startIdx >= 0 && endIdx > startIdx) {
-            html = "<!DOCTYPE html>\n" + html.slice(startIdx, endIdx + "</html>".length);
-          }
-        }
-      }
-
-      if (!html.includes("<!DOCTYPE") && !html.includes("<!doctype") && !html.includes("<html")) {
-        throw new Error("Agent did not produce a valid HTML document");
-      }
-
-      return { html, traces: allTraces };
+      return { html: sanitizeGeneratedHtml(htmlText), traces: allTraces };
     } catch (error) {
       lastError = error instanceof Error ? error : new Error("Landing HTML generation failed");
       const retryable = /timed out|empty response|valid html document/i.test(lastError.message);

@@ -47,7 +47,7 @@ export default function Home() {
         <div className={styles.heroStats}>
           <div className={styles.heroStat}>
             <div className={styles.heroNum}>47m</div>
-            <div className={styles.heroLabel}>Avg. time to packet</div>
+            <div className={styles.heroLabel}>Avg. time to pitch deck</div>
           </div>
           <div className={styles.heroStat}>
             <div className={styles.heroNum}>13</div>
@@ -100,7 +100,7 @@ export default function Home() {
             <div className={styles.stepNum}>4</div>
             <div className={styles.stepTitle}>Decide</div>
             <div className={styles.stepDesc}>
-              Your CEO Agent produces a meeting-style packet with market sizing, competitors, MVP scope, and a
+              Your CEO Agent produces a meeting-style pitch deck with market sizing, competitors, MVP scope, and a
               confidence-scored recommendation.
             </div>
           </div>
@@ -122,7 +122,7 @@ export default function Home() {
           <div className={styles.phaseCard}>
             <div className={`${styles.phaseTop} ${styles.phaseTopGreen}`}>Phase 0</div>
             <div className={styles.phaseBody}>
-              <div className={styles.phaseName}>Pitch Packet</div>
+              <div className={styles.phaseName}>Pitch Deck</div>
               <div className={styles.phaseItems}>Market sizing<br />Competitor analysis<br />Target persona<br />MVP scope<br />CEO recommendation<br />.pptx pitch deck</div>
             </div>
           </div>
@@ -159,7 +159,7 @@ export default function Home() {
         <div className={styles.featuresGrid}>
           <div className={styles.featCard}>
             <div className={styles.featIcon}>📋</div>
-            <div className={styles.featTitle}>Meeting-Style Packets</div>
+            <div className={styles.featTitle}>Meeting-Style Pitch Decks</div>
             <div className={styles.featDesc}>
               Not a dashboard. A one-pager your CEO would present with confidence score, competitive gaps,
               market sizing, and a clear recommendation.

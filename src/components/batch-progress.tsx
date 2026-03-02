@@ -74,7 +74,7 @@ function AnimatedNumber({ value, duration = 800 }: { value: number; duration?: n
 
 /* ---------- Helpers ---------- */
 
-const stageLabels = ["Scan", "Research", "Synthesis", "Packet"];
+const stageLabels = ["Scan", "Research", "Synthesis", "Pitch Deck"];
 
 const statusIcons: Record<string, string> = {
   done: "\u2713",
@@ -111,7 +111,7 @@ function deriveProjectRow(
 
   if (hasPacket) {
     stages = ["done", "done", "done", "done"];
-    statusLabel = `${statusIcons.done} Packet Ready`;
+    statusLabel = `${statusIcons.done} Pitch Deck Ready`;
     statusClass = "done";
     actionType = "review";
   } else if (hasFailed) {

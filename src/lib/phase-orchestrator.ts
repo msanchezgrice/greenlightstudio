@@ -317,7 +317,7 @@ export async function enqueueNextPhaseArtifacts(projectId: string, phase: number
         "ceo_agent",
         `phase${plan.phase}_revision`,
         "running",
-        revisionGuidance ? `Re-running phase with guidance: ${revisionGuidance.slice(0, 320)}` : "Re-running phase packet",
+        revisionGuidance ? `Re-running phase with guidance: ${revisionGuidance.slice(0, 320)}` : "Re-running phase pitch deck",
       ),
     );
   }
@@ -394,7 +394,7 @@ export async function enqueueNextPhaseArtifacts(projectId: string, phase: number
       "ceo_agent",
       `phase${plan.phase}_packet_deck`,
       "failed",
-      deckError instanceof Error ? deckError.message.slice(0, 260) : "Packet deck generation failed",
+      deckError instanceof Error ? deckError.message.slice(0, 260) : "Pitch deck generation failed",
     ).catch(() => {});
   }
 
@@ -402,7 +402,7 @@ export async function enqueueNextPhaseArtifacts(projectId: string, phase: number
   if (packetDeck?.htmlPreviewUrl) {
     packetDeckDeliverables.push({
       kind: `phase${plan.phase}_packet_html`,
-      label: `Phase ${plan.phase} Packet Deck (HTML)`,
+      label: `Phase ${plan.phase} Pitch Deck (HTML)`,
       url: packetDeck.htmlPreviewUrl,
       storage_path: null,
       status: "generated",
@@ -412,7 +412,7 @@ export async function enqueueNextPhaseArtifacts(projectId: string, phase: number
   if (packetDeck?.pptxPreviewUrl) {
     packetDeckDeliverables.push({
       kind: `phase${plan.phase}_packet_pptx`,
-      label: `Phase ${plan.phase} Packet Deck (PowerPoint)`,
+      label: `Phase ${plan.phase} Pitch Deck (PowerPoint)`,
       url: packetDeck.pptxPreviewUrl,
       storage_path: null,
       status: "generated",
@@ -485,7 +485,7 @@ export async function enqueueNextPhaseArtifacts(projectId: string, phase: number
 
   if (forceRegenerate) {
     await withRetry(() =>
-      log_task(projectId, "ceo_agent", `phase${plan.phase}_revision`, "completed", "Revision packet generated"),
+      log_task(projectId, "ceo_agent", `phase${plan.phase}_revision`, "completed", "Revision pitch deck generated"),
     );
   }
 

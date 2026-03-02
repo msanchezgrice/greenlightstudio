@@ -980,14 +980,14 @@ export function OnboardingWizard() {
             <h2>Here Is What We Found</h2>
             <span className="pill blue">S1.5</span>
           </div>
-          <p className="wizard-desc">Review discovery results. We will use this context in your Phase 0 packet.</p>
+          <p className="wizard-desc">Review discovery results. We will use this context in your Phase 0 pitch deck.</p>
 
           {cacheHit !== null && <p className="field-note">{cacheHit ? "Cached scan result (24h cache)." : "Fresh scan result."}</p>}
 
           {domainStatus === "live" && (
             <div className="success-state">
               <p className="success-text">
-                {primaryDomain} is LIVE. Existing site context will be included in packet generation.
+                {primaryDomain} is LIVE. Existing site context will be included in pitch deck generation.
               </p>
             </div>
           )}
@@ -1106,7 +1106,7 @@ export function OnboardingWizard() {
               <span className="pill cyan">S1.6</span>
             </div>
             <p className="field-note" style={{ marginTop: 0, marginBottom: 10 }}>
-              This context is required and is fed into packet and landing-page generation. Fill all fields for focused outputs.
+              This context is required and is fed into pitch deck and landing-page generation. Fill all fields for focused outputs.
             </p>
 
             <label className="field-label">App Description</label>
@@ -1276,7 +1276,7 @@ export function OnboardingWizard() {
           <div className="next-box">
             <div className="next-box-title">What happens next</div>
             <div className="next-box-text">
-              Your CEO agent begins Phase 0 immediately: competitor research, market sizing, and packet synthesis.
+              Your CEO agent begins Phase 0 immediately: competitor research, market sizing, and pitch deck synthesis.
               {parsedDomains.length > 1 ? ` We will create ${parsedDomains.length} projects (one per domain).` : ""}
               {" Night shift runs autonomously by default and sends daily updates."}
             </div>
@@ -1297,7 +1297,7 @@ export function OnboardingWizard() {
 
           {launchProgress.length > 0 && (
             <div className="task-progress">
-              <div className="field-label">Packet Generation Progress{busy && launchElapsed > 3 ? ` — ${formatElapsed(launchElapsed)}` : ""}</div>
+              <div className="field-label">Pitch Deck Generation Progress{busy && launchElapsed > 3 ? ` — ${formatElapsed(launchElapsed)}` : ""}</div>
               {launchProgress.map((task, index) => (
                 <div key={`${task.created_at}-${index}`} className="task-item">
                   <span>{humanizeTaskDescription(task.description)}{task.detail ? ` — ${task.detail}` : ""}</span>
@@ -1338,7 +1338,7 @@ export function OnboardingWizard() {
             <h2>Project Launched</h2>
           </div>
           <p className="wizard-desc" style={{ textAlign: "center" }}>
-            Your CEO agent is now generating the Phase 0 greenlight packet.
+            Your CEO agent is now generating the Phase 0 greenlight pitch deck.
           </p>
 
           {launchProgress.length > 0 && (
