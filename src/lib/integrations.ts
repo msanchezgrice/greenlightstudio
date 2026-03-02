@@ -72,7 +72,7 @@ export async function sendResendEmail(input: { to: string; subject: string; html
     (resolved.config.from_email as string | undefined)?.trim() ||
     process.env.RESEND_FROM_EMAIL?.trim() ||
     process.env.RESEND_FALLBACK_FROM_EMAIL?.trim() ||
-    "Startup Machine <noreply@startupmachine.ai>";
+    "Startup Machine <onboarding@resend.dev>";
 
   const identity = input.projectId ? await getProjectEmailIdentity(input.projectId).catch(() => null) : null;
   const replyTo = input.replyTo?.trim() || identity?.reply_address || undefined;
