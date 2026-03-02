@@ -353,7 +353,11 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
                 <>
                   <p className="meta-line">No tech-news insight has been generated yet.</p>
                   <div className="card-actions" style={{ marginTop: 12 }}>
-                    <TechNewsRefreshButton projectId={projectId} />
+                    <TechNewsRefreshButton
+                      projectId={projectId}
+                      autoOnMount
+                      generatedAt={techNewsGeneratedAt}
+                    />
                   </div>
                 </>
               ) : (
@@ -372,7 +376,11 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
                     </div>
                   </div>
                   <div className="card-actions" style={{ marginTop: 12 }}>
-                    <TechNewsRefreshButton projectId={projectId} />
+                    <TechNewsRefreshButton
+                      projectId={projectId}
+                      autoOnMount
+                      generatedAt={techNewsGeneratedAt}
+                    />
                     <a
                       href={`/api/projects/${projectId}/assets/${techNewsAssetId}/preview`}
                       target="_blank"

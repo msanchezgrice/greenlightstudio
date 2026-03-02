@@ -1,5 +1,16 @@
 import { z } from "zod";
 
+function normalizeOptionalUrlInput(input: unknown) {
+  if (input === null || input === undefined) return input;
+  if (typeof input !== "string") return input;
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
+const optionalUrlSchema = z.preprocess(normalizeOptionalUrlInput, z.string().url().optional().nullable());
+
 export const reasoningSynopsisSchema = z.object({
   decision: z.enum(["greenlight", "revise", "kill"]),
   confidence: z.number().int().min(0).max(100),
@@ -84,8 +95,8 @@ export const onboardingSchema = z.object({
   value_prop: z.string().trim().max(1200).optional().default(""),
   mission: z.string().trim().max(1200).optional().default(""),
   target_demo: z.string().trim().max(1200).optional().default(""),
-  demo_url: z.string().url().optional().nullable(),
-  repo_url: z.string().url().optional().nullable(),
+  demo_url: optionalUrlSchema,
+  repo_url: optionalUrlSchema,
   uploaded_files: z
     .array(
       z.object({

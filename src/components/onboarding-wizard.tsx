@@ -110,7 +110,25 @@ function listInvalidDomains(raw: string) {
 }
 
 function normalizeRepo(raw: string) {
-  return raw.trim().replace(/\.git$/i, "");
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  const withProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  return withProtocol.replace(/\.git$/i, "");
+}
+
+function normalizeOptionalHttpUrl(raw: string) {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const withProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const parsed = new URL(withProtocol);
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      return null;
+    }
+    return parsed.toString();
+  } catch {
+    return null;
+  }
 }
 
 function isValidRepo(raw: string) {
@@ -370,7 +388,7 @@ export function OnboardingWizard() {
     const valueProp = form.value_prop.trim();
     const mission = form.mission.trim();
     const targetDemo = form.target_demo.trim();
-    const demoUrl = form.demo_url.trim();
+    const demoUrl = normalizeOptionalHttpUrl(form.demo_url) ?? form.demo_url.trim();
     const repoDisplay = repo?.repo ?? (normalizeRepo(form.repo_url) || "None");
     const contextSeed = appDescription || ideaText || valueProp || mission || targetDemo;
     const projectSeed = contextSeed
@@ -418,18 +436,13 @@ export function OnboardingWizard() {
     }
 
     if (form.repo_url.trim() && !isValidRepo(form.repo_url)) {
-      setError("Repo URL must be a full GitHub or GitLab repository URL.");
+      setError("Repo URL must be a valid GitHub or GitLab repository URL.");
       return false;
     }
 
     if (form.demo_url.trim()) {
-      try {
-        const demo = new URL(form.demo_url.trim());
-        if (!["http:", "https:"].includes(demo.protocol)) {
-          setError("Demo URL must use http or https.");
-          return false;
-        }
-      } catch {
+      const demo = normalizeOptionalHttpUrl(form.demo_url);
+      if (!demo) {
         setError("Demo URL must be a valid URL.");
         return false;
       }
@@ -686,7 +699,7 @@ export function OnboardingWizard() {
       value_prop: form.value_prop.trim(),
       mission: form.mission.trim(),
       target_demo: form.target_demo.trim(),
-      demo_url: form.demo_url.trim() ? form.demo_url.trim() : null,
+      demo_url: normalizeOptionalHttpUrl(form.demo_url),
       repo_url: form.repo_url.trim() ? normalizeRepo(form.repo_url) : null,
       focus_areas: form.focus_areas.filter(Boolean),
     });

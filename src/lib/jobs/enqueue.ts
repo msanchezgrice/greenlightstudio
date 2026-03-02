@@ -9,6 +9,7 @@ export async function enqueueJob(input: {
   idempotencyKey: string;
   priority?: number;
   runAfter?: string;
+  maxAttempts?: number;
 }) {
   const db = createServiceSupabase();
   const row = {
@@ -20,6 +21,7 @@ export async function enqueueJob(input: {
     priority: input.priority ?? 0,
     run_after: input.runAfter ?? new Date().toISOString(),
     status: "queued",
+    max_attempts: typeof input.maxAttempts === "number" ? Math.max(1, Math.min(8, Math.floor(input.maxAttempts))) : undefined,
   };
 
   const insert = await withRetry(() =>

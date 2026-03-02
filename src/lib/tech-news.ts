@@ -10,7 +10,13 @@ type RefreshOptions = {
   projectId: string;
   reason?: "phase0" | "nightshift" | "scheduled" | "manual";
   ownerClerkId?: string | null;
+  signal?: AbortSignal;
 };
+
+function throwIfAborted(signal?: AbortSignal) {
+  if (!signal?.aborted) return;
+  throw new Error("Tech-news refresh aborted before completion");
+}
 
 function renderInsightMarkdown(input: {
   projectName: string;
@@ -46,6 +52,7 @@ function renderInsightMarkdown(input: {
 export async function refreshProjectTechNewsInsights(options: RefreshOptions) {
   const db = options.db ?? createServiceSupabase();
   const reason = options.reason ?? "manual";
+  throwIfAborted(options.signal);
 
   const [{ data: project, error: projectError }, { data: packetRow }, { data: brainRow }] = await Promise.all([
     db
@@ -87,6 +94,7 @@ export async function refreshProjectTechNewsInsights(options: RefreshOptions) {
   ).catch(() => {});
 
   const packetPayload = (packetRow?.packet_data ?? packetRow?.packet) as unknown;
+  throwIfAborted(options.signal);
 
   const insight = await generateTechNewsInsights({
     project_id: options.projectId,
@@ -96,7 +104,9 @@ export async function refreshProjectTechNewsInsights(options: RefreshOptions) {
     phase: Number(project.phase ?? 0),
     mission: typeof brainRow?.mission_markdown === "string" ? brainRow.mission_markdown : null,
     packet_excerpt: packetPayload,
+    signal: options.signal,
   });
+  throwIfAborted(options.signal);
 
   const markdown = renderInsightMarkdown({
     projectName: String(project.name ?? "Project"),
@@ -113,6 +123,7 @@ export async function refreshProjectTechNewsInsights(options: RefreshOptions) {
       upsert: true,
     }),
   );
+  throwIfAborted(options.signal);
 
   const { data: asset } = await withRetry(() =>
     db

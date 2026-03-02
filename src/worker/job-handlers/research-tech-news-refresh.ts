@@ -20,11 +20,36 @@ export async function handleResearchTechNewsRefresh(
     message: `Refreshing tech-news insights (${reason})`,
   });
 
-  const result = await refreshProjectTechNewsInsights({
-    db,
-    projectId,
-    reason,
-  });
+  const configuredTimeout = Number(process.env.TECH_NEWS_REFRESH_TIMEOUT_MS ?? 180_000);
+  const refreshTimeoutMs = Number.isFinite(configuredTimeout) ? Math.max(60_000, configuredTimeout) : 180_000;
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => {
+    controller.abort();
+  }, refreshTimeoutMs);
+
+  let result: Awaited<ReturnType<typeof refreshProjectTechNewsInsights>>;
+  try {
+    result = await refreshProjectTechNewsInsights({
+      db,
+      projectId,
+      reason,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      await emitJobEvent(db, {
+        projectId,
+        jobId: job.id,
+        type: "log",
+        message: `Tech-news refresh timed out after ${Math.round(refreshTimeoutMs / 1000)}s`,
+        data: { timeout_ms: refreshTimeoutMs, reason },
+      });
+      throw new Error(`Tech-news refresh timed out after ${Math.round(refreshTimeoutMs / 1000)}s`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
 
   await emitJobEvent(db, {
     projectId,

@@ -7,6 +7,7 @@ import { generateBrandImages, uploadBrandImages } from "@/lib/brand-generator";
 import { runBrandConsistencyReview } from "@/lib/brand-consistency";
 import { renderBrandBriefHtml, generateBrandBriefPptx } from "@/lib/brand-presentation";
 import type { Phase1Packet } from "@/types/phase-packets";
+import { createHash } from "node:crypto";
 
 type ProjectInfo = {
   id: string;
@@ -32,6 +33,10 @@ function shouldUseGeminiLandingGenerator() {
   const requestedModel = process.env.PHASE1_LANDING_MODEL?.trim().toLowerCase() ?? "";
   if (requestedModel.includes("gemini-3.1-pro-preview")) return true;
   return process.env.PHASE1_LANDING_USE_GEMINI === "1";
+}
+
+function hashContext(context: unknown) {
+  return createHash("sha256").update(JSON.stringify(context)).digest("hex").slice(0, 16);
 }
 
 async function loadLandingReferenceImages(projectId: string): Promise<LandingReferenceImage[]> {
@@ -134,6 +139,8 @@ export async function generatePhase1Deliverables(
     ] as const;
     const useGeminiLanding = shouldUseGeminiLandingGenerator();
     const referenceImages = useGeminiLanding ? await loadLandingReferenceImages(project.id) : [];
+    const generationRunId = `landing-run-${Date.now()}`;
+    const referenceImageLabels = referenceImages.map((ref) => ref.label).slice(0, 8);
     await log_task(project.id, "design_agent", "phase1_landing_deploy", "running", "Agent designing production landing page (frontend-design skill)");
 
     const landingInput = {
@@ -145,6 +152,14 @@ export async function generatePhase1Deliverables(
       waitlist_fields: packet.waitlist.form_fields,
       project_id: project.id,
     };
+    const baseGenerationContext = {
+      context_version: 1,
+      run_id: generationRunId,
+      project_id: project.id,
+      preferred_model: useGeminiLanding ? "gemini" : "anthropic",
+      reference_images: referenceImageLabels,
+      landing_input: landingInput,
+    } as const;
 
     const traces: ToolTrace[] = [];
     const generatedVariants: Array<{
@@ -160,6 +175,8 @@ export async function generatePhase1Deliverables(
       generatorModel: string;
       usedReferenceImages: number;
       styleDirection: string;
+      generationContext: Record<string, unknown>;
+      generationContextHash: string;
     }> = [];
 
     let reviewGuidance: string | undefined;
@@ -207,6 +224,14 @@ export async function generatePhase1Deliverables(
         );
         if (upload.error) throw new Error(upload.error.message);
 
+        const generationContext = {
+          ...baseGenerationContext,
+          variant_index: attempt,
+          style_direction: styleDirection,
+          refinement_guidance: reviewGuidance ?? null,
+        };
+        const generationContextHash = hashContext(generationContext);
+
         const assetMetadata = {
           auto_generated: true,
           landing_variant: true,
@@ -220,6 +245,10 @@ export async function generatePhase1Deliverables(
           used_reference_images: agentResult.generator.used_reference_images,
           fallback_used: agentResult.generator.fallback_used,
           style_direction: styleDirection,
+          generation_context_version: 1,
+          generation_run_id: generationRunId,
+          generation_context_hash: generationContextHash,
+          generation_context: generationContext,
         };
 
         const { data: asset, error: assetError } = await withRetry(() =>
@@ -257,6 +286,8 @@ export async function generatePhase1Deliverables(
           generatorModel: agentResult.generator.model,
           usedReferenceImages: agentResult.generator.used_reference_images,
           styleDirection,
+          generationContext,
+          generationContextHash,
         });
 
         await log_task(
@@ -345,6 +376,10 @@ export async function generatePhase1Deliverables(
                 used_reference_images: variant.usedReferenceImages,
                 fallback_used: false,
                 style_direction: variant.styleDirection,
+                generation_context_version: 1,
+                generation_run_id: generationRunId,
+                generation_context_hash: variant.generationContextHash,
+                generation_context: variant.generationContext,
               },
             })
             .eq("id", variant.assetId),
@@ -382,6 +417,10 @@ export async function generatePhase1Deliverables(
               used_reference_images: selectedVariant.usedReferenceImages,
               fallback_used: false,
               style_direction: selectedVariant.styleDirection,
+              generation_context_version: 1,
+              generation_run_id: generationRunId,
+              generation_context_hash: selectedVariant.generationContextHash,
+              generation_context: selectedVariant.generationContext,
               landing_variants: landingVariants.map((variant) => ({
                 asset_id: variant.assetId,
                 variant_index: variant.index,

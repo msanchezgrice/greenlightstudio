@@ -51,6 +51,7 @@ export async function handleSchedulerRunRecurring(
         },
         idempotencyKey,
         priority: Number(row.priority ?? PRIORITY.BACKGROUND),
+        maxAttempts: String(row.job_type) === "research.tech_news_refresh" ? 4 : undefined,
       });
       enqueued += 1;
 

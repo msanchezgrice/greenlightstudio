@@ -44,6 +44,7 @@ export async function POST(_: Request, context: { params: Promise<{ projectId: s
       },
       idempotencyKey: `tech-news:manual:${projectId}:${bucket}`,
       priority: PRIORITY.USER_INTERACTIVE,
+      maxAttempts: 4,
     });
 
     return NextResponse.json({ ok: true, jobId });

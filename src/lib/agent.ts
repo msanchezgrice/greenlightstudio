@@ -1058,7 +1058,34 @@ async function runDirectJsonQuery<T>(
   return parseSchemaWithRepair(parseAgentJson<T>(text), { schema, repair }, debugProjectId);
 }
 
-async function runJsonQuery<T>(prompt: string, schema: z.ZodType<T>, repair?: (value: unknown) => unknown, agentProfile: AgentProfile = AGENT_PROFILES.none, traceTarget?: TraceTarget, debugProjectId?: string) {
+function withAbortSignal<T>(promise: Promise<T>, signal?: AbortSignal, abortedMessage = "Operation aborted") {
+  if (!signal) return promise;
+  if (signal.aborted) {
+    return Promise.reject(new Error(abortedMessage));
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      reject(new Error(abortedMessage));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise
+      .then((value) => resolve(value))
+      .catch((error) => reject(error))
+      .finally(() => {
+        signal.removeEventListener("abort", onAbort);
+      });
+  });
+}
+
+async function runJsonQuery<T>(
+  prompt: string,
+  schema: z.ZodType<T>,
+  repair?: (value: unknown) => unknown,
+  agentProfile: AgentProfile = AGENT_PROFILES.none,
+  traceTarget?: TraceTarget,
+  debugProjectId?: string,
+  abortSignal?: AbortSignal,
+) {
   const profiles: QueryProfile[] = [
     { name: "structured_default", useOutputFormat: true },
     { name: "text_default", useOutputFormat: false },
@@ -1067,10 +1094,15 @@ async function runJsonQuery<T>(prompt: string, schema: z.ZodType<T>, repair?: (v
   const errors: string[] = [];
   for (const profile of profiles) {
     try {
-      return await executeQueryAttempt(prompt, { schema, repair }, profile, agentProfile, traceTarget, debugProjectId);
+      return await withAbortSignal(
+        executeQueryAttempt(prompt, { schema, repair }, profile, agentProfile, traceTarget, debugProjectId),
+        abortSignal,
+        "Agent query aborted before completion",
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown query error";
       errors.push(`${profile.name}: ${message}`);
+      if (message.toLowerCase().includes("aborted")) break;
       if (message.toLowerCase().includes("timed out")) break;
       if (!isRetryableAgentFailure(message)) break;
     }
@@ -1772,7 +1804,18 @@ export async function generateTechNewsInsights(input: {
   phase: number;
   mission?: string | null;
   packet_excerpt?: unknown;
+  signal?: AbortSignal;
 }): Promise<TechNewsInsight> {
+  const configuredTimeoutMs = Number(process.env.TECH_NEWS_AGENT_TIMEOUT_MS ?? 180_000);
+  const techNewsTimeoutMs = Number.isFinite(configuredTimeoutMs) ? Math.max(45_000, configuredTimeoutMs) : 180_000;
+  const configuredTurns = Number(process.env.TECH_NEWS_AGENT_MAX_TURNS ?? 5);
+  const techNewsMaxTurns = Number.isFinite(configuredTurns) ? Math.max(2, Math.min(8, Math.floor(configuredTurns))) : 5;
+  const techNewsAgentProfile: AgentProfile = {
+    ...AGENT_PROFILES.research,
+    timeoutMs: techNewsTimeoutMs,
+    maxTurns: techNewsMaxTurns,
+  };
+
   const prompt = `You are a technical strategy researcher. Find the latest AI and software advances relevant to this startup and turn them into concrete recommendations.
 
 Use web search for recent (last 90 days when possible) technical developments.
@@ -1815,9 +1858,10 @@ Rules:
     prompt,
     techNewsInsightSchema,
     repairTechNewsInsight,
-    AGENT_PROFILES.research,
+    techNewsAgentProfile,
     undefined,
     input.project_id,
+    input.signal,
   );
 }
 

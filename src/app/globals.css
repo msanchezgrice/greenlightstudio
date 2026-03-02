@@ -34,6 +34,9 @@
   --font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
   --shadow-card: 0 1px 3px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.03);
   --shadow-card-hover: 0 4px 16px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05);
+  --dash-greeting-gradient: linear-gradient(135deg, rgba(34,197,94,.04) 0%, rgba(245,230,211,.03) 40%, rgba(11,18,32,.6) 100%);
+  --dash-greeting-border: rgba(34,197,94,.12);
+  --dash-greeting-orb: radial-gradient(circle, rgba(34,197,94,.06), transparent 70%);
   color-scheme: dark;
 }
 
@@ -68,6 +71,9 @@
   --glow-red: 0 0 14px rgba(239, 68, 68, 0.16);
   --shadow-card: 0 1px 2px rgba(28, 25, 23, 0.04);
   --shadow-card-hover: 0 4px 14px rgba(28, 25, 23, 0.08), 0 2px 4px rgba(28, 25, 23, 0.04);
+  --dash-greeting-gradient: linear-gradient(135deg, rgba(22,101,52,.08) 0%, rgba(30,64,175,.05) 45%, rgba(255,255,255,.9) 100%);
+  --dash-greeting-border: rgba(22,101,52,.18);
+  --dash-greeting-orb: radial-gradient(circle, rgba(30,64,175,.12), transparent 72%);
   color-scheme: light;
 }
 
@@ -179,6 +185,7 @@ a {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  position: relative;
   padding: 0 16px;
   height: 52px;
   background: var(--card);
@@ -283,6 +290,7 @@ a {
   background: var(--bg);
   color: var(--text);
   padding-bottom: 40px;
+  overflow-x: hidden;
 }
 
 .onboard-header {
@@ -378,6 +386,7 @@ a {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 20px;
+  overflow: hidden;
 }
 
 .wizard-title-row {
@@ -723,7 +732,7 @@ a {
 
 .scan-result {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   padding: 10px 12px;
   border: 1px solid var(--border);
@@ -775,9 +784,9 @@ a {
 .scan-sub {
   font-size: 10px;
   color: var(--text3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
 }
 
 .scan-badge {
@@ -4304,6 +4313,10 @@ a {
   opacity: 0.45;
 }
 
+:root[data-theme="light"] .nav::after {
+  opacity: 0.18;
+}
+
 @keyframes connectionSlide {
   0% { background-position: 100% 0; }
   100% { background-position: -100% 0; }
@@ -5149,10 +5162,8 @@ a {
   position: relative;
   padding: 28px 32px 24px;
   border-radius: 16px;
-  background:
-    linear-gradient(135deg, rgba(34,197,94,.04) 0%, rgba(245,230,211,.03) 40%, rgba(11,18,32,.6) 100%),
-    var(--card);
-  border: 1px solid rgba(34,197,94,.12);
+  background: var(--dash-greeting-gradient), var(--card);
+  border: 1px solid var(--dash-greeting-border);
   overflow: hidden;
   animation: fadeInUp 0.6s ease both;
   box-shadow: var(--shadow-card);
@@ -5166,7 +5177,7 @@ a {
   width: 200px;
   height: 200px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(34,197,94,.06), transparent 70%);
+  background: var(--dash-greeting-orb);
   pointer-events: none;
 }
 
