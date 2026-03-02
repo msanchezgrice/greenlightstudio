@@ -66,6 +66,16 @@ function parseSynopsis(payload: Record<string, unknown>) {
   return parsed.data.reasoning_synopsis;
 }
 
+function approvalDetailsHref(item: Item) {
+  if (item.phase <= 0) return `/projects/${item.project_id}/packet`;
+  return `/projects/${item.project_id}/phases/${item.phase}`;
+}
+
+function approvalDetailsLabel(item: Item) {
+  if (item.phase <= 0) return "View Packet";
+  return `View Phase ${item.phase}`;
+}
+
 export function InboxView({ initialItems }: { initialItems: Item[] }) {
   const [items, setItems] = useState(initialItems);
   const prevInitial = useRef(initialItems);
@@ -297,7 +307,7 @@ export function InboxView({ initialItems }: { initialItems: Item[] }) {
                 </div>
                 <div className="card-actions">
                   <button className="btn btn-approve" disabled={loadingId === item.id} onClick={() => decide(item, "approved")}>✓ Approve</button>
-                  <Link href={`/projects/${item.project_id}/packet`} className="btn btn-preview">View Packet</Link>
+                  <Link href={approvalDetailsHref(item)} className="btn btn-preview">{approvalDetailsLabel(item)}</Link>
                   <button className="btn btn-details" onClick={() => setExpanded(expanded === item.id ? null : item.id)}>View Details</button>
                   <button className="btn btn-deny" disabled={loadingId === item.id} onClick={() => decide(item, "denied")}>✕ Deny</button>
                 </div>
@@ -339,7 +349,7 @@ export function InboxView({ initialItems }: { initialItems: Item[] }) {
               <div className="card-actions">
                 <button className="btn btn-approve" disabled={loadingId === item.id} onClick={() => decide(item, "approved")}>✓ Approve</button>
                 <button className="btn btn-preview" disabled={loadingId === item.id} onClick={() => requestRevision(item)}>Request Revision</button>
-                <Link href={`/projects/${item.project_id}/packet`} className="btn btn-details">View Details</Link>
+                <Link href={approvalDetailsHref(item)} className="btn btn-details">View Details</Link>
                 <button className="btn btn-deny" disabled={loadingId === item.id} onClick={() => decide(item, "denied")}>✕ Deny</button>
               </div>
             </div>
