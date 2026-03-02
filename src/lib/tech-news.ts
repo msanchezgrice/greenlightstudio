@@ -47,10 +47,10 @@ export async function refreshProjectTechNewsInsights(options: RefreshOptions) {
   const db = options.db ?? createServiceSupabase();
   const reason = options.reason ?? "manual";
 
-  const [{ data: project, error: projectError }, { data: packetRow }] = await Promise.all([
+  const [{ data: project, error: projectError }, { data: packetRow }, { data: brainRow }] = await Promise.all([
     db
       .from("projects")
-      .select("id,name,domain,phase,idea_description,mission,owner_clerk_id")
+      .select("id,name,domain,phase,idea_description,owner_clerk_id")
       .eq("id", options.projectId)
       .single(),
     db
@@ -60,6 +60,11 @@ export async function refreshProjectTechNewsInsights(options: RefreshOptions) {
       .order("phase", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(1)
+      .maybeSingle(),
+    db
+      .from("project_brain_documents")
+      .select("mission_markdown")
+      .eq("project_id", options.projectId)
       .maybeSingle(),
   ]);
 
@@ -89,7 +94,7 @@ export async function refreshProjectTechNewsInsights(options: RefreshOptions) {
     domain: (project.domain as string | null) ?? null,
     idea_description: String(project.idea_description ?? ""),
     phase: Number(project.phase ?? 0),
-    mission: typeof project.mission === "string" ? project.mission : null,
+    mission: typeof brainRow?.mission_markdown === "string" ? brainRow.mission_markdown : null,
     packet_excerpt: packetPayload,
   });
 
