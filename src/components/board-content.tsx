@@ -347,7 +347,7 @@ export function BoardContent({
                   {/* Project */}
                   <td>
                     <Link
-                      href={`/projects/${p.id}`}
+                      href={`/projects/${p.id}/phases`}
                       style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: "inherit" }}
                     >
                       <div
@@ -459,7 +459,7 @@ export function BoardContent({
                   {/* Actions */}
                   <td>
                     <div style={{ display: "flex", gap: 5 }}>
-                      <Link href={`/projects/${p.id}`} className="board-action primary">
+                      <Link href={`/projects/${p.id}/phases`} className="board-action primary">
                         Open
                       </Link>
                       {p.latest_task_status === "failed" && p.confidence === null && (
@@ -471,11 +471,6 @@ export function BoardContent({
                         >
                           {retrying.has(p.id) ? "Retrying…" : "Retry"}
                         </button>
-                      )}
-                      {p.confidence !== null && (
-                        <Link href={`/projects/${p.id}/packet`} className="board-action">
-                          Packet
-                        </Link>
                       )}
                       {p.live_url && (
                         <a href={p.live_url} target="_blank" rel="noopener noreferrer" className="board-action">

@@ -366,12 +366,12 @@ export function BatchProgress({ batchId }: { batchId: string }) {
               </td>
               <td>
                 {row.actionType === "review" && (
-                  <Link href={`/projects/${row.project.id}`} className="batch-action green">
+                  <Link href={`/projects/${row.project.id}/phases`} className="batch-action green">
                     Review &rarr;
                   </Link>
                 )}
                 {row.actionType === "feedback" && (
-                  <Link href={`/projects/${row.project.id}`} className="batch-action yellow">
+                  <Link href={`/projects/${row.project.id}/phases`} className="batch-action yellow">
                     View Feedback
                   </Link>
                 )}
@@ -381,7 +381,7 @@ export function BatchProgress({ batchId }: { batchId: string }) {
                   </button>
                 )}
                 {row.actionType === "tasks" && (
-                  <Link href={`/projects/${row.project.id}`} className="batch-action">
+                  <Link href={`/projects/${row.project.id}/phases`} className="batch-action">
                     Tasks
                   </Link>
                 )}

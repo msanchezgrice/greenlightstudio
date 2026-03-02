@@ -70,7 +70,7 @@ export function MilestonesFeed({ items }: { items: MilestoneItem[] }) {
               </div>
               <div className="dash-milestone-body">
                 <Link
-                  href={`/projects/${item.project_id}`}
+                  href={`/projects/${item.project_id}/phases`}
                   className="dash-milestone-title"
                 >
                   {item.project_name} — {humanizeTaskDescription(item.description)}

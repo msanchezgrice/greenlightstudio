@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { createServiceSupabase } from "@/lib/supabase";
 import { withRetry } from "@/lib/retry";
 import { StudioNav } from "@/components/studio-nav";
+import { ProjectChatPane } from "@/components/project-chat-pane";
 import { getOwnedProjects, getPendingApprovalsByProject } from "@/lib/studio";
 import { PHASES, phaseStatus, taskPhase, getAgentProfile, humanizeTaskDescription, type PhaseId } from "@/lib/phases";
 
@@ -58,6 +59,10 @@ function phaseChip(status: string) {
   if (status === "completed") return "phase-complete";
   if (status === "active") return "phase-active";
   return "phase-upcoming";
+}
+
+function clampPhaseRoute(phase: number) {
+  return Math.max(0, Math.min(3, phase));
 }
 
 const phaseColorMap: Record<number, { gradient: string; border: string; glow: string; accent: string }> = {
@@ -143,225 +148,263 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
     tasksByPhase.set(phase, list);
   }
 
+  const activePhase = clampPhaseRoute(project.phase);
+  const activePacket = packets.find((row) => row.phase === activePhase) ?? null;
+  const chatLinks: Array<{ label: string; href: string; external?: boolean }> = [
+    { label: "Phase Overview", href: `/projects/${projectId}/phases` },
+    { label: "Current Workspace", href: `/projects/${projectId}/phases/${activePhase}` },
+    { label: "Approvals Inbox", href: `/inbox?project=${projectId}` },
+  ];
+  if (project.live_url) {
+    chatLinks.unshift({ label: "Live Landing", href: project.live_url, external: true });
+  }
+
   return (
     <>
       <StudioNav active="board" pendingCount={pendingCount} />
-      <main className="page studio-page">
-        <div className="page-header">
-          <div>
-            <h1 className="page-title">{project.name} · Startup Machine Phases</h1>
-            <p className="meta-line">
-              {project.domain ?? "No domain"} · runtime {project.runtime_mode} · updated {new Date(project.updated_at).toLocaleString()}
-            </p>
-          </div>
-          <div className="table-actions">
-            <Link href={`/projects/${projectId}`} className="btn btn-details">
-              Project
-            </Link>
-            <Link href="/inbox" className="btn btn-preview">
-              Inbox
-            </Link>
-          </div>
-        </div>
+      <main className="page studio-page studio-page-with-chat">
+        <div className="studio-with-chat">
+          <div className="studio-main-column">
+            <div className="page-header">
+              <div>
+                <h1 className="page-title">{project.name} · Startup Machine Phases</h1>
+                <p className="meta-line">
+                  {project.domain ?? "No domain"} · runtime {project.runtime_mode} · updated {new Date(project.updated_at).toLocaleString()}
+                </p>
+              </div>
+              <div className="table-actions">
+                <Link href={`/projects/${projectId}/logs`} className="btn btn-details">
+                  Project Log
+                </Link>
+                <Link href="/inbox" className="btn btn-preview">
+                  Inbox
+                </Link>
+              </div>
+            </div>
 
-        <section className="studio-card">
-          <h2>Pipeline</h2>
-          <div className="phase-track">
+            <section className="studio-card">
+              <h2>Pipeline</h2>
+              <div className="phase-linear-track">
+                {PHASES.map((phase, index) => {
+                  const status = phaseStatus(project.phase, phase.id);
+                  const isComplete = status === "completed";
+                  const isActive = status === "active";
+                  const phasePacket = packets.find((row) => row.phase === phase.id) ?? null;
+                  const progressLabel = isComplete
+                    ? "Completed"
+                    : isActive
+                      ? `In Progress${phasePacket ? ` · ${phasePacket.confidence}%` : ""}`
+                      : "Upcoming";
+                  return (
+                    <div key={phase.id} className="phase-linear-node-wrap">
+                      <Link href={`/projects/${projectId}/phases/${phase.id}`} className={`phase-linear-node ${status}`}>
+                        <span className="phase-linear-dot">{isComplete ? "✓" : phase.id}</span>
+                        <span className="phase-linear-text">
+                          <span className="phase-linear-title">{phase.title}</span>
+                          <span className="phase-linear-state">{progressLabel}</span>
+                        </span>
+                      </Link>
+                      {index < PHASES.length - 1 && (
+                        <div className={`phase-linear-connector ${isComplete ? "complete" : ""}`} />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="meta-line" style={{ marginTop: 10 }}>
+                Current phase: {activePhase} · confidence {activePacket ? `${activePacket.confidence}/100` : "--"}.
+              </p>
+            </section>
+
             {PHASES.map((phase) => {
               const status = phaseStatus(project.phase, phase.id);
-              const colors = phaseColorMap[phase.id] ?? phaseColorMap[0];
-              const isActive = status === "active";
-              const isComplete = status === "completed";
+              const phaseTasks = (tasksByPhase.get(phase.id) ?? []).slice(0, 12);
+              const visibleTasks = phaseTasks.slice(0, 3);
+              const hiddenTasks = phaseTasks.slice(3);
+              const gate = approvals.find((row) => row.phase === phase.id && row.action_type === phase.gateActionType) ?? null;
+              const packet = packets.find((row) => row.phase === phase.id) ?? null;
+
+              const completed = phaseTasks.filter((task) => task.status === "completed").length;
+              const running = phaseTasks.filter((task) => task.status === "running").length;
+              const queued = phaseTasks.filter((task) => task.status === "queued").length;
+              const failed = phaseTasks.filter((task) => task.status === "failed").length;
+
+              const sectionColors = phaseColorMap[phase.id] ?? phaseColorMap[0];
+
               return (
-                <Link
+                <section
                   key={phase.id}
-                  href={`/projects/${projectId}/phases/${phase.id}`}
-                  className={`phase-node ${phaseChip(status)}`}
-                  style={{
-                    background: isActive || isComplete ? colors.gradient : undefined,
-                    borderColor: isActive ? colors.border : isComplete ? colors.border : undefined,
-                    boxShadow: isActive ? colors.glow : undefined,
-                    textDecoration: "none",
-                    transition: "all 0.3s ease",
-                    position: "relative",
-                    overflow: "hidden",
-                  }}
+                  className="studio-card"
+                  style={status === "active" ? {
+                    borderColor: sectionColors.border,
+                    background: sectionColors.gradient,
+                    boxShadow: sectionColors.glow,
+                  } : undefined}
                 >
-                  {isActive && (
-                    <div style={{
-                      position: "absolute", top: 0, left: 0, right: 0, height: 3,
-                      background: `linear-gradient(90deg, ${colors.accent}, ${colors.accent}88)`,
-                    }} />
-                  )}
-                  <div className="phase-node-label" style={isActive ? { color: colors.accent } : undefined}>
-                    {phase.label}
+                  <div className="phase-header">
+                    <div>
+                      <h2 style={status === "active" ? { color: sectionColors.accent } : undefined}>
+                        {phase.label} · {phase.title}
+                      </h2>
+                      <p className="meta-line">{phase.summary}</p>
+                    </div>
+                    <div
+                      className={`phase-pill ${phaseChip(status)}`}
+                      style={status === "active" ? {
+                        background: `${sectionColors.accent}18`,
+                        color: sectionColors.accent,
+                        borderColor: sectionColors.accent,
+                      } : undefined}
+                    >
+                      {status}
+                    </div>
                   </div>
-                  <div className="phase-node-title">{phase.title}</div>
-                  <div className="phase-node-status" style={isActive ? { color: colors.accent, fontWeight: 700 } : undefined}>
-                    {isActive ? "● " : ""}{status}
+
+                  <div className="project-metrics">
+                    <div>
+                      <div className="metric-label">Gate</div>
+                      <div className={`metric-value ${gateClass(gate?.status ?? null)}`}>{gate?.status ?? "not created"}</div>
+                    </div>
+                    <div>
+                      <div className="metric-label">Completed</div>
+                      <div className="metric-value good">{completed}</div>
+                    </div>
+                    <div>
+                      <div className="metric-label">Running</div>
+                      <div className="metric-value warn">{running}</div>
+                    </div>
+                    <div>
+                      <div className="metric-label">Queued</div>
+                      <div className="metric-value tone-muted">{queued}</div>
+                    </div>
+                    <div>
+                      <div className="metric-label">Failed</div>
+                      <div className="metric-value bad">{failed}</div>
+                    </div>
+                    <div>
+                      <div className="metric-label">Packet Confidence</div>
+                      <div className="metric-value">{packet ? `${packet.confidence}/100` : "--"}</div>
+                    </div>
                   </div>
-                </Link>
+
+                  <div className="phase-section">
+                    <div className="phase-subtitle">Deliverables</div>
+                    <div className="phase-deliverables">
+                      {phase.deliverables.map((item) => (
+                        <span key={item} className="deliverable-chip">{item}</span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="phase-section">
+                    <div className="phase-subtitle">Latest Tasks</div>
+                    {!phaseTasks.length ? (
+                      <p className="meta-line">No tasks logged for this phase yet.</p>
+                    ) : (
+                      <>
+                        <div className="table-shell">
+                          <table className="studio-table compact">
+                            <thead>
+                              <tr>
+                                <th>Task</th>
+                                <th>Agent</th>
+                                <th>Status</th>
+                                <th>Created</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {visibleTasks.map((task) => {
+                                const agent = getAgentProfile(task.agent);
+                                return (
+                                  <tr key={task.id}>
+                                    <td>
+                                      <div className="table-main">{humanizeTaskDescription(task.description)}</div>
+                                      <div className="table-sub">{task.detail ?? ""}</div>
+                                    </td>
+                                    <td>
+                                      <span style={{ color: agent.color, fontWeight: 600 }}>
+                                        {agent.icon} {agent.name}
+                                      </span>
+                                    </td>
+                                    <td className={taskClass(task.status)}>{task.status}</td>
+                                    <td>{new Date(task.created_at).toLocaleString()}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                        {hiddenTasks.length > 0 && (
+                          <details className="phase-task-collapse">
+                            <summary>Show {hiddenTasks.length} more task{hiddenTasks.length === 1 ? "" : "s"}</summary>
+                            <div className="table-shell" style={{ marginTop: 8 }}>
+                              <table className="studio-table compact">
+                                <tbody>
+                                  {hiddenTasks.map((task) => {
+                                    const agent = getAgentProfile(task.agent);
+                                    return (
+                                      <tr key={task.id}>
+                                        <td>
+                                          <div className="table-main">{humanizeTaskDescription(task.description)}</div>
+                                          <div className="table-sub">{task.detail ?? ""}</div>
+                                        </td>
+                                        <td>
+                                          <span style={{ color: agent.color, fontWeight: 600 }}>
+                                            {agent.icon} {agent.name}
+                                          </span>
+                                        </td>
+                                        <td className={taskClass(task.status)}>{task.status}</td>
+                                        <td>{new Date(task.created_at).toLocaleString()}</td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </details>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  <div className="card-actions">
+                    <Link href={`/projects/${projectId}/phases/${phase.id}`} className="btn btn-details">
+                      Open Workspace
+                    </Link>
+                    {packet ? (
+                      <Link href={`/projects/${projectId}/phases/${phase.id}`} className="btn btn-preview">
+                        Open Packet
+                      </Link>
+                    ) : (
+                      <span className="btn btn-preview btn-disabled" aria-disabled="true">
+                        No Packet
+                      </span>
+                    )}
+                    {phase.id === 1 && project.live_url && (
+                      <a
+                        href={project.live_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-approve"
+                      >
+                        View Landing Page
+                      </a>
+                    )}
+                    {gate?.status === "pending" && (
+                      <Link href="/inbox" className="btn btn-details">
+                        Review Gate in Inbox
+                      </Link>
+                    )}
+                  </div>
+                </section>
               );
             })}
           </div>
-        </section>
 
-        {PHASES.map((phase) => {
-          const status = phaseStatus(project.phase, phase.id);
-          const phaseTasks = (tasksByPhase.get(phase.id) ?? []).slice(0, 12);
-          const gate = approvals.find((row) => row.phase === phase.id && row.action_type === phase.gateActionType) ?? null;
-          const packet = packets.find((row) => row.phase === phase.id) ?? null;
-
-          const completed = phaseTasks.filter((task) => task.status === "completed").length;
-          const running = phaseTasks.filter((task) => task.status === "running").length;
-          const queued = phaseTasks.filter((task) => task.status === "queued").length;
-          const failed = phaseTasks.filter((task) => task.status === "failed").length;
-
-          const sectionColors = phaseColorMap[phase.id] ?? phaseColorMap[0];
-
-          return (
-            <section
-              key={phase.id}
-              className="studio-card"
-              style={status === "active" ? {
-                borderColor: sectionColors.border,
-                background: sectionColors.gradient,
-                boxShadow: sectionColors.glow,
-              } : undefined}
-            >
-              <div className="phase-header">
-                <div>
-                  <h2 style={status === "active" ? { color: sectionColors.accent } : undefined}>
-                    {phase.label} · {phase.title}
-                  </h2>
-                  <p className="meta-line">{phase.summary}</p>
-                </div>
-                <div
-                  className={`phase-pill ${phaseChip(status)}`}
-                  style={status === "active" ? {
-                    background: `${sectionColors.accent}18`,
-                    color: sectionColors.accent,
-                    borderColor: sectionColors.accent,
-                  } : undefined}
-                >
-                  {status}
-                </div>
-              </div>
-
-              <div className="project-metrics">
-                <div>
-                  <div className="metric-label">Gate</div>
-                  <div className={`metric-value ${gateClass(gate?.status ?? null)}`}>{gate?.status ?? "not created"}</div>
-                </div>
-                <div>
-                  <div className="metric-label">Completed</div>
-                  <div className="metric-value good">{completed}</div>
-                </div>
-                <div>
-                  <div className="metric-label">Running</div>
-                  <div className="metric-value warn">{running}</div>
-                </div>
-                <div>
-                  <div className="metric-label">Queued</div>
-                  <div className="metric-value tone-muted">{queued}</div>
-                </div>
-                <div>
-                  <div className="metric-label">Failed</div>
-                  <div className="metric-value bad">{failed}</div>
-                </div>
-                <div>
-                  <div className="metric-label">Packet Confidence</div>
-                  <div className="metric-value">{packet ? `${packet.confidence}/100` : "--"}</div>
-                </div>
-              </div>
-
-              <div className="phase-section">
-                <div className="phase-subtitle">Deliverables</div>
-                <div className="phase-deliverables">
-                  {phase.deliverables.map((item) => (
-                    <span key={item} className="deliverable-chip">{item}</span>
-                  ))}
-                </div>
-              </div>
-
-              <div className="phase-section">
-                <div className="phase-subtitle">Latest Tasks</div>
-                {!phaseTasks.length ? (
-                  <p className="meta-line">No tasks logged for this phase yet.</p>
-                ) : (
-                  <div className="table-shell">
-                    <table className="studio-table compact">
-                      <thead>
-                        <tr>
-                          <th>Task</th>
-                          <th>Agent</th>
-                          <th>Status</th>
-                          <th>Created</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {phaseTasks.map((task) => {
-                          const agent = getAgentProfile(task.agent);
-                          return (
-                            <tr key={task.id}>
-                              <td>
-                                <div className="table-main">{humanizeTaskDescription(task.description)}</div>
-                                <div className="table-sub">{task.detail ?? ""}</div>
-                              </td>
-                              <td>
-                                <span style={{ color: agent.color, fontWeight: 600 }}>
-                                  {agent.icon} {agent.name}
-                                </span>
-                              </td>
-                              <td className={taskClass(task.status)}>{task.status}</td>
-                              <td>{new Date(task.created_at).toLocaleString()}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-
-              <div className="card-actions">
-                <Link href={`/projects/${projectId}/phases/${phase.id}`} className="btn btn-details">
-                  Open Workspace
-                </Link>
-                {packet ? (
-                  phase.id === 0 ? (
-                    <Link href={`/projects/${projectId}/packet`} className="btn btn-preview">
-                      Open Packet
-                    </Link>
-                  ) : (
-                    <Link href={`/projects/${projectId}/phases/${phase.id}`} className="btn btn-preview">
-                      View Packet
-                    </Link>
-                  )
-                ) : (
-                  <span className="btn btn-preview btn-disabled" aria-disabled="true">
-                    No Packet
-                  </span>
-                )}
-                {phase.id === 1 && project.live_url && (
-                  <a
-                    href={project.live_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="btn btn-approve"
-                  >
-                    View Landing Page
-                  </a>
-                )}
-                {gate?.status === "pending" && (
-                  <Link href="/inbox" className="btn btn-details">
-                    Review Gate in Inbox
-                  </Link>
-                )}
-              </div>
-            </section>
-          );
-        })}
+          <aside className="studio-chat-rail">
+            <ProjectChatPane projectId={projectId} title="CEO Agent" deliverableLinks={chatLinks} />
+          </aside>
+        </div>
       </main>
     </>
   );

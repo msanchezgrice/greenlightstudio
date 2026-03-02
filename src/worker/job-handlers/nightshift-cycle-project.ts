@@ -7,6 +7,8 @@ import { assembleCompanyContext } from "@/lib/company-context";
 import { recordProjectEvent } from "@/lib/project-events";
 import { log_task } from "@/lib/supabase-mcp";
 import { withRetry } from "@/lib/retry";
+import { sendResendEmail } from "@/lib/integrations";
+import { dailyOverviewEmail } from "@/lib/email-templates";
 
 export async function handleNightshiftCycleProject(
   db: SupabaseClient,
@@ -180,6 +182,106 @@ export async function handleNightshiftCycleProject(
     },
     agentKey: "night_shift",
   });
+
+  const startOfDayUtc = new Date();
+  startOfDayUtc.setUTCHours(0, 0, 0, 0);
+  const overviewSentToday = await db
+    .from("project_events")
+    .select("id")
+    .eq("project_id", projectId)
+    .eq("event_type", "email.daily_overview.sent")
+    .gte("created_at", startOfDayUtc.toISOString())
+    .limit(1);
+
+  if (!overviewSentToday.error && (overviewSentToday.data ?? []).length === 0) {
+    const ownerRes = await db
+      .from("users")
+      .select("email")
+      .eq("clerk_id", project.data.owner_clerk_id)
+      .maybeSingle();
+    const ownerEmail = typeof ownerRes.data?.email === "string" ? ownerRes.data.email.trim() : "";
+
+    if (ownerEmail) {
+      const summaryLines = [
+        `${actions.length} recommendations generated; ${enqueuedApprovals} approval task${enqueuedApprovals === 1 ? "" : "s"} queued.`,
+        `Traffic (7d): ${companyContext.kpis.traffic_7d} · Leads (7d): ${companyContext.kpis.leads_7d} · Revenue (30d): $${(companyContext.kpis.revenue_cents_30d / 100).toFixed(2)}.`,
+        `Current phase: ${project.data.phase}.`,
+      ];
+
+      const aiTasks = prioritizedRecommendations
+        .slice(0, 3)
+        .map((item) => item.description)
+        .filter((value) => value.trim().length > 0);
+      while (aiTasks.length < 3) {
+        aiTasks.push("Continue executing approved roadmap tasks and refresh recommendations.");
+      }
+
+      const userTasks: string[] = [];
+      if (enqueuedApprovals > 0) {
+        userTasks.push(`Review ${enqueuedApprovals} pending approval task${enqueuedApprovals === 1 ? "" : "s"} in Inbox.`);
+      }
+      if (companyContext.kpis.leads_7d === 0) {
+        userTasks.push("Refine landing page copy and CTA for lead capture.");
+      } else if (companyContext.kpis.conversion_proxy_7d < 0.03) {
+        userTasks.push("Approve a conversion-focused landing page experiment.");
+      } else {
+        userTasks.push("Approve one growth experiment to improve acquisition efficiency.");
+      }
+      if (companyContext.kpis.revenue_cents_30d === 0) {
+        userTasks.push("Define or approve a first revenue test offer.");
+      } else {
+        userTasks.push("Review monetization KPIs and set a near-term revenue target.");
+      }
+      while (userTasks.length < 3) {
+        userTasks.push("Review the phase workspace and confirm tomorrow's priorities.");
+      }
+
+      const appBaseUrl =
+        process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/+$/, "") ||
+        process.env.APP_BASE_URL?.trim().replace(/\/+$/, "") ||
+        "https://startupmachine.ai";
+      const emailContent = dailyOverviewEmail({
+        projectName: project.data.name as string,
+        projectId,
+        baseUrl: appBaseUrl,
+        summaryLines,
+        aiTasks: aiTasks.slice(0, 3),
+        userTasks: userTasks.slice(0, 3),
+      });
+
+      try {
+        const sent = await sendResendEmail({
+          to: ownerEmail,
+          subject: emailContent.subject,
+          html: emailContent.html,
+          projectId,
+        });
+        await recordProjectEvent(db, {
+          projectId,
+          eventType: "email.daily_overview.sent",
+          message: `Daily overview sent to ${ownerEmail}`,
+          data: {
+            to_email: ownerEmail,
+            resend_id: sent.id,
+            recommendations_count: prioritizedRecommendations.length,
+            approvals_queued: enqueuedApprovals,
+          },
+          agentKey: "night_shift",
+        });
+      } catch (error) {
+        await recordProjectEvent(db, {
+          projectId,
+          eventType: "email.daily_overview.failed",
+          message: "Daily overview email failed",
+          data: {
+            to_email: ownerEmail,
+            error: error instanceof Error ? error.message : "Unknown email failure",
+          },
+          agentKey: "night_shift",
+        });
+      }
+    }
+  }
 
   if (actions?.length) {
     await writeMemory(db, projectId, job.id, [

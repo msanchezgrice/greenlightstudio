@@ -247,11 +247,6 @@ export async function generatePhase1Deliverables(
       createdAt: variant.createdAt,
     }));
 
-    if (traces.length > 0) {
-      const traceLog = traces.map((t) => `${t.tool}(${t.input_preview.slice(0, 80)})`).join(" → ");
-      await log_task(project.id, "design_agent", "phase1_landing_traces", "completed", `Tool trace: ${traceLog.slice(0, 300)}`).catch(() => {});
-    }
-
     landingUrl = buildLaunchUrl(project.id, appBaseUrl);
     await Promise.all([
       withRetry(() =>
@@ -301,8 +296,17 @@ export async function generatePhase1Deliverables(
   const brandTrack = async () => {
     await log_task(project.id, "brand_agent", "phase1_brand_assets", "running", "Generating AI brand images + presentations");
 
-    const brandImages = await generateBrandImages(project.id, project.name, packet.brand_kit);
-    const imageAssetIds = await uploadBrandImages(project.id, brandImages, project.owner_clerk_id);
+    const brandImages = await generateBrandImages(project.id, project.name, packet.brand_kit, {
+      phase: 1,
+      summary: packet.summary,
+      variant: "brand",
+    });
+    const imageAssetIds = await uploadBrandImages(project.id, brandImages, project.owner_clerk_id, {
+      phase: 1,
+      metadata: {
+        generated_by: "phase1",
+      },
+    });
     assetIds.push(...imageAssetIds);
 
     await log_task(project.id, "brand_agent", "phase1_brand_brief_spec", "running", "Design agent is composing a high-fidelity brand brief deck spec");
@@ -417,17 +421,30 @@ export async function generatePhase1Deliverables(
       brandLogo: null as string | null,
       brandHero: null as string | null,
     };
+    let dynamicBrandDeliverables: Array<Record<string, unknown>> = [];
     try {
       const { data: brandAssets } = await withRetry(() =>
         db
           .from("project_assets")
-          .select("id,filename,created_at")
+          .select("id,filename,metadata,mime_type,created_at")
           .eq("project_id", project.id)
-          .in("filename", ["brand-brief.html", "brand-brief.pptx", "logo.png", "hero.png"])
+          .eq("phase", 1)
+          .eq("status", "uploaded")
           .order("created_at", { ascending: false }),
       );
       const byFilename = new Map<string, string>();
-      for (const asset of brandAssets ?? []) {
+      const filteredBrandAssets = (brandAssets ?? []).filter((asset) => {
+        const filename = String(asset.filename ?? "");
+        const metadata = (asset.metadata as Record<string, unknown> | null) ?? {};
+        return (
+          filename === "brand-brief.html" ||
+          filename === "brand-brief.pptx" ||
+          metadata.brand_asset === true ||
+          filename === "logo.png" ||
+          filename === "hero.png"
+        );
+      });
+      for (const asset of filteredBrandAssets) {
         const filename = String(asset.filename ?? "");
         if (!filename || byFilename.has(filename)) continue;
         byFilename.set(filename, String(asset.id));
@@ -438,6 +455,17 @@ export async function generatePhase1Deliverables(
       brandDeliverableUrls.brandBriefPptx = preview(byFilename.get("brand-brief.pptx"));
       brandDeliverableUrls.brandLogo = preview(byFilename.get("logo.png"));
       brandDeliverableUrls.brandHero = preview(byFilename.get("hero.png"));
+
+      dynamicBrandDeliverables = filteredBrandAssets
+        .filter((asset) => ((asset.metadata as Record<string, unknown> | null)?.brand_asset === true))
+        .slice(0, 10)
+        .map((asset) => ({
+          kind: "brand_asset",
+          label: String(((asset.metadata as Record<string, unknown> | null)?.label as string | undefined) ?? asset.filename),
+          url: `/api/projects/${project.id}/assets/${asset.id}/preview`,
+          status: "generated",
+          generated_at: new Date().toISOString(),
+        }));
     } catch {
       // Non-fatal: deliverables still render without direct URLs.
     }
@@ -464,6 +492,7 @@ export async function generatePhase1Deliverables(
             { kind: "brand_brief_pptx", label: "Brand Brief (PowerPoint)", url: brandDeliverableUrls.brandBriefPptx, status: "generated", generated_at: new Date().toISOString() },
             { kind: "brand_logo", label: "AI Logo", url: brandDeliverableUrls.brandLogo, status: "generated", generated_at: new Date().toISOString() },
             { kind: "brand_hero", label: "Hero Image", url: brandDeliverableUrls.brandHero, status: "generated", generated_at: new Date().toISOString() },
+            ...dynamicBrandDeliverables,
             { kind: "brand_system", label: "Brand System", status: "generated", generated_at: new Date().toISOString() },
           ],
         })

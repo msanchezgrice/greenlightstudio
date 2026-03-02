@@ -4,6 +4,7 @@ import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 import { ensureProjectBrainDocument } from "@/lib/brain";
 import { recordProjectEvent, enqueueBrainRefresh } from "@/lib/project-events";
+import { normalizeMissionMarkdown } from "@/lib/brain-format";
 
 const missionSchema = z.object({
   mission: z.string().trim().min(20).max(20_000),
@@ -66,10 +67,12 @@ export async function PUT(req: Request, context: { params: Promise<{ projectId: 
 
   await ensureProjectBrainDocument(db, projectId);
 
+  const normalizedMission = normalizeMissionMarkdown(body.mission, String(project.name ?? "Company"));
+
   const { error } = await db
     .from("project_brain_documents")
     .update({
-      mission_markdown: body.mission,
+      mission_markdown: normalizedMission,
       updated_at: new Date().toISOString(),
     })
     .eq("project_id", projectId);

@@ -115,6 +115,7 @@ export async function getLatestTasksByProject(projectIds: string[]) {
       .from("tasks")
       .select("project_id,agent,description,status,detail,created_at")
       .in("project_id", projectIds)
+      .not("description", "ilike", "%_trace%")
       .order("created_at", { ascending: false })
       .limit(500),
   );
@@ -152,6 +153,7 @@ export async function getRecentActivity(userId: string, limit = 8) {
       .from("tasks")
       .select("project_id,agent,description,status,detail,created_at")
       .in("project_id", projectIds)
+      .not("description", "ilike", "%_trace%")
       .order("created_at", { ascending: false })
       .limit(limit),
   );
@@ -185,6 +187,7 @@ export async function getRunningTasks(projectIds: string[]) {
       .from("tasks")
       .select("project_id,agent,description")
       .in("project_id", projectIds)
+      .not("description", "ilike", "%_trace%")
       .eq("status", "running")
       .order("created_at", { ascending: false })
       .limit(100),
@@ -295,6 +298,7 @@ export async function getAllRunningTasks(projectIds: string[]) {
       .from("tasks")
       .select("project_id,agent,description,detail")
       .in("project_id", projectIds)
+      .not("description", "ilike", "%_trace%")
       .eq("status", "running")
       .order("created_at", { ascending: false })
       .limit(20),

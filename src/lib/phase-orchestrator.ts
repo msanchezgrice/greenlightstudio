@@ -3,6 +3,8 @@ import { log_task, save_packet } from "@/lib/supabase-mcp";
 import { withRetry } from "@/lib/retry";
 import { generatePhase1Packet, generatePhase2Packet, generatePhase3Packet } from "@/lib/agent";
 import { generatePhase1Deliverables } from "@/lib/phase1-deliverables";
+import { generatePhase2Deliverables } from "@/lib/phase2-deliverables";
+import { createPhasePacketPresentationAssets, readPacketSummaryForPhase } from "@/lib/phase-presentations";
 import type { Phase1Packet, Phase2Packet, Phase3Packet } from "@/types/phase-packets";
 
 type ProjectRow = {
@@ -10,6 +12,7 @@ type ProjectRow = {
   name: string;
   domain: string | null;
   idea_description: string;
+  owner_clerk_id: string;
   repo_url: string | null;
   runtime_mode: "shared" | "attached";
   permissions: {
@@ -144,6 +147,23 @@ function riskFromConfidence(confidence: number): "high" | "medium" | "low" {
   return "low";
 }
 
+function normalizeDeliverables(input: unknown) {
+  if (!Array.isArray(input)) return [] as Array<Record<string, unknown>>;
+  return input.filter((entry) => entry && typeof entry === "object") as Array<Record<string, unknown>>;
+}
+
+function dedupeDeliverables(deliverables: Array<Record<string, unknown>>) {
+  const seen = new Set<string>();
+  const result: Array<Record<string, unknown>> = [];
+  for (const deliverable of deliverables) {
+    const key = `${String(deliverable.kind ?? "kind")}::${String(deliverable.label ?? "label")}::${String(deliverable.url ?? "")}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(deliverable);
+  }
+  return result;
+}
+
 async function generatePacketForPhase(
   project: ProjectRow,
   phase: 1 | 2 | 3,
@@ -264,7 +284,7 @@ export async function enqueueNextPhaseArtifacts(projectId: string, phase: number
   const { data: project, error: projectError } = await withRetry(() =>
     db
       .from("projects")
-      .select("id,name,domain,idea_description,repo_url,runtime_mode,permissions,focus_areas,night_shift,scan_results")
+      .select("id,name,domain,idea_description,owner_clerk_id,repo_url,runtime_mode,permissions,focus_areas,night_shift,scan_results")
       .eq("id", projectId)
       .single(),
   );
@@ -355,6 +375,53 @@ export async function enqueueNextPhaseArtifacts(projectId: string, phase: number
     log_task(projectId, "ceo_agent", `phase${plan.phase}_init`, "completed", `Phase ${plan.phase} initialization complete`),
   );
 
+  let packetDeck:
+    | Awaited<ReturnType<typeof createPhasePacketPresentationAssets>>
+    | null = null;
+  try {
+    packetDeck = await createPhasePacketPresentationAssets({
+      projectId,
+      phase: plan.phase,
+      projectName: (project as ProjectRow).name,
+      domain: (project as ProjectRow).domain,
+      packet,
+      summary: readPacketSummaryForPhase(plan.phase, packet),
+      ownerClerkId: (project as ProjectRow).owner_clerk_id ?? undefined,
+    });
+  } catch (deckError) {
+    await log_task(
+      projectId,
+      "ceo_agent",
+      `phase${plan.phase}_packet_deck`,
+      "failed",
+      deckError instanceof Error ? deckError.message.slice(0, 260) : "Packet deck generation failed",
+    ).catch(() => {});
+  }
+
+  const packetDeckDeliverables: Array<Record<string, unknown>> = [];
+  if (packetDeck?.htmlPreviewUrl) {
+    packetDeckDeliverables.push({
+      kind: `phase${plan.phase}_packet_html`,
+      label: `Phase ${plan.phase} Packet Deck (HTML)`,
+      url: packetDeck.htmlPreviewUrl,
+      storage_path: null,
+      status: "generated",
+      generated_at: new Date().toISOString(),
+    });
+  }
+  if (packetDeck?.pptxPreviewUrl) {
+    packetDeckDeliverables.push({
+      kind: `phase${plan.phase}_packet_pptx`,
+      label: `Phase ${plan.phase} Packet Deck (PowerPoint)`,
+      url: packetDeck.pptxPreviewUrl,
+      storage_path: null,
+      status: "generated",
+      generated_at: new Date().toISOString(),
+    });
+  }
+
+  let phaseSpecificDeliverables: Array<Record<string, unknown>> = [];
+
   if (plan.phase === 1) {
     await generatePhase1Deliverables(
       {
@@ -362,11 +429,49 @@ export async function enqueueNextPhaseArtifacts(projectId: string, phase: number
         name: (project as ProjectRow).name,
         domain: (project as ProjectRow).domain,
         idea_description: (project as ProjectRow).idea_description,
-        owner_clerk_id: undefined,
+        owner_clerk_id: (project as ProjectRow).owner_clerk_id,
       },
       packet as Phase1Packet,
     );
   }
+
+  if (plan.phase === 2) {
+    const phase2Result = await generatePhase2Deliverables(
+      {
+        id: projectId,
+        name: (project as ProjectRow).name,
+        domain: (project as ProjectRow).domain,
+        idea_description: (project as ProjectRow).idea_description,
+        owner_clerk_id: (project as ProjectRow).owner_clerk_id,
+      },
+      packet as Phase2Packet,
+    );
+    phaseSpecificDeliverables = phase2Result.deliverables;
+  }
+
+  const { data: packetDeliverablesRow } = await withRetry(() =>
+    db
+      .from("phase_packets")
+      .select("deliverables")
+      .eq("project_id", projectId)
+      .eq("phase", plan.phase)
+      .maybeSingle(),
+  );
+
+  const existingDeliverables = normalizeDeliverables(packetDeliverablesRow?.deliverables ?? null);
+  const mergedDeliverables = dedupeDeliverables([
+    ...packetDeckDeliverables,
+    ...phaseSpecificDeliverables,
+    ...existingDeliverables,
+  ]);
+
+  await withRetry(() =>
+    db
+      .from("phase_packets")
+      .update({ deliverables: mergedDeliverables })
+      .eq("project_id", projectId)
+      .eq("phase", plan.phase),
+  );
 
   await withRetry(() =>
     log_task(

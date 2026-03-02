@@ -1866,6 +1866,36 @@ a {
   max-width: 1120px;
 }
 
+.studio-page-with-chat {
+  max-width: 1440px;
+}
+
+.studio-with-chat {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 25%);
+  gap: 16px;
+  align-items: start;
+}
+
+.studio-main-column {
+  min-width: 0;
+}
+
+.studio-chat-rail {
+  position: sticky;
+  top: 78px;
+  align-self: start;
+}
+
+.studio-chat-rail .studio-card {
+  margin-bottom: 0;
+}
+
+.studio-chat-rail .chat-messages {
+  min-height: 320px;
+  max-height: calc(100vh - 340px);
+}
+
 .studio-card {
   background: var(--card);
   border: 1px solid var(--border);
@@ -2002,6 +2032,8 @@ a {
   font-size: 12px;
   color: var(--text2);
   vertical-align: top;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .studio-table tr:last-child td {
@@ -2052,6 +2084,85 @@ a {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
+}
+
+.phase-linear-track {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.phase-linear-node-wrap {
+  display: flex;
+  align-items: center;
+  flex: 1 1 0;
+  min-width: 220px;
+}
+
+.phase-linear-node {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--text2);
+}
+
+.phase-linear-dot {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 2px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: var(--text3);
+  background: #0b1326;
+}
+
+.phase-linear-title {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--heading);
+}
+
+.phase-linear-state {
+  display: block;
+  font-size: 12px;
+  color: var(--text3);
+}
+
+.phase-linear-node.completed .phase-linear-dot {
+  border-color: rgba(34, 197, 94, 0.5);
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.phase-linear-node.active .phase-linear-dot {
+  border-color: rgba(59, 130, 246, 0.55);
+  color: #60a5fa;
+  background: rgba(59, 130, 246, 0.08);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12);
+}
+
+.phase-linear-node.active .phase-linear-state {
+  color: #60a5fa;
+  font-weight: 700;
+}
+
+.phase-linear-connector {
+  height: 2px;
+  background: var(--border);
+  flex: 1;
+  margin: 0 10px;
+  min-width: 48px;
+}
+
+.phase-linear-connector.complete {
+  background: linear-gradient(90deg, rgba(34, 197, 94, 0.7), rgba(34, 197, 94, 0.3));
 }
 
 .phase-node {
@@ -2126,6 +2237,21 @@ a {
 
 .phase-section {
   margin-top: 12px;
+}
+
+.phase-task-collapse {
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #08101f;
+}
+
+.phase-task-collapse > summary {
+  cursor: pointer;
+  color: var(--text2);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .phase-subtitle {
@@ -4745,9 +4871,14 @@ a {
   .project-grid,
   .project-metrics,
   .project-meta-grid,
+  .studio-with-chat,
   .phase-track,
   .phase-two-col {
     grid-template-columns: 1fr;
+  }
+
+  .studio-chat-rail {
+    position: static;
   }
 
   .packet-action-inner {

@@ -137,7 +137,7 @@ export function phase0ReadyEmail(input: {
       </tr>
     </table>`,
     paragraph("Open the report to review market sizing, competitor analysis, target persona, and the full CEO recommendation."),
-    btn("Review your report", `${input.baseUrl}/projects/${input.projectId}/packet`),
+    btn("Review your report", `${input.baseUrl}/projects/${input.projectId}/phases/0`),
   ].join("");
 
   return { subject, html: wrap(subject, `Confidence ${input.confidence}/100 — ${recLabel}`, body) };
@@ -180,6 +180,49 @@ export function phase1ReadyEmail(input: {
   ].join("");
 
   return { subject, html: wrap(subject, `Landing page, brand kit & email sequence for ${input.projectName}`, body) };
+}
+
+// ---------------------------------------------------------------------------
+// Daily project overview
+// ---------------------------------------------------------------------------
+
+export function dailyOverviewEmail(input: {
+  projectName: string;
+  projectId: string;
+  baseUrl: string;
+  summaryLines: string[];
+  aiTasks: string[];
+  userTasks: string[];
+}) {
+  const subject = `Daily overview — ${input.projectName}`;
+  const summary = input.summaryLines.length
+    ? input.summaryLines.map((line) => `<li style="margin:0 0 6px">${esc(line)}</li>`).join("")
+    : `<li style="margin:0 0 6px">No major changes were detected today.</li>`;
+  const aiTasks = input.aiTasks.length
+    ? input.aiTasks.map((line) => `<li style="margin:0 0 6px">${esc(line)}</li>`).join("")
+    : `<li style="margin:0 0 6px">Continue monitoring and executing approved tasks.</li>`;
+  const userTasks = input.userTasks.length
+    ? input.userTasks.map((line) => `<li style="margin:0 0 6px">${esc(line)}</li>`).join("")
+    : `<li style="margin:0 0 6px">Review project status and confirm next priorities.</li>`;
+  const projectHref = `${input.baseUrl}/projects/${input.projectId}/phases`;
+  const inboxHref = `${input.baseUrl}/inbox?project=${input.projectId}`;
+
+  const body = [
+    heading("Today’s progress recap"),
+    paragraph(`Here is what happened today on <strong style="color:#F1F5F9">${esc(input.projectName)}</strong>.`),
+    `<ul style="margin:0 0 14px;padding-left:18px;color:#CBD5E1;font-size:14px;line-height:1.55">${summary}</ul>`,
+    divider(),
+    `<h2 style="margin:0 0 10px;font-size:16px;color:#F1F5F9">3 tasks for me (CEO agent) tomorrow</h2>`,
+    `<ol style="margin:0 0 16px;padding-left:20px;color:#CBD5E1;font-size:14px;line-height:1.55">${aiTasks}</ol>`,
+    `<h2 style="margin:0 0 10px;font-size:16px;color:#F1F5F9">3 tasks for you tomorrow</h2>`,
+    `<ol style="margin:0 0 16px;padding-left:20px;color:#CBD5E1;font-size:14px;line-height:1.55">${userTasks}</ol>`,
+    `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:6px"><tr>
+      <td>${btn("Open Phase Dashboard", projectHref)}</td>
+      <td align="right">${btn("Review Inbox", inboxHref)}</td>
+    </tr></table>`,
+  ].join("");
+
+  return { subject, html: wrap(subject, `Daily recap and next tasks for ${input.projectName}`, body) };
 }
 
 // ---------------------------------------------------------------------------

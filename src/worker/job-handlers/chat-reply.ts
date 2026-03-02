@@ -11,7 +11,7 @@ import {
 } from "@/lib/agent";
 
 type ActionRule = {
-  requiredPhase: 1 | 2 | 3;
+  requiredPhase: 0 | 1 | 2 | 3;
   title: string;
   risk: "high" | "medium" | "low";
 };
@@ -28,6 +28,11 @@ const ACTION_RULES: Record<ChatExecutionActionType, ActionRule> = {
     requiredPhase: 1,
     title: "Deploy Shared Runtime Landing Page",
     risk: "medium",
+  },
+  refine_phase_assets: {
+    requiredPhase: 1,
+    title: "Refine Phase Assets",
+    risk: "low",
   },
   send_welcome_email_sequence: {
     requiredPhase: 1,
@@ -60,12 +65,21 @@ const EXECUTION_VERB_REGEX =
   /\b(remake|rebuild|redo|regenerate|deploy|redeploy|publish|launch|ship|send|resend|activate|trigger|run|make|change|update|edit|tweak)\b/i;
 const EXECUTION_OBJECT_REGEX =
   /\b(landing page|landing|button|cta|color|purple|headline|subheadline|copy|hero|style|design|welcome email|email sequence|lifecycle email|ads|campaign|repo workflow|workflow|deploy|go live)\b/i;
+const REFINEMENT_VERB_REGEX = /\b(refine|improve|edit|update|change|tweak|rework|iterate|regenerate|redo|fix)\b/i;
+const REFINEMENT_OBJECT_REGEX =
+  /\b(landing|button|cta|copy|design|brand|logo|palette|deck|packet|slide|asset|social|hero|image|email)\b/i;
 
 function shouldEvaluateExecutionIntent(message: string) {
   const trimmed = message.trim();
   if (trimmed.length < 6) return false;
   if (!EXECUTION_VERB_REGEX.test(trimmed)) return false;
   return EXECUTION_OBJECT_REGEX.test(trimmed);
+}
+
+function looksLikeRefinementRequest(message: string) {
+  const trimmed = message.trim();
+  if (trimmed.length < 6) return false;
+  return REFINEMENT_VERB_REGEX.test(trimmed) && REFINEMENT_OBJECT_REGEX.test(trimmed);
 }
 
 function isTruthyFlag(value: unknown) {
@@ -165,7 +179,24 @@ async function evaluateAndQueueChatAction(params: {
     user_message: params.message,
   });
 
-  if (intent.decision !== "queue_execution_approval" || !intent.action_type) {
+  let actionType: ChatExecutionActionType | null = intent.action_type ?? null;
+  let actionDecision = intent.decision;
+  let actionConfidence = intent.confidence;
+  let actionTitle = intent.title ?? null;
+  let actionDescription = intent.description ?? null;
+
+  if (
+    (actionDecision !== "queue_execution_approval" || !actionType || actionConfidence < 70) &&
+    looksLikeRefinementRequest(params.message)
+  ) {
+    actionType = "refine_phase_assets";
+    actionDecision = "queue_execution_approval";
+    actionConfidence = Math.max(actionConfidence, 85);
+    if (!actionTitle) actionTitle = "Refine Current Phase Assets";
+    if (!actionDescription) actionDescription = `Refine current phase assets based on chat guidance: ${params.message.slice(0, 180)}`;
+  }
+
+  if (actionDecision !== "queue_execution_approval" || !actionType) {
     return {
       status: "none",
       actionType: null,
@@ -173,15 +204,14 @@ async function evaluateAndQueueChatAction(params: {
     } as ChatAutomationOutcome;
   }
 
-  if (intent.confidence < 70) {
+  if (actionConfidence < 70) {
     return {
       status: "ignored",
-      actionType: intent.action_type,
-      summary: `Skipped due to low intent confidence (${intent.confidence}).`,
+      actionType,
+      summary: `Skipped due to low intent confidence (${actionConfidence}).`,
     } as ChatAutomationOutcome;
   }
 
-  const actionType = intent.action_type;
   const rule = ACTION_RULES[actionType];
   const blockReason = preconditionFailure(actionType, params.project);
   if (blockReason) {
@@ -217,7 +247,12 @@ async function evaluateAndQueueChatAction(params: {
     .from("phase_packets")
     .select("id,phase,packet,packet_data")
     .eq("project_id", params.projectId)
-    .eq("phase", rule.requiredPhase)
+    .eq(
+      "phase",
+      actionType === "refine_phase_assets"
+        ? Math.max(0, Math.min(3, params.latestPacketPhase ?? params.project.phase))
+        : rule.requiredPhase,
+    )
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -228,9 +263,14 @@ async function evaluateAndQueueChatAction(params: {
     return {
       status: "blocked",
       actionType,
-      summary: `No Phase ${rule.requiredPhase} packet found. Generate Phase ${rule.requiredPhase} first.`,
+      summary:
+        actionType === "refine_phase_assets"
+          ? "No packet found to refine. Generate the current phase packet first."
+          : `No Phase ${rule.requiredPhase} packet found. Generate Phase ${rule.requiredPhase} first.`,
     } as ChatAutomationOutcome;
   }
+
+  const targetPhase = Number(packetLookup.data.phase);
 
   const packetPayload = (packetLookup.data.packet_data ?? packetLookup.data.packet) as unknown;
   const { data: inserted, error: insertError } = await params.db
@@ -238,10 +278,14 @@ async function evaluateAndQueueChatAction(params: {
     .insert({
       project_id: params.projectId,
       packet_id: packetLookup.data.id,
-      phase: rule.requiredPhase,
+      phase: targetPhase,
       type: "execution",
-      title: intent.title ?? rule.title,
-      description: intent.description ?? `Requested via chat: ${params.message.slice(0, 180)}`,
+      title: actionTitle ?? (actionType === "refine_phase_assets" ? `Refine Phase ${targetPhase} Assets` : rule.title),
+      description:
+        actionDescription ??
+        (actionType === "refine_phase_assets"
+          ? `Refine Phase ${targetPhase} assets based on chat guidance.`
+          : `Requested via chat: ${params.message.slice(0, 180)}`),
       risk: rule.risk,
       risk_level: rule.risk,
       action_type: actionType,
@@ -251,6 +295,7 @@ async function evaluateAndQueueChatAction(params: {
         source: "chat",
         requested_by: params.ownerClerkId,
         requested_at: new Date().toISOString(),
+        target_phase: targetPhase,
         user_message: params.message.slice(0, 1200),
         improvement_guidance: params.message.slice(0, 1200),
         rationale: intent.rationale,

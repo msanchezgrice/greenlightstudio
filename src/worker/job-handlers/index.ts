@@ -9,6 +9,7 @@ import { handleNightshiftCycleProject } from "./nightshift-cycle-project";
 import { handleChatReply } from "./chat-reply";
 import { handleCodeGenerateMvp } from "./code-generate-mvp";
 import { handleResearchGenerateReport } from "./research-generate-report";
+import { handleResearchTechNewsRefresh } from "./research-tech-news-refresh";
 import { handleBrowserCheckPage } from "./browser-check-page";
 import { handleBrainRefresh } from "./brain-refresh";
 import { handleSchedulerRunRecurring } from "./scheduler-run-recurring";
@@ -37,6 +38,7 @@ const handlers: Record<string, JobHandler> = {
   "chat.reply": handleChatReply,
   "code.generate_mvp": handleCodeGenerateMvp,
   "research.generate_report": handleResearchGenerateReport,
+  "research.tech_news_refresh": handleResearchTechNewsRefresh,
   "browser.check_page": handleBrowserCheckPage,
   "brain.refresh": handleBrainRefresh,
   "scheduler.run_recurring": handleSchedulerRunRecurring,

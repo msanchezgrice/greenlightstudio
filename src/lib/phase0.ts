@@ -4,6 +4,7 @@ import { onboardingSchema, packetSchema, projectAssetSchema, type Packet, type P
 import { save_packet, log_task } from "@/lib/supabase-mcp";
 import { withRetry } from "@/lib/retry";
 import { sendPhase0ReadyDrip } from "@/lib/drip-emails";
+import { generatePhase0Foundations } from "@/lib/phase0-deliverables";
 
 type RunPhase0Options = {
   projectId: string;
@@ -146,6 +147,24 @@ async function runPhase0Inner({ projectId, userId, revisionGuidance, forceNewApp
 
     const packetId = await withRetry(() => save_packet(projectId, 0, packet));
     const risk = confidence < 40 ? "high" : confidence < 70 ? "medium" : "low";
+
+    try {
+      await generatePhase0Foundations({
+        projectId,
+        projectName: String(project.name ?? "Project"),
+        domain: (project.domain as string | null) ?? null,
+        ideaDescription: String(input.idea_description ?? ""),
+        packet,
+        scanResults: (input.scan_results as Record<string, unknown> | null) ?? null,
+        ownerClerkId: userId,
+        mission: String(input.mission ?? ""),
+      });
+    } catch (foundationError) {
+      const detail = foundationError instanceof Error ? foundationError.message : "Phase 0 foundations failed";
+      await logPhaseTask(projectId, "brand_agent", "phase0_brand_foundation", "failed", truncateDetail(detail)).catch(() => {});
+      await logPhaseTask(projectId, "research_agent", "tech_news_refresh", "failed", truncateDetail(detail)).catch(() => {});
+      // Non-fatal: packet + approval should continue even if optional foundation assets fail.
+    }
 
     if (shouldForceNewApproval) {
       const now = new Date().toISOString();

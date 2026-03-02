@@ -50,6 +50,8 @@ const TASK_LABELS: Record<string, string> = {
   phase0_research: "Researching market & competitors",
   phase0_research_query: "Running research queries",
   phase0_packet: "Building pitch packet",
+  phase0_packet_deck: "Building phase deck",
+  phase0_brand_foundation: "Creating brand foundation",
   phase0_failed: "Research failed",
   phase1_init: "Initializing Phase 1",
   phase1_validate: "Generating validation assets",
@@ -64,12 +66,15 @@ const TASK_LABELS: Record<string, string> = {
   phase2_distribute_review: "Reviewing distribution plan",
   phase2_ads: "Preparing ad creatives",
   phase2_email: "Drafting email campaigns",
+  phase2_social_assets: "Generating social assets",
   phase3_golive: "Preparing for launch",
   phase3_golive_review: "Reviewing launch readiness",
   phase3_build: "Building product features",
   phase3_deploy: "Deploying to production",
   nightshift_summary: "Night Shift summary",
   nightshift_run: "Night Shift processing",
+  tech_news_refresh: "Refreshing tech + AI news insights",
+  phase_refine_enqueue: "Queueing phase refinement",
 };
 
 export function humanizeTaskDescription(description: string): string {
@@ -88,14 +93,14 @@ export function taskOutputLink(description: string, projectId: string): { href: 
     return { href: `/projects/${projectId}/phases/1`, label: "View Brand Kit" };
   }
   if (description === "phase0_complete" || description === "phase0_packet") {
-    return { href: `/projects/${projectId}/packet`, label: "View Packet" };
+    return { href: `/projects/${projectId}/phases/0`, label: "View Packet" };
   }
   if (description === "nightshift_summary") {
     return { href: `/projects/${projectId}/phases`, label: "View Phases" };
   }
   const phase = taskPhase(description);
   if (phase === null) return null;
-  if (phase === 0) return { href: `/projects/${projectId}/packet`, label: "View Packet" };
+  if (phase === 0) return { href: `/projects/${projectId}/phases/0`, label: "View Packet" };
   return { href: `/projects/${projectId}/phases/${phase}`, label: `View Phase ${phase}` };
 }
 

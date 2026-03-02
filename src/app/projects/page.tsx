@@ -65,7 +65,9 @@ export default async function ProjectsPage() {
                     return (
                       <tr key={project.id}>
                         <td>
-                          <div className="table-main">{project.name}</div>
+                          <Link href={`/projects/${project.id}/phases`} className="table-main" style={{ textDecoration: "none" }}>
+                            {project.name}
+                          </Link>
                           <div className="table-sub">{project.domain ?? "No domain"}</div>
                         </td>
                         <td>{phaseLabel(project.phase)}</td>
@@ -75,24 +77,15 @@ export default async function ProjectsPage() {
                         <td>{new Date(project.updated_at).toLocaleString()}</td>
                         <td>
                           <div className="table-actions">
-                            <Link href={`/projects/${project.id}`} className="btn btn-details">
-                              Open
-                            </Link>
                             <Link href={`/projects/${project.id}/phases`} className="btn btn-details">
-                              Phases
+                              Open
                             </Link>
                             <Link href={`/projects/${project.id}/phases/${phaseRoute(project.phase)}`} className="btn btn-preview">
                               Active Phase
                             </Link>
-                            {packet ? (
-                              <Link href={`/projects/${project.id}/packet`} className="btn btn-preview">
-                                Packet
-                              </Link>
-                            ) : (
-                              <span className="btn btn-preview btn-disabled" aria-disabled="true">
-                                Packet
-                              </span>
-                            )}
+                            <Link href={`/projects/${project.id}/logs`} className="btn btn-preview">
+                              Logs
+                            </Link>
                           </div>
                         </td>
                       </tr>

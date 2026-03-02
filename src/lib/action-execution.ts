@@ -5,6 +5,8 @@ import { phase1PacketSchema, phase2PacketSchema, phase3PacketSchema } from "@/ty
 import { createMetaCampaign, sendResendEmail, triggerGitHubRepositoryDispatch, triggerVercelDeployHook } from "@/lib/integrations";
 import { generatePhase1LandingHtml } from "@/lib/agent";
 import { recordProjectEvent } from "@/lib/project-events";
+import { enqueueJob } from "@/lib/jobs/enqueue";
+import { AGENT_KEYS, JOB_TYPES, PRIORITY } from "@/lib/jobs/constants";
 
 type ApprovalRow = {
   id: string;
@@ -330,6 +332,68 @@ export async function executeApprovedAction(input: {
       const sendResult = await processDueEmailJobs(10);
       await createExecution(input.approval, "completed", "Lifecycle email job processed", sendResult);
       return { detail: `Lifecycle email sent=${sendResult.sent} failed=${sendResult.failed}` };
+    }
+
+    if (input.approval.action_type === "refine_phase_assets") {
+      const rawTargetPhase = Number(payload.target_phase ?? input.project.phase ?? 1);
+      const targetPhase = Number.isFinite(rawTargetPhase) ? Math.max(0, Math.min(3, Math.trunc(rawTargetPhase))) : 1;
+      const guidance =
+        (typeof payload.improvement_guidance === "string" && payload.improvement_guidance.trim().length > 0
+          ? payload.improvement_guidance.trim()
+          : null) ??
+        (typeof payload.user_message === "string" && payload.user_message.trim().length > 0
+          ? payload.user_message.trim()
+          : null) ??
+        "Refine current phase assets based on latest user feedback.";
+
+      let regenJobId: string;
+      if (targetPhase === 0) {
+        regenJobId = await enqueueJob({
+          projectId: input.project.id,
+          jobType: JOB_TYPES.PHASE0,
+          agentKey: AGENT_KEYS.CEO,
+          payload: {
+            projectId: input.project.id,
+            ownerClerkId: input.project.owner_clerk_id,
+            revisionGuidance: guidance,
+            forceNewApproval: true,
+          },
+          idempotencyKey: `phase0-refine:${input.approval.id}`,
+          priority: PRIORITY.USER_BLOCKING,
+        });
+      } else {
+        regenJobId = await enqueueJob({
+          projectId: input.project.id,
+          jobType: JOB_TYPES.PHASE_GEN,
+          agentKey: AGENT_KEYS.CEO,
+          payload: {
+            projectId: input.project.id,
+            phase: targetPhase,
+            forceRegenerate: true,
+            revisionGuidance: guidance,
+          },
+          idempotencyKey: `phase-refine:${targetPhase}:${input.approval.id}`,
+          priority: PRIORITY.USER_BLOCKING,
+        });
+      }
+
+      await withRetry(() =>
+        log_task(
+          input.project.id,
+          "ceo_agent",
+          "phase_refine_enqueue",
+          "completed",
+          `Queued refinement for phase ${targetPhase} (job ${regenJobId})`,
+        ),
+      );
+
+      await createExecution(
+        input.approval,
+        "completed",
+        `Queued phase ${targetPhase} refinement (${regenJobId})`,
+        { target_phase: targetPhase, regen_job_id: regenJobId },
+      );
+      return { detail: `Queued phase ${targetPhase} refinement.` };
     }
 
     if (input.approval.action_type === "activate_meta_ads_campaign") {

@@ -43,6 +43,7 @@ export default async function TasksPage() {
             .from("tasks")
             .select("id,project_id,agent,description,status,detail,created_at")
             .in("project_id", projectIds)
+            .not("description", "ilike", "%_trace%")
             .order("created_at", { ascending: false })
             .limit(200),
         )
@@ -53,6 +54,7 @@ export default async function TasksPage() {
             .from("task_log")
             .select("id,project_id,step,status,detail,created_at")
             .in("project_id", projectIds)
+            .not("step", "ilike", "%_trace%")
             .order("created_at", { ascending: false })
             .limit(200),
         )

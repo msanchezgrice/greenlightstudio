@@ -704,7 +704,7 @@ export function ChatPage() {
                 </div>
                 <div>
                   <Link
-                    href={`/projects/${selectedProject.id}`}
+                    href={`/projects/${selectedProject.id}/phases`}
                     className="chat-header-name"
                     style={{ textDecoration: "none", color: "inherit" }}
                   >
@@ -721,10 +721,10 @@ export function ChatPage() {
               </div>
               <div className="chat-header-actions">
                 <Link
-                  href={`/projects/${selectedProject.id}/packet`}
+                  href={`/projects/${selectedProject.id}/logs`}
                   className="chat-header-btn"
                 >
-                  Packet
+                  Logs
                 </Link>
                 <Link
                   href={`/inbox?project=${selectedProject.id}`}

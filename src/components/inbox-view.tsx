@@ -66,14 +66,24 @@ function parseSynopsis(payload: Record<string, unknown>) {
   return parsed.data.reasoning_synopsis;
 }
 
+function resolveApprovalPhase(item: Item) {
+  if (Number.isInteger(item.phase) && item.phase > 0) return item.phase;
+  const match = item.action_type.match(/phase(\d+)/i);
+  if (match) {
+    const parsed = Number(match[1]);
+    if (Number.isInteger(parsed)) return parsed;
+  }
+  return 0;
+}
+
 function approvalDetailsHref(item: Item) {
-  if (item.phase <= 0) return `/projects/${item.project_id}/packet`;
-  return `/projects/${item.project_id}/phases/${item.phase}`;
+  const phase = resolveApprovalPhase(item);
+  return `/projects/${item.project_id}/phases/${phase}`;
 }
 
 function approvalDetailsLabel(item: Item) {
-  if (item.phase <= 0) return "View Packet";
-  return `View Phase ${item.phase}`;
+  const phase = resolveApprovalPhase(item);
+  return phase > 0 ? `View Phase ${phase}` : "View Phase 0";
 }
 
 export function InboxView({ initialItems }: { initialItems: Item[] }) {

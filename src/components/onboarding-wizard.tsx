@@ -7,15 +7,9 @@ import { onboardingSchema, scanResultSchema, type ScanResult } from "@/types/dom
 import { createBrowserSupabase } from "@/lib/supabase-browser";
 import { humanizeTaskDescription } from "@/lib/phases";
 
-type Step = "import" | "discover" | "results" | "error" | "clarify" | "confirm" | "launched";
+type Step = "import" | "discover" | "results" | "error" | "confirm" | "launched";
 
 type ScanItemStatus = "queued" | "running" | "done" | "skipped";
-
-type GitHubConnection = {
-  connected: boolean;
-  username?: string;
-  avatar_url?: string;
-};
 
 type UploadMeta = {
   name: string;
@@ -33,24 +27,14 @@ type LaunchTask = {
 };
 
 type StoredWizardState = {
-  step?: Step;
+  step?: Step | "clarify";
   projectId?: string | null;
   projectIds?: string[];
   cacheHit?: boolean | null;
   form?: Partial<typeof defaultForm>;
 };
 
-const stepOrder: Step[] = ["import", "discover", "results", "clarify", "confirm", "launched"];
-const focusSuggestions = [
-  "Market Research",
-  "Competitor Analysis",
-  "Landing Page",
-  "Logo & Brand",
-  "Email Sequences",
-  "Social Strategy",
-  "Financial Model",
-];
-
+const stepOrder: Step[] = ["import", "discover", "results", "confirm", "launched"];
 const allowedFileExts = [".pdf", ".ppt", ".pptx", ".doc", ".docx", ".png", ".jpg", ".jpeg"];
 const maxFileSizeBytes = 10 * 1024 * 1024;
 const wizardStorageKey = "greenlight_onboarding_wizard_v1";
@@ -67,7 +51,7 @@ const defaultForm = {
   demo_url: "",
   repo_url: "",
   uploaded_files: [] as UploadMeta[],
-  runtime_mode: "attached" as "shared" | "attached",
+  runtime_mode: "shared" as "shared" | "attached",
   permissions: {
     repo_write: false,
     deploy: false,
@@ -138,10 +122,6 @@ function formatBytes(size: number) {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function boolLabel(value: boolean) {
-  return value ? "On" : "Off";
 }
 
 function readStorage(key: string, storage: Storage) {
@@ -225,10 +205,7 @@ export function OnboardingWizard() {
   const [form, setForm] = useState<FormState>(createInitialForm);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [scanItemStatuses, setScanItemStatuses] = useState<ScanItemStatus[]>(["queued", "queued", "queued", "queued", "queued"]);
-  const [githubConnection, setGithubConnection] = useState<GitHubConnection>({ connected: false });
-  const [githubLoading, setGithubLoading] = useState(false);
   const resetRequested = searchParams.get("new") === "1";
-  const githubConnectParam = searchParams.get("github");
 
   useEffect(() => {
     try {
@@ -278,8 +255,9 @@ export function OnboardingWizard() {
         });
       }
 
-      if (stored.step && stepOrder.includes(stored.step)) {
-        setStep(stored.step);
+      const restoredStep = stored.step === "clarify" ? "results" : stored.step;
+      if (restoredStep && stepOrder.includes(restoredStep)) {
+        setStep(restoredStep);
       }
 
       if (typeof stored.projectId === "string" || stored.projectId === null) {
@@ -315,35 +293,6 @@ export function OnboardingWizard() {
     writeStorage(wizardStorageKey, window.localStorage, serialized);
     writeStorage(wizardSessionStorageKey, window.sessionStorage, serialized);
   }, [step, projectId, projectIds, cacheHit, form]);
-
-  // Check GitHub connection status on mount and after OAuth callback
-  const checkGitHubConnection = useCallback(async () => {
-    try {
-      const res = await fetch("/api/auth/github/status");
-      if (res.ok) {
-        const data = await res.json() as GitHubConnection;
-        setGithubConnection(data);
-      }
-    } catch {
-      // Silently fail - GitHub connection is optional
-    }
-  }, []);
-
-  useEffect(() => {
-    if (isSignedIn) {
-      checkGitHubConnection();
-    }
-  }, [isSignedIn, checkGitHubConnection]);
-
-  useEffect(() => {
-    if (githubConnectParam === "connected") {
-      checkGitHubConnection();
-      // Clean up URL param
-      const url = new URL(window.location.href);
-      url.searchParams.delete("github");
-      window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
-    }
-  }, [githubConnectParam, checkGitHubConnection]);
 
   // Animate scan items progressively when in discover step
   useEffect(() => {
@@ -505,6 +454,27 @@ export function OnboardingWizard() {
     return true;
   }
 
+  function ensureStrategicContextIsValid() {
+    const requiredFields: Array<{ key: keyof FormState; label: string; min: number }> = [
+      { key: "app_description", label: "App Description", min: 20 },
+      { key: "value_prop", label: "Value Proposition", min: 20 },
+      { key: "mission", label: "Mission", min: 20 },
+      { key: "target_demo", label: "Target Demo", min: 20 },
+    ];
+
+    const missing = requiredFields.filter(({ key, min }) => {
+      const value = String(form[key] ?? "").trim();
+      return value.length < min;
+    });
+
+    if (missing.length > 0) {
+      setError(`Please complete strategic context before launch: ${missing.map((item) => item.label).join(", ")}.`);
+      return false;
+    }
+
+    return true;
+  }
+
   function ensureScanIsValid() {
     if (!ensureDomainRepoShapeIsValid()) {
       return false;
@@ -519,23 +489,16 @@ export function OnboardingWizard() {
     return true;
   }
 
-  function ensureClarifyEntryIsValid() {
-    if (!ensureDomainRepoShapeIsValid()) {
-      return false;
-    }
-    if (!ensureProjectSeedIsValid()) {
-      return false;
-    }
-    setError(null);
-    return true;
-  }
-
   function ensureLaunchIsValid() {
     if (!ensureDomainRepoShapeIsValid()) {
       return false;
     }
 
     if (!ensureProjectSeedIsValid()) {
+      return false;
+    }
+
+    if (!ensureStrategicContextIsValid()) {
       return false;
     }
 
@@ -650,7 +613,7 @@ export function OnboardingWizard() {
     const repoUrl = normalizeRepo(form.repo_url);
 
     if (!domain && !repoUrl) {
-      setStep("clarify");
+      setStep("results");
       return;
     }
 
@@ -832,7 +795,6 @@ export function OnboardingWizard() {
         <div className={`step ${statusClass(step, "import")}`}>Import</div>
         <div className={`step ${statusClass(step, "discover")}`}>Discover</div>
         <div className={`step ${statusClass(step, "results")}`}>Scan Results</div>
-        <div className={`step ${statusClass(step, "clarify")}`}>Clarify</div>
         <div className={`step ${statusClass(step, "confirm")}`}>Confirm</div>
       </div>
 
@@ -940,12 +902,12 @@ export function OnboardingWizard() {
             <button
               className="mock-btn secondary"
               onClick={() => {
-                if (!ensureClarifyEntryIsValid()) return;
-                setStep("clarify");
+                if (!ensureDomainRepoShapeIsValid()) return;
+                setStep("results");
               }}
               disabled={busy}
             >
-              Skip scan, go to settings →
+              Skip scan, add strategic context →
             </button>
           </div>
           <p className="field-note">Scanning checks your domain and repo in read-only mode. No changes are made.</p>
@@ -1003,10 +965,10 @@ export function OnboardingWizard() {
               onClick={() => {
                 scanNonce.current += 1;
                 setBusy(false);
-                setStep("clarify");
+                setStep("results");
               }}
             >
-              Skip scan →
+              Skip to context →
             </button>
           </div>
         </section>
@@ -1053,10 +1015,22 @@ export function OnboardingWizard() {
                     {primaryDomain}
                     {additionalDomains.length ? ` (+${additionalDomains.length} more)` : ""}
                   </div>
-                  <div className="scan-sub">
+                  <div className="scan-sub" style={{ marginBottom: 4 }}>
                     {scan?.meta?.title || "No title found"}
                     {scan?.http_status ? ` · HTTP ${scan.http_status}` : ""}
                   </div>
+                  {scan?.meta?.desc && (
+                    <div className="scan-sub" style={{ color: "var(--text2)", lineHeight: 1.5 }}>
+                      {scan.meta.desc}
+                    </div>
+                  )}
+                  {scan?.meta?.og_image && (
+                    <div className="scan-sub">
+                      <a href={scan.meta.og_image} target="_blank" rel="noreferrer" className="confirm-value blue">
+                        Open social image ↗
+                      </a>
+                    </div>
+                  )}
                 </div>
                 <div className={`scan-badge ${domainStatus === "live" ? "live" : domainStatus === "parked" ? "parked" : "none"}`}>
                   {domainStatus?.toUpperCase() || "UNKNOWN"}
@@ -1091,9 +1065,36 @@ export function OnboardingWizard() {
               <div className="scan-icon parked">⚔</div>
               <div className="scan-main">
                 <div className="scan-label">Competitors Found</div>
-                <div className="scan-sub">
-                  {competitors.length ? competitors.map((entry) => entry.name).slice(0, 5).join(", ") : "No competitors discovered"}
-                </div>
+                {!competitors.length ? (
+                  <div className="scan-sub">No competitors discovered</div>
+                ) : (
+                  <div style={{ display: "grid", gap: 10, marginTop: 8 }}>
+                    {competitors.slice(0, 8).map((entry, index) => (
+                      <div
+                        key={`${entry.name}-${index}`}
+                        style={{
+                          border: "1px solid var(--border)",
+                          borderRadius: 10,
+                          padding: "10px 12px",
+                          background: "var(--card2)",
+                        }}
+                      >
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--heading)", marginBottom: 4 }}>
+                          {entry.url ? (
+                            <a href={entry.url} target="_blank" rel="noreferrer" className="confirm-value blue">
+                              {entry.name} ↗
+                            </a>
+                          ) : (
+                            entry.name
+                          )}
+                        </div>
+                        <div className="scan-sub" style={{ color: "var(--text2)", lineHeight: 1.5 }}>
+                          {entry.snippet || "No description captured from discovery scan."}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="scan-badge parked">{competitors.length}</div>
             </div>
@@ -1105,7 +1106,7 @@ export function OnboardingWizard() {
               <span className="pill cyan">S1.6</span>
             </div>
             <p className="field-note" style={{ marginTop: 0, marginBottom: 10 }}>
-              This context is fed into packet and landing-page generation. Edit now for more focused outputs.
+              This context is required and is fed into packet and landing-page generation. Fill all fields for focused outputs.
             </p>
 
             <label className="field-label">App Description</label>
@@ -1160,8 +1161,14 @@ export function OnboardingWizard() {
           {scan?.error && <p className="field-note">Partial scan note: {scan.error}</p>}
 
           <div className="button-row">
-            <button className="mock-btn primary" onClick={() => setStep("clarify")}>
-              Looks good → Configure
+            <button
+              className="mock-btn primary"
+              onClick={() => {
+                if (!ensureStrategicContextIsValid()) return;
+                setStep("confirm");
+              }}
+            >
+              Continue to review →
             </button>
             <button className="mock-btn secondary" onClick={() => setStep("import")}>
               ← Edit inputs
@@ -1200,7 +1207,7 @@ export function OnboardingWizard() {
             <p className="warning-text">{scan?.error ?? error ?? "Unknown scan error"}</p>
           </div>
           <div className="button-row">
-            <button className="mock-btn primary" onClick={() => setStep("clarify")}>
+            <button className="mock-btn primary" onClick={() => setStep("results")}>
               Continue without scan →
             </button>
             <button className="mock-btn secondary" onClick={runScan} disabled={busy}>
@@ -1208,210 +1215,6 @@ export function OnboardingWizard() {
             </button>
             <button className="mock-btn secondary" onClick={() => setStep("import")}>
               ← Edit inputs
-            </button>
-          </div>
-        </section>
-      )}
-
-      {step === "clarify" && (
-        <section className="wizard-card">
-          <div className="wizard-title-row">
-            <h2>How should we operate?</h2>
-            <span className="pill yellow">S2</span>
-          </div>
-          <p className="wizard-desc">Set runtime mode, permission controls, and focus areas for your CEO agent.</p>
-
-          <label className="field-label">Runtime Mode</label>
-          <div className="radio-group">
-            <button
-              className={`mock-radio ${form.runtime_mode === "attached" ? "selected" : ""}`}
-              onClick={() => setForm((prev) => ({ ...prev, runtime_mode: "attached" }))}
-              type="button"
-            >
-              <span className="mock-radio-dot" />
-              <span>
-                <span className="mock-radio-label">Mode B: Attached to your repo</span>
-                <span className="mock-radio-desc">
-                  Agents read your code and open PRs. You approve merges. Recommended for existing codebases.
-                </span>
-              </span>
-            </button>
-            <button
-              className={`mock-radio ${form.runtime_mode === "shared" ? "selected" : ""}`}
-              onClick={() => setForm((prev) => ({ ...prev, runtime_mode: "shared" }))}
-              type="button"
-            >
-              <span className="mock-radio-dot" />
-              <span>
-                <span className="mock-radio-label">Mode A: Shared runtime</span>
-                <span className="mock-radio-desc">
-                  We host your landing pages and assets. Best for new ideas with no existing code.
-                </span>
-              </span>
-            </button>
-          </div>
-
-          {form.runtime_mode === "attached" && form.repo_url.trim() && (
-            <div className="github-connect-section" style={{ marginBottom: 12 }}>
-              {githubConnection.connected ? (
-                <div className="success-state">
-                  <p className="success-text" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    {githubConnection.avatar_url && (
-                      <img
-                        src={githubConnection.avatar_url}
-                        alt=""
-                        width={20}
-                        height={20}
-                        style={{ borderRadius: "50%" }}
-                      />
-                    )}
-                    GitHub connected as <strong style={{ marginLeft: 4 }}>{githubConnection.username}</strong>
-                  </p>
-                </div>
-              ) : (
-                <div className="warning-state">
-                  <p className="warning-text" style={{ marginBottom: 8 }}>
-                    Connect your GitHub account to allow agents to read your repo and open PRs.
-                  </p>
-                  <button
-                    type="button"
-                    className="mock-btn primary"
-                    style={{ fontSize: 12, padding: "8px 16px" }}
-                    disabled={githubLoading || !isSignedIn}
-                    onClick={() => {
-                      setGithubLoading(true);
-                      window.location.href = `/api/auth/github?redirect_uri=${encodeURIComponent("/onboarding")}`;
-                    }}
-                  >
-                    {githubLoading ? "Connecting…" : "Connect GitHub"}
-                  </button>
-                  {!isSignedIn && (
-                    <p className="field-note" style={{ marginTop: 6 }}>Sign in first to connect GitHub.</p>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          <label className="field-label">Permissions (safe by default)</label>
-          <div className="toggle-stack">
-            <button
-              type="button"
-              className="mock-toggle-btn"
-              onClick={() =>
-                setForm((prev) => ({ ...prev, permissions: { ...prev.permissions, repo_write: !prev.permissions.repo_write } }))
-              }
-            >
-              <span className={`toggle-track ${form.permissions.repo_write ? "on" : ""}`}>
-                <span className="toggle-dot" />
-              </span>
-              <span className="toggle-label">Repo write access (PRs only, never push to main)</span>
-            </button>
-            <button
-              type="button"
-              className="mock-toggle-btn"
-              onClick={() => setForm((prev) => ({ ...prev, permissions: { ...prev.permissions, deploy: !prev.permissions.deploy } }))}
-            >
-              <span className={`toggle-track ${form.permissions.deploy ? "on" : ""}`}>
-                <span className="toggle-dot" />
-              </span>
-              <span className="toggle-label">Deploy permission (staging only)</span>
-            </button>
-            <button
-              type="button"
-              className="mock-toggle-btn"
-              onClick={() =>
-                setForm((prev) => ({ ...prev, permissions: { ...prev.permissions, email_send: !prev.permissions.email_send } }))
-              }
-            >
-              <span className={`toggle-track ${form.permissions.email_send ? "on" : ""}`}>
-                <span className="toggle-dot" />
-              </span>
-              <span className="toggle-label">Send emails (transactional only)</span>
-            </button>
-            <button
-              type="button"
-              className="mock-toggle-btn"
-              onClick={() =>
-                setForm((prev) => ({
-                  ...prev,
-                  permissions: {
-                    ...prev.permissions,
-                    ads_enabled: !prev.permissions.ads_enabled,
-                    ads_budget_cap: !prev.permissions.ads_enabled ? Math.max(prev.permissions.ads_budget_cap, 10) : 0,
-                  },
-                }))
-              }
-            >
-              <span className={`toggle-track ${form.permissions.ads_enabled ? "on" : ""}`}>
-                <span className="toggle-dot" />
-              </span>
-              <span className="toggle-label">Ad spend (requires budget cap)</span>
-            </button>
-          </div>
-
-          <label className="field-label">Budget Cap (if ads enabled)</label>
-          <input
-            className="mock-input"
-            type="number"
-            min={0}
-            disabled={!form.permissions.ads_enabled}
-            value={form.permissions.ads_budget_cap}
-            onChange={(event) =>
-              setForm((prev) => ({
-                ...prev,
-                permissions: {
-                  ...prev.permissions,
-                  ads_budget_cap: Math.max(0, Number(event.target.value) || 0),
-                },
-              }))
-            }
-          />
-
-          <label className="field-label">Night Shift</label>
-          <button
-            type="button"
-            className="mock-toggle-btn"
-            onClick={() => setForm((prev) => ({ ...prev, night_shift: !prev.night_shift }))}
-          >
-            <span className={`toggle-track ${form.night_shift ? "on" : ""}`}>
-              <span className="toggle-dot" />
-            </span>
-            <span className="toggle-label">Enable autonomous night shift cycles</span>
-          </button>
-          <p className="field-note">
-            CEO agent runs nightly cycles, creates tasks, and writes a while-you-were-away report.
-          </p>
-
-          <label className="field-label">Focus Areas</label>
-          <div className="tag-wrap">
-            {focusSuggestions.map((focus) => {
-              const selected = form.focus_areas.includes(focus);
-              return (
-                <button
-                  type="button"
-                  key={focus}
-                  className={`mock-tag ${selected ? "added" : ""}`}
-                  onClick={() =>
-                    setForm((prev) => ({
-                      ...prev,
-                      focus_areas: selected ? prev.focus_areas.filter((entry) => entry !== focus) : [...prev.focus_areas, focus],
-                    }))
-                  }
-                >
-                  {selected ? "✓ " : ""}
-                  {focus}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="button-row">
-            <button className="mock-btn primary" onClick={() => setStep("confirm")} disabled={busy}>
-              Review &amp; Launch →
-            </button>
-            <button className="mock-btn secondary" onClick={() => setStep(hasScanResults ? "results" : "import")} disabled={busy}>
-              ← Back
             </button>
           </div>
         </section>
@@ -1463,38 +1266,6 @@ export function OnboardingWizard() {
             <span className="confirm-label">Tech Stack</span>
             <span className="confirm-value">{summary.tech}</span>
           </button>
-          <button type="button" className="confirm-row interactive" onClick={() => setStep("clarify")}>
-            <span className="confirm-label">Runtime Mode</span>
-            <span className="confirm-value blue">
-              {form.runtime_mode === "attached" ? "Attached (PRs to your repo)" : "Shared runtime"}
-            </span>
-          </button>
-          <button type="button" className="confirm-row interactive" onClick={() => setStep("clarify")}>
-            <span className="confirm-label">Repo Write</span>
-            <span className={`confirm-value ${form.permissions.repo_write ? "green" : ""}`}>{boolLabel(form.permissions.repo_write)}</span>
-          </button>
-          <button type="button" className="confirm-row interactive" onClick={() => setStep("clarify")}>
-            <span className="confirm-label">Deploy</span>
-            <span className={`confirm-value ${form.permissions.deploy ? "green" : ""}`}>{boolLabel(form.permissions.deploy)}</span>
-          </button>
-          <button type="button" className="confirm-row interactive" onClick={() => setStep("clarify")}>
-            <span className="confirm-label">Email</span>
-            <span className={`confirm-value ${form.permissions.email_send ? "green" : ""}`}>{boolLabel(form.permissions.email_send)}</span>
-          </button>
-          <button type="button" className="confirm-row interactive" onClick={() => setStep("clarify")}>
-            <span className="confirm-label">Ad Budget</span>
-            <span className="confirm-value yellow">
-              {form.permissions.ads_enabled ? `$${form.permissions.ads_budget_cap}/day` : "$0/day"}
-            </span>
-          </button>
-          <button type="button" className="confirm-row interactive" onClick={() => setStep("clarify")}>
-            <span className="confirm-label">Night Shift</span>
-            <span className={`confirm-value ${form.night_shift ? "green" : ""}`}>{form.night_shift ? "Enabled" : "Disabled"}</span>
-          </button>
-          <button type="button" className="confirm-row interactive" onClick={() => setStep("clarify")}>
-            <span className="confirm-label">Focus Areas</span>
-            <span className="confirm-value">{form.focus_areas.join(", ")}</span>
-          </button>
           <button type="button" className="confirm-row interactive" onClick={() => setStep("results")}>
             <span className="confirm-label">Competitors Found</span>
             <span className="confirm-value yellow">
@@ -1507,7 +1278,7 @@ export function OnboardingWizard() {
             <div className="next-box-text">
               Your CEO agent begins Phase 0 immediately: competitor research, market sizing, and packet synthesis.
               {parsedDomains.length > 1 ? ` We will create ${parsedDomains.length} projects (one per domain).` : ""}
-              {form.night_shift ? " Night shift will run automatically tonight." : " Night shift is disabled for now."}
+              {" Night shift runs autonomously by default and sends daily updates."}
             </div>
           </div>
 
@@ -1545,7 +1316,7 @@ export function OnboardingWizard() {
             <button className="mock-btn primary launch" onClick={launchProject} disabled={busy || !isSignedIn}>
               {busy ? `Launching…${launchElapsed > 5 ? ` (${formatElapsed(launchElapsed)})` : ""}` : "Launch Project"}
             </button>
-            <button className="mock-btn secondary" onClick={() => setStep("clarify")} disabled={busy}>
+            <button className="mock-btn secondary" onClick={() => setStep("results")} disabled={busy}>
               ← Edit
             </button>
           </div>

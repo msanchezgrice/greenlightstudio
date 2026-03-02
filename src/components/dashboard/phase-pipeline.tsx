@@ -62,7 +62,7 @@ export function PhasePipeline({ projects }: { projects: PipelineProject[] }) {
                     return (
                       <Link
                         key={p.id}
-                        href={`/projects/${p.id}`}
+                        href={`/projects/${p.id}/phases`}
                         className={`dash-pipeline-chip${isRunning ? " running" : ""}${isFailed ? " failed" : ""}`}
                       >
                         <span

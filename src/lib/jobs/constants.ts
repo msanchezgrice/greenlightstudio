@@ -11,6 +11,7 @@ export const JOB_TYPES = {
   CHAT_REPLY: "chat.reply",
   CODE_GEN_MVP: "code.generate_mvp",
   RESEARCH_REPORT: "research.generate_report",
+  TECH_NEWS_REFRESH: "research.tech_news_refresh",
   BROWSER_CHECK: "browser.check_page",
   BRAIN_REFRESH: "brain.refresh",
   SCHEDULER_RUN_RECURRING: "scheduler.run_recurring",

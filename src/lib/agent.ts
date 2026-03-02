@@ -21,7 +21,7 @@ const AGENT_QUERY_MAX_TURNS = 12;
 const AGENT_RUNTIME_TMP_DIR = process.env.CLAUDE_SDK_TMPDIR?.trim() || "/tmp";
 const IS_SERVERLESS_RUNTIME = Boolean(process.env.VERCEL || process.env.LAMBDA_TASK_ROOT);
 const AGENT_DEBUG_TASKS_ENABLED = process.env.AGENT_DEBUG_TASKS === "true";
-const AGENT_TRACE_TASKS_ENABLED = process.env.AGENT_TRACE_TASKS !== "false";
+const AGENT_TRACE_TASKS_ENABLED = process.env.AGENT_TRACE_TASKS === "true";
 const DIRECT_TEXT_MODEL = process.env.CLAUDE_DIRECT_MODEL?.trim() || "claude-sonnet-4-20250514";
 
 const competitorSchema = z.object({
@@ -41,6 +41,7 @@ const projectChatReplySchema = z.object({
 
 const chatExecutionActionTypeSchema = z.enum([
   "deploy_landing_page",
+  "refine_phase_assets",
   "send_welcome_email_sequence",
   "send_phase2_lifecycle_email",
   "activate_meta_ads_campaign",
@@ -59,6 +60,26 @@ const chatExecutionIntentSchema = z.object({
 
 export type ChatExecutionActionType = z.infer<typeof chatExecutionActionTypeSchema>;
 export type ChatExecutionIntent = z.infer<typeof chatExecutionIntentSchema>;
+
+const phase0BrandKitSchema = phase1PacketSchema.shape.brand_kit;
+
+const techNewsInsightSchema = z.object({
+  summary: z.string().trim().min(20).max(1200),
+  advances: z
+    .array(
+      z.object({
+        headline: z.string().trim().min(8).max(240),
+        relevance: z.string().trim().min(12).max(320),
+        application: z.string().trim().min(12).max(320),
+        source: z.string().trim().min(4).max(240),
+      }),
+    )
+    .min(3)
+    .max(7),
+  recommendations: z.array(z.string().trim().min(8).max(280)).min(3).max(8),
+});
+
+export type TechNewsInsight = z.infer<typeof techNewsInsightSchema>;
 
 function repairChatReply(value: unknown): unknown {
   if (typeof value === "string" && value.trim().length > 0) {
@@ -1391,7 +1412,7 @@ export async function detectChatExecutionIntent(input: {
 Return STRICT JSON only:
 {
   "decision": "none|queue_execution_approval",
-  "action_type": "deploy_landing_page|send_welcome_email_sequence|send_phase2_lifecycle_email|activate_meta_ads_campaign|trigger_phase3_repo_workflow|trigger_phase3_deploy|null",
+  "action_type": "deploy_landing_page|refine_phase_assets|send_welcome_email_sequence|send_phase2_lifecycle_email|activate_meta_ads_campaign|trigger_phase3_repo_workflow|trigger_phase3_deploy|null",
   "confidence": 0,
   "rationale": "short explanation",
   "title": "approval title or null",
@@ -1421,6 +1442,7 @@ Routing rules:
   - "remake/rebuild/redeploy landing page" -> deploy_landing_page
   - "change landing design/style/copy/button/colors" -> deploy_landing_page
   - "make CTA/button purple" -> deploy_landing_page
+  - "refine/update phase assets, brand assets, deck, packet outputs" -> refine_phase_assets
   - "send/resend welcome sequence" -> send_welcome_email_sequence
   - "send lifecycle email" -> send_phase2_lifecycle_email
   - "activate/run ads" -> activate_meta_ads_campaign
@@ -1609,6 +1631,116 @@ Rules: ground assessment in the actual deliverables above, no markdown.`,
     deliverables: [],
     reasoning_synopsis: synopsis.reasoning_synopsis,
   };
+}
+
+export async function generatePhase0BrandKit(input: {
+  project_id?: string;
+  project_name: string;
+  domain: string | null;
+  idea_description: string;
+  packet: Packet;
+  scan_results?: Record<string, unknown> | null;
+  mission?: string | null;
+}): Promise<Phase1Packet["brand_kit"]> {
+  const prompt = `You are Brand Strategy Agent. Generate a specific brand system for this project at the end of Phase 0.
+
+Return STRICT JSON only:
+{"voice":"brand voice description","color_palette":["#hex","#hex","#hex","#hex"],"font_pairing":"heading + body fonts","logo_prompt":"logo design direction"}
+
+Project context:
+${JSON.stringify(
+    {
+      project_name: input.project_name,
+      domain: input.domain,
+      idea_description: input.idea_description,
+      packet: {
+        tagline: input.packet.tagline,
+        elevator_pitch: input.packet.elevator_pitch,
+        market_sizing: input.packet.market_sizing,
+        target_persona: input.packet.target_persona,
+        mvp_scope: input.packet.mvp_scope,
+        recommendation: input.packet.recommendation,
+        reasoning_synopsis: input.packet.reasoning_synopsis,
+      },
+      scan_results: input.scan_results ?? null,
+      mission: input.mission ?? null,
+    },
+    null,
+    2,
+  )}
+
+Rules:
+- Output must be specific to this company and packet findings, not generic startup language.
+- color_palette must include 4 to 6 valid 6-digit hex colors.
+- font_pairing must be two concrete, real font families.
+- logo_prompt must be concrete and production-oriented, not abstract fluff.
+- No markdown, no commentary, JSON only.`;
+
+  return runDirectJsonQuery(
+    prompt,
+    phase0BrandKitSchema,
+    undefined,
+    AGENT_PROFILES.strategist.timeoutMs,
+    2800,
+    input.project_id,
+  );
+}
+
+export async function generateTechNewsInsights(input: {
+  project_id?: string;
+  project_name: string;
+  domain: string | null;
+  idea_description: string;
+  phase: number;
+  mission?: string | null;
+  packet_excerpt?: unknown;
+}): Promise<TechNewsInsight> {
+  const prompt = `You are a technical strategy researcher. Find the latest AI and software advances relevant to this startup and turn them into concrete recommendations.
+
+Use web search for recent (last 90 days when possible) technical developments.
+
+Return STRICT JSON only:
+{
+  "summary": "short summary",
+  "advances": [
+    {
+      "headline": "advance headline",
+      "relevance": "why this matters for this startup",
+      "application": "how to apply it in the product or go-to-market",
+      "source": "source URL or publication"
+    }
+  ],
+  "recommendations": ["specific action", "specific action", "specific action"]
+}
+
+Project context:
+${JSON.stringify(
+    {
+      project_name: input.project_name,
+      domain: input.domain,
+      idea_description: input.idea_description,
+      phase: input.phase,
+      mission: input.mission ?? null,
+      packet_excerpt: input.packet_excerpt ?? null,
+    },
+    null,
+    2,
+  )}
+
+Rules:
+- Focus on advances that can make this startup faster, better, or cheaper.
+- advances must be specific and actionable.
+- recommendations must be concrete next steps tied to the advances.
+- No markdown, no prose wrappers, JSON only.`;
+
+  return runJsonQuery(
+    prompt,
+    techNewsInsightSchema,
+    undefined,
+    AGENT_PROFILES.research,
+    undefined,
+    input.project_id,
+  );
 }
 
 export async function generateBrandBriefDeckSpec(input: {

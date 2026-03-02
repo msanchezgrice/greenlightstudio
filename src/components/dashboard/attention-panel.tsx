@@ -45,7 +45,7 @@ export function AttentionPanel({ items }: { items: AttentionItem[] }) {
           const iconBg = item.type === "failed" ? "rgba(239,68,68,.1)" : "rgba(234,179,8,.1)";
           const iconColor = item.type === "failed" ? "var(--red)" : "var(--yellow)";
           const ctaLabel = item.type === "failed" ? "Retry" : "Review";
-          const ctaHref = item.type === "pending" ? "/inbox" : `/projects/${item.project_id}`;
+          const ctaHref = item.type === "pending" ? "/inbox" : `/projects/${item.project_id}/phases`;
           const isPrimary = item.type === "failed";
 
           return (

@@ -26,6 +26,7 @@ const phaseAdvanceActions = new Set([
 
 const executableActions = new Set([
   "deploy_landing_page",
+  "refine_phase_assets",
   "send_welcome_email_sequence",
   "send_phase2_lifecycle_email",
   "activate_meta_ads_campaign",

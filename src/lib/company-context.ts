@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { normalizeMissionMarkdown, normalizeMemoryMarkdown } from "@/lib/brain-format";
 
 export type CompanyKpiSnapshot = {
   traffic_7d: number;
@@ -151,6 +152,8 @@ function compressJson(value: Record<string, unknown>) {
 }
 
 export function companyContextToMarkdown(context: CompanyContext) {
+  const missionDoc = normalizeMissionMarkdown(context.mission_markdown, context.project.name);
+  const memoryDoc = normalizeMemoryMarkdown(context.memory_markdown);
   const eventLines = context.delta_events
     .slice(0, 20)
     .map((event) => `- [${event.event_type}] ${event.message ?? "(no message)"} ${Object.keys(event.data).length ? compressJson(event.data) : ""}`)
@@ -183,10 +186,10 @@ export function companyContextToMarkdown(context: CompanyContext) {
 
   return [
     "## Mission",
-    context.mission_markdown,
+    missionDoc,
     "",
     "## Memory",
-    context.memory_markdown,
+    memoryDoc,
     "",
     "## Recent Delta Events",
     eventLines || "- none",
@@ -406,17 +409,20 @@ export async function assembleCompanyContext(db: SupabaseClient, projectId: stri
   const rationaleList = Array.isArray(reasoningSynopsis.rationale)
     ? reasoningSynopsis.rationale.filter((entry): entry is string => typeof entry === "string")
     : [];
+  const projectName = String(projectRes.data.name);
+  const missionMarkdown = normalizeMissionMarkdown(brainRes.data?.mission_markdown ?? DEFAULT_MISSION, projectName);
+  const memoryMarkdown = normalizeMemoryMarkdown(brainRes.data?.memory_markdown ?? DEFAULT_MEMORY);
 
   return {
     project: {
       id: String(projectRes.data.id),
-      name: String(projectRes.data.name),
+      name: projectName,
       domain: (projectRes.data.domain as string | null) ?? null,
       phase: Number(projectRes.data.phase ?? 0),
       runtime_mode: String(projectRes.data.runtime_mode ?? "shared"),
     },
-    mission_markdown: brainRes.data?.mission_markdown ?? DEFAULT_MISSION,
-    memory_markdown: brainRes.data?.memory_markdown ?? DEFAULT_MEMORY,
+    mission_markdown: missionMarkdown,
+    memory_markdown: memoryMarkdown,
     delta_events: ((deltaEventsRes.data ?? []) as Array<Record<string, unknown>>).map((event) => ({
       id: String(event.id),
       event_type: String(event.event_type),

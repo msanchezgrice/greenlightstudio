@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { assembleCompanyContext, buildOperationalMemoryMarkdown } from "@/lib/company-context";
+import { normalizeMissionMarkdown, normalizeMemoryMarkdown } from "@/lib/brain-format";
 
 function baselineMission(project: { name: string; domain: string | null; idea_description: string }) {
   return [
@@ -39,11 +40,14 @@ export async function ensureProjectBrainDocument(db: SupabaseClient, projectId: 
 
   if (!project.data) return;
 
-  const mission = baselineMission({
-    name: String(project.data.name ?? "Company"),
-    domain: (project.data.domain as string | null) ?? null,
-    idea_description: String(project.data.idea_description ?? ""),
-  });
+  const mission = normalizeMissionMarkdown(
+    baselineMission({
+      name: String(project.data.name ?? "Company"),
+      domain: (project.data.domain as string | null) ?? null,
+      idea_description: String(project.data.idea_description ?? ""),
+    }),
+    String(project.data.name ?? "Company"),
+  );
 
   await db.from("project_brain_documents").upsert(
     {
@@ -95,7 +99,7 @@ export async function refreshCompanyBrain(input: {
 
   try {
     const context = await assembleCompanyContext(db, input.projectId);
-    const nextMemory = buildOperationalMemoryMarkdown(context);
+    const nextMemory = normalizeMemoryMarkdown(buildOperationalMemoryMarkdown(context));
 
     const currentBrain = await db
       .from("project_brain_documents")
@@ -109,7 +113,10 @@ export async function refreshCompanyBrain(input: {
     await db
       .from("project_brain_documents")
       .update({
-        mission_markdown: currentBrain.data?.mission_markdown ?? context.mission_markdown,
+        mission_markdown: normalizeMissionMarkdown(
+          currentBrain.data?.mission_markdown ?? context.mission_markdown,
+          context.project.name,
+        ),
         memory_markdown: nextMemory,
         memory_version: nextVersion,
         last_event_id: newestEventId,

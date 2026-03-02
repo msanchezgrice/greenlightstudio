@@ -7,9 +7,11 @@ import { ProjectChatPane } from "@/components/project-chat-pane";
 import { RetryTaskButton } from "@/components/retry-task-button";
 import { AgentActivityIndicator } from "@/components/agent-activity";
 import { AgentProcessPanel } from "@/components/agent-process-panel";
+import { PhaseRefineControl } from "@/components/phase-refine-control";
 import { getOwnedProjects, getPendingApprovalsByProject } from "@/lib/studio";
 import { PHASES, phaseStatus, getAgentProfile, humanizeTaskDescription, taskOutputLink, type PhaseId } from "@/lib/phases";
 import { parsePhasePacket, type PhasePacket } from "@/types/phase-packets";
+import { derivePhaseHighlights, readPacketSummaryForPhase } from "@/lib/phase-presentations";
 
 type ProjectRow = {
   id: string;
@@ -135,6 +137,7 @@ export default async function ProjectPhaseWorkspacePage({
         .from("tasks")
         .select("id,description,agent,status,detail,created_at")
         .eq("project_id", projectId)
+        .not("description", "ilike", "%_trace%")
         .order("created_at", { ascending: false })
         .limit(200),
     ),
@@ -187,8 +190,22 @@ export default async function ProjectPhaseWorkspacePage({
     created_at: string;
   }>;
   const brandAssets = assets.filter((a) => a.metadata?.brand_asset === true);
+  const techNewsAsset = assets.find((a) => a.metadata?.tech_news_insights === true || a.filename === "tech-news-insights.md");
   const brandBriefHtmlAsset = assets.find((a) => a.filename === "brand-brief.html" || a.metadata?.brand_brief === true);
   const brandBriefPptxAsset = assets.find((a) => a.filename === "brand-brief.pptx" || a.metadata?.brand_brief_pptx === true);
+  const packetDeckHtmlAsset = assets.find(
+    (a) =>
+      a.metadata?.phase_packet_embed === true ||
+      a.filename === `phase-${phase}-packet.html`,
+  );
+  const packetDeckPptxAsset = assets.find(
+    (a) =>
+      a.metadata?.phase_packet_pptx === true ||
+      a.filename === `phase-${phase}-packet.pptx`,
+  );
+  const phase2MarketingAssets = assets.filter(
+    (a) => a.metadata?.phase2_marketing_assets === true || a.metadata?.phase2_marketing_plan === true,
+  );
   const landingVariants = assets
     .filter((a) => a.kind === "landing_html")
     .sort((a, b) => {
@@ -216,12 +233,16 @@ export default async function ProjectPhaseWorkspacePage({
   const status = phaseStatus(project.phase, phase);
   const gate = approvals[0] ?? null;
   const packetParse = packetRow ? safeParsePacket(phase as PhaseId, packetRow.packet) : { packet: null, error: null };
+  const phasePacketSummary = packetParse.packet ? readPacketSummaryForPhase(phase, packetParse.packet) : null;
+  const phaseHighlights = packetParse.packet ? derivePhaseHighlights(phase, packetParse.packet, phasePacketSummary ?? "") : [];
 
   return (
     <>
       <StudioNav active="board" pendingCount={pendingCount} />
-      <main className="page studio-page">
-        <div className="page-header">
+      <main className="page studio-page studio-page-with-chat">
+        <div className="studio-with-chat">
+          <div className="studio-main-column">
+            <div className="page-header">
           <div>
             <h1 className="page-title">
               {project.name} · {phaseLabel(phase)} Workspace
@@ -236,7 +257,7 @@ export default async function ProjectPhaseWorkspacePage({
             </Link>
             {phase === 0 &&
               (packetRow ? (
-                <Link href={`/projects/${projectId}/packet`} className="btn btn-preview">
+                <Link href={`/projects/${projectId}/phases/0`} className="btn btn-preview">
                   Open Phase 0 Packet
                 </Link>
               ) : (
@@ -248,7 +269,7 @@ export default async function ProjectPhaseWorkspacePage({
               Inbox
             </Link>
           </div>
-        </div>
+            </div>
 
         <section className="studio-card project-meta-grid">
           <div>
@@ -300,6 +321,172 @@ export default async function ProjectPhaseWorkspacePage({
             <h2>Phase Packet</h2>
             <p className="meta-line">Packet exists but failed validation: {packetParse.error}</p>
           </section>
+        )}
+
+        {packetRow && packetParse.packet && (
+          <section className="studio-card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <h2 style={{ margin: 0 }}>Phase Packet Deck</h2>
+              <div className="table-actions">
+                {packetDeckHtmlAsset && (
+                  <a
+                    href={`/api/projects/${projectId}/assets/${packetDeckHtmlAsset.id}/preview`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-details btn-sm"
+                  >
+                    Open Deck
+                  </a>
+                )}
+                {packetDeckPptxAsset && (
+                  <a
+                    href={`/api/projects/${projectId}/assets/${packetDeckPptxAsset.id}/preview`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-details btn-sm"
+                  >
+                    Download PPTX
+                  </a>
+                )}
+              </div>
+            </div>
+            <p className="meta-line" style={{ marginBottom: 10 }}>{phasePacketSummary ?? "No summary available yet."}</p>
+            {phaseHighlights.length > 0 && (
+              <div style={{ display: "grid", gap: 8, marginBottom: 14 }}>
+                {phaseHighlights.slice(0, 6).map((item, idx) => (
+                  <div
+                    key={`phase-highlight-${idx}`}
+                    style={{
+                      border: "1px solid var(--border)",
+                      borderRadius: 10,
+                      padding: "10px 12px",
+                      background: "var(--surface, rgba(255,255,255,.03))",
+                      fontSize: 13,
+                      color: "var(--text2)",
+                    }}
+                  >
+                    {item}
+                  </div>
+                ))}
+              </div>
+            )}
+            {packetDeckHtmlAsset && (
+              <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)", background: "#000" }}>
+                <iframe
+                  src={`/api/projects/${projectId}/assets/${packetDeckHtmlAsset.id}/preview`}
+                  title={`Phase ${phase} Packet Deck`}
+                  style={{ width: "100%", height: 520, border: "none", display: "block" }}
+                  sandbox="allow-scripts allow-same-origin"
+                />
+              </div>
+            )}
+            <PhaseRefineControl
+              projectId={projectId}
+              phase={phase}
+              assetId={packetDeckHtmlAsset?.id ?? null}
+              label={`Refine Phase ${phase} Packet + Assets`}
+              placeholder="Example: tighten the market narrative, make competitor comparison more specific, and improve visual hierarchy."
+            />
+          </section>
+        )}
+
+        {phase === 0 && packetParse.packet && "market_sizing" in packetParse.packet && (
+          <>
+            <section className="studio-card">
+              <h2>Market + Recommendation Snapshot</h2>
+              <div className="project-metrics">
+                <div>
+                  <div className="metric-label">Recommendation</div>
+                  <div className="metric-value">{packetParse.packet.recommendation.toUpperCase()}</div>
+                </div>
+                <div>
+                  <div className="metric-label">Confidence</div>
+                  <div className="metric-value">{packetParse.packet.reasoning_synopsis.confidence}/100</div>
+                </div>
+                <div>
+                  <div className="metric-label">TAM</div>
+                  <div className="metric-value">{packetParse.packet.market_sizing.tam}</div>
+                </div>
+                <div>
+                  <div className="metric-label">SAM</div>
+                  <div className="metric-value">{packetParse.packet.market_sizing.sam}</div>
+                </div>
+                <div>
+                  <div className="metric-label">SOM</div>
+                  <div className="metric-value">{packetParse.packet.market_sizing.som}</div>
+                </div>
+                <div>
+                  <div className="metric-label">Persona</div>
+                  <div className="metric-value">{packetParse.packet.target_persona.name}</div>
+                </div>
+              </div>
+              <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+                {packetParse.packet.competitor_analysis.slice(0, 6).map((competitor) => (
+                  <div
+                    key={competitor.name}
+                    style={{
+                      border: "1px solid var(--border)",
+                      borderRadius: 10,
+                      padding: "10px 12px",
+                      background: "var(--surface, rgba(255,255,255,.03))",
+                    }}
+                  >
+                    <div style={{ fontWeight: 600 }}>{competitor.name}</div>
+                    <div className="meta-line">{competitor.positioning}</div>
+                    <div className="meta-line">Gap: {competitor.gap} · Pricing: {competitor.pricing}</div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="studio-card">
+              <h2>Phase 0 Foundation Assets</h2>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                {brandAssets.map((asset) => (
+                  <a
+                    key={asset.id}
+                    href={`/api/projects/${projectId}/assets/${asset.id}/preview`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-details btn-sm"
+                  >
+                    {(asset.metadata?.label as string) ?? asset.filename}
+                  </a>
+                ))}
+                {techNewsAsset && (
+                  <a
+                    href={`/api/projects/${projectId}/assets/${techNewsAsset.id}/preview`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-details btn-sm"
+                  >
+                    Tech + AI News Insights
+                  </a>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                {brandAssets
+                  .filter((asset) => (asset.mime_type ?? "").startsWith("image/"))
+                  .slice(0, 6)
+                  .map((asset) => (
+                    <a
+                      key={`phase0-brand-${asset.id}`}
+                      href={`/api/projects/${projectId}/assets/${asset.id}/preview`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ borderRadius: 10, overflow: "hidden", border: "1px solid var(--border)" }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={`/api/projects/${projectId}/assets/${asset.id}/preview`}
+                        alt={(asset.metadata?.label as string) ?? asset.filename}
+                        style={{ width: 160, height: 110, objectFit: "cover", display: "block" }}
+                      />
+                    </a>
+                  ))}
+              </div>
+            </section>
+          </>
         )}
 
         {phase === 1 && packetParse.packet && "landing_page" in packetParse.packet && (
@@ -370,6 +557,13 @@ export default async function ProjectPhaseWorkspacePage({
                   <div className="metric-value">{packetParse.packet.waitlist.form_fields.join(", ")}</div>
                 </div>
               </div>
+              <PhaseRefineControl
+                projectId={projectId}
+                phase={1}
+                assetId={landingAsset?.id ?? null}
+                label="Refine Landing Page"
+                placeholder="Example: change CTA button to #7C3AED, increase contrast, and simplify hero copy."
+              />
             </section>
 
             {/* Brand Kit — asset gallery + palette */}
@@ -464,6 +658,13 @@ export default async function ProjectPhaseWorkspacePage({
                   <div className="metric-value" style={{ fontSize: 13 }}>{packetParse.packet.brand_kit.logo_prompt}</div>
                 </div>
               </div>
+              <PhaseRefineControl
+                projectId={projectId}
+                phase={1}
+                assetId={brandBriefHtmlAsset?.id ?? null}
+                label="Refine Brand Packet"
+                placeholder="Example: make brand voice less generic, update palette to warmer tones, and regenerate deck visuals."
+              />
             </section>
 
             {/* Email Drip Sequence */}
@@ -601,6 +802,50 @@ export default async function ProjectPhaseWorkspacePage({
               </p>
               <p className="meta-line">Guardrails: {packetParse.packet.guardrails.join(" · ")}</p>
             </section>
+
+            <section className="studio-card">
+              <h2>Social + Marketing Assets</h2>
+              {!phase2MarketingAssets.length ? (
+                <p className="meta-line">No generated social/marketing assets yet.</p>
+              ) : (
+                <>
+                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+                    {phase2MarketingAssets.map((asset) => (
+                      <a
+                        key={asset.id}
+                        href={`/api/projects/${projectId}/assets/${asset.id}/preview`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-details btn-sm"
+                      >
+                        {(asset.metadata?.label as string) ?? asset.filename}
+                      </a>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+                    {phase2MarketingAssets
+                      .filter((asset) => (asset.mime_type ?? "").startsWith("image/"))
+                      .slice(0, 6)
+                      .map((asset) => (
+                        <a
+                          key={`img-${asset.id}`}
+                          href={`/api/projects/${projectId}/assets/${asset.id}/preview`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ borderRadius: 10, overflow: "hidden", border: "1px solid var(--border)" }}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={`/api/projects/${projectId}/assets/${asset.id}/preview`}
+                            alt={(asset.metadata?.label as string) ?? asset.filename}
+                            style={{ width: 180, height: 120, objectFit: "cover", display: "block" }}
+                          />
+                        </a>
+                      ))}
+                  </div>
+                </>
+              )}
+            </section>
           </>
         )}
 
@@ -725,18 +970,6 @@ export default async function ProjectPhaseWorkspacePage({
           )}
         </section>
 
-        <ProjectChatPane
-          projectId={projectId}
-          title="CEO Chat Pane"
-          deliverableLinks={phase === 1 ? [
-            ...(liveUrl ? [{ label: "Landing Page", href: liveUrl, external: true }] : []),
-            ...landingVariantLinks,
-            ...(brandBriefHtmlAsset ? [{ label: "Brand Brief", href: `/api/projects/${projectId}/assets/${brandBriefHtmlAsset.id}/preview`, external: true }] : []),
-            ...(brandBriefPptxAsset ? [{ label: "Brand Deck (PPTX)", href: `/api/projects/${projectId}/assets/${brandBriefPptxAsset.id}/preview`, external: true }] : []),
-            { label: "Phase 1 Workspace", href: `/projects/${projectId}/phases/1` },
-          ] : undefined}
-        />
-
         <section className="studio-card">
           <h2>Gate History</h2>
           {!approvals.length ? (
@@ -766,6 +999,39 @@ export default async function ProjectPhaseWorkspacePage({
             </div>
           )}
         </section>
+          </div>
+
+          <aside className="studio-chat-rail">
+            <ProjectChatPane
+              projectId={projectId}
+              title="CEO Agent"
+              deliverableLinks={phase === 1 ? [
+                ...(packetDeckHtmlAsset ? [{ label: "Phase Deck", href: `/api/projects/${projectId}/assets/${packetDeckHtmlAsset.id}/preview`, external: true }] : []),
+                ...(packetDeckPptxAsset ? [{ label: "Phase Deck PPTX", href: `/api/projects/${projectId}/assets/${packetDeckPptxAsset.id}/preview`, external: true }] : []),
+                ...(liveUrl ? [{ label: "Landing Page", href: liveUrl, external: true }] : []),
+                ...landingVariantLinks,
+                ...(brandBriefHtmlAsset ? [{ label: "Brand Brief", href: `/api/projects/${projectId}/assets/${brandBriefHtmlAsset.id}/preview`, external: true }] : []),
+                ...(brandBriefPptxAsset ? [{ label: "Brand Deck (PPTX)", href: `/api/projects/${projectId}/assets/${brandBriefPptxAsset.id}/preview`, external: true }] : []),
+                { label: "Phase 1 Workspace", href: `/projects/${projectId}/phases/1` },
+              ] : [
+                ...(packetDeckHtmlAsset ? [{ label: "Phase Deck", href: `/api/projects/${projectId}/assets/${packetDeckHtmlAsset.id}/preview`, external: true }] : []),
+                ...(packetDeckPptxAsset ? [{ label: "Phase Deck PPTX", href: `/api/projects/${projectId}/assets/${packetDeckPptxAsset.id}/preview`, external: true }] : []),
+                { label: "Phase Overview", href: `/projects/${projectId}/phases` },
+                { label: "Current Workspace", href: `/projects/${projectId}/phases/${phase}` },
+                ...(liveUrl ? [{ label: "Live Landing", href: liveUrl, external: true }] : []),
+                ...(phase === 2
+                  ? phase2MarketingAssets
+                      .slice(0, 4)
+                      .map((asset) => ({
+                        label: ((asset.metadata?.label as string) ?? asset.filename).slice(0, 36),
+                        href: `/api/projects/${projectId}/assets/${asset.id}/preview`,
+                        external: true,
+                      }))
+                  : []),
+              ]}
+            />
+          </aside>
+        </div>
       </main>
     </>
   );

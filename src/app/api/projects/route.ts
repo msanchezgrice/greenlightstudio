@@ -117,6 +117,18 @@ export async function POST(req: Request) {
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = onboardingSchema.parse(await req.json());
+  const enforcedRuntimeMode = "shared" as const;
+  const enforcedPermissions = {
+    repo_write: false,
+    deploy: false,
+    ads_enabled: false,
+    ads_budget_cap: 0,
+    email_send: false,
+  };
+  const enforcedNightShift = true;
+  const enforcedFocusAreas = body.focus_areas?.length
+    ? body.focus_areas
+    : ["Market Research", "Competitor Analysis", "Landing Page"];
   const db = createServiceSupabase();
 
   const clerkUser = await currentUser();
@@ -209,10 +221,10 @@ export async function POST(req: Request) {
           domain,
           ideaDescription,
           repoUrl,
-          runtimeMode: body.runtime_mode,
-          permissions: body.permissions,
-          nightShift: body.night_shift,
-          focusAreas: body.focus_areas,
+          runtimeMode: enforcedRuntimeMode,
+          permissions: enforcedPermissions,
+          nightShift: enforcedNightShift,
+          focusAreas: enforcedFocusAreas,
           scanResults: body.scan_results,
           wizardState: {
             step: "confirm",
@@ -264,7 +276,7 @@ export async function POST(req: Request) {
             {
               project_id: projectId,
               task_key: "nightly_context_prioritization",
-              cron_expr: "0 6 * * *",
+              cron_expr: "0 1 * * *",
               timezone: "UTC",
               job_type: "nightshift.cycle_project",
               agent_key: "night_shift",
@@ -272,6 +284,28 @@ export async function POST(req: Request) {
               priority: 20,
               enabled: true,
               next_run_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+              created_by: userId,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "project_id,task_key" },
+          ),
+      );
+
+      await withRetry(() =>
+        db
+          .from("project_recurring_tasks")
+          .upsert(
+            {
+              project_id: projectId,
+              task_key: "daily_tech_news_refresh",
+              cron_expr: "0 13 * * *",
+              timezone: "UTC",
+              job_type: "research.tech_news_refresh",
+              agent_key: "research",
+              payload: { projectId, reason: "scheduled" },
+              priority: 18,
+              enabled: true,
+              next_run_at: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
               created_by: userId,
               updated_at: new Date().toISOString(),
             },
@@ -302,8 +336,8 @@ export async function POST(req: Request) {
         data: {
           owner_clerk_id: userId,
           domain: domain ?? null,
-          runtime_mode: body.runtime_mode,
-          night_shift: body.night_shift,
+          runtime_mode: enforcedRuntimeMode,
+          night_shift: enforcedNightShift,
         },
         agentKey: "system",
       });

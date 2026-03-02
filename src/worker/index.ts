@@ -22,6 +22,7 @@ const HEAVY_JOB_TYPES = new Set([
   "phase.generate_packet",
   "code.generate_mvp",
   "research.generate_report",
+  "research.tech_news_refresh",
   "browser.check_page",
   "runtime.provision_project",
 ]);
