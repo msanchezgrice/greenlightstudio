@@ -357,6 +357,7 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
                       projectId={projectId}
                       autoOnMount
                       generatedAt={techNewsGeneratedAt}
+                      staleAfterMinutes={0}
                     />
                   </div>
                 </>
@@ -380,6 +381,7 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
                       projectId={projectId}
                       autoOnMount
                       generatedAt={techNewsGeneratedAt}
+                      staleAfterMinutes={0}
                     />
                     <a
                       href={`/api/projects/${projectId}/assets/${techNewsAssetId}/preview`}
