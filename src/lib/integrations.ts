@@ -70,7 +70,9 @@ export async function sendResendEmail(input: { to: string; subject: string; html
     requireRuntimeEnv("RESEND_API_KEY");
   const from =
     (resolved.config.from_email as string | undefined)?.trim() ||
-    requireRuntimeEnv("RESEND_FROM_EMAIL");
+    process.env.RESEND_FROM_EMAIL?.trim() ||
+    process.env.RESEND_FALLBACK_FROM_EMAIL?.trim() ||
+    "Startup Machine <noreply@startupmachine.ai>";
 
   const identity = input.projectId ? await getProjectEmailIdentity(input.projectId).catch(() => null) : null;
   const replyTo = input.replyTo?.trim() || identity?.reply_address || undefined;
