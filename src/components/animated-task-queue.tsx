@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { Fragment, useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { RetryTaskButton } from "@/components/retry-task-button";
 import { getAgentProfile, humanizeTaskDescription, taskOutputLink, AGENT_PROFILES } from "@/lib/phases";
@@ -95,57 +95,20 @@ function AgentPanel({ tasks }: { tasks: TaskRow[] }) {
   );
 }
 
-function TracePill({ entry }: { entry: TaskLogRow }) {
-  const [showTooltip, setShowTooltip] = useState(false);
-  const dotClass = entry.status === "running" ? "running" : entry.status === "completed" ? "completed" : entry.status === "failed" ? "failed" : "completed";
-  const label = entry.detail?.slice(0, 50) || humanizeTaskDescription(entry.step);
-
-  return (
-    <span
-      className="task-trace-pill"
-      onMouseEnter={() => setShowTooltip(true)}
-      onMouseLeave={() => setShowTooltip(false)}
-    >
-      <span className={`trace-dot ${dotClass}`} />
-      {label}
-      {showTooltip && (
-        <span className="task-trace-tooltip">
-          <strong style={{ color: "var(--heading)" }}>{humanizeTaskDescription(entry.step)}</strong>
-          {entry.detail && <><br />{entry.detail}</>}
-          <br />
-          <span style={{ color: "var(--text3)", fontSize: 10 }}>
-            {new Date(entry.created_at).toLocaleTimeString()}
-          </span>
-        </span>
-      )}
-    </span>
-  );
+function traceStatusClass(status: string) {
+  if (status === "running") return "running";
+  if (status === "failed") return "failed";
+  return "completed";
 }
 
-function TraceStrip({ logEntries }: { logEntries: TaskLogRow[] }) {
-  const stripRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = stripRef.current;
-    if (!el || logEntries.length <= 3) return;
-    let pos = 0;
-    const timer = setInterval(() => {
-      pos += 1;
-      if (pos >= el.scrollWidth - el.clientWidth) pos = 0;
-      el.scrollTo({ left: pos, behavior: "smooth" });
-    }, 2000);
-    return () => clearInterval(timer);
-  }, [logEntries.length]);
-
-  if (logEntries.length === 0) return null;
-
-  return (
-    <div className="task-trace-strip" ref={stripRef}>
-      {logEntries.map((entry) => (
-        <TracePill key={entry.id} entry={entry} />
-      ))}
-    </div>
-  );
+function traceLinePreview(entry: TaskLogRow) {
+  const step = humanizeTaskDescription(entry.step);
+  const detail = entry.detail?.trim();
+  if (!detail) return { step, detail: "" };
+  return {
+    step,
+    detail: detail.length > 240 ? `${detail.slice(0, 237)}...` : detail,
+  };
 }
 
 const COMPLETED_DELAY_MS = 1500;
@@ -244,7 +207,7 @@ export function AnimatedTaskQueue({
           <p className="meta-line">No tasks recorded yet.</p>
         ) : (
           <div className="table-shell">
-            <table className="studio-table compact">
+            <table className="studio-table compact task-queue-table">
               <thead>
                 <tr>
                   <th>Project</th>
@@ -274,61 +237,89 @@ export function AnimatedTaskQueue({
                   const traceEntries = (isRunning || isQueued)
                     ? (logByProject.get(task.project_id) ?? []).slice(0, 8)
                     : [];
+                  const traceRows = traceEntries.map((entry) => {
+                    const preview = traceLinePreview(entry);
+                    return {
+                      id: entry.id,
+                      statusClass: traceStatusClass(entry.status),
+                      step: preview.step,
+                      detail: preview.detail,
+                      createdAt: entry.created_at,
+                    };
+                  });
 
                   return (
-                    <tr
-                      key={task.id}
-                      className={justCompleted ? "task-row-completed-glow" : isRunning ? "task-row-running" : ""}
-                      style={animStyle}
-                    >
-                      <td>
-                        <Link href={`/projects/${task.project_id}`} style={{ color: "var(--heading)", fontWeight: 500, textDecoration: "none" }}>
-                          {projectNameMap[task.project_id] ?? task.project_id}
-                        </Link>
-                      </td>
-                      <td>
-                        <span style={{ color: agent.color, fontWeight: 600 }}>
-                          {agent.icon} {agent.name}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="table-main">{humanizeTaskDescription(task.description)}</div>
-                        <div className="table-sub">{task.detail ?? ""}</div>
-                        {traceEntries.length > 0 && <TraceStrip logEntries={traceEntries} />}
-                        {isRunning && (
-                          <div className="shimmer-progress">
-                            <div className="shimmer-fill" style={{ width: "60%" }} />
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        <span className={`task-status-badge ${task.status}`}>
-                          {isRunning && <span className="task-running-dot" />}
-                          {justCompleted ? (
-                            <span className="check-pop">✓</span>
-                          ) : (
-                            task.status
-                          )}
-                        </span>
-                      </td>
-                      <td>
-                        {isRunning ? (
-                          <ElapsedTimer createdAt={task.created_at} />
-                        ) : (
-                          new Date(task.created_at).toLocaleString()
-                        )}
-                      </td>
-                      <td style={{ whiteSpace: "nowrap" }}>
-                        {task.status === "failed" && (
-                          <RetryTaskButton projectId={task.project_id} />
-                        )}
-                        {task.status === "completed" && output && (
-                          <Link href={output.href} className="btn btn-details btn-sm">
-                            {output.label}
+                    <Fragment key={task.id}>
+                      <tr
+                        className={justCompleted ? "task-row-completed-glow" : isRunning ? "task-row-running" : ""}
+                        style={animStyle}
+                      >
+                        <td>
+                          <Link href={`/projects/${task.project_id}`} style={{ color: "var(--heading)", fontWeight: 500, textDecoration: "none" }}>
+                            {projectNameMap[task.project_id] ?? task.project_id}
                           </Link>
-                        )}
-                      </td>
-                    </tr>
+                        </td>
+                        <td>
+                          <span style={{ color: agent.color, fontWeight: 600 }}>
+                            {agent.icon} {agent.name}
+                          </span>
+                        </td>
+                        <td>
+                          <div className="table-main">{humanizeTaskDescription(task.description)}</div>
+                          <div className="table-sub">{task.detail ?? ""}</div>
+                          {isRunning && (
+                            <div className="shimmer-progress">
+                              <div className="shimmer-fill" style={{ width: "60%" }} />
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          <span className={`task-status-badge ${task.status}`}>
+                            {isRunning && <span className="task-running-dot" />}
+                            {justCompleted ? (
+                              <span className="check-pop">✓</span>
+                            ) : (
+                              task.status
+                            )}
+                          </span>
+                        </td>
+                        <td>
+                          {isRunning ? (
+                            <ElapsedTimer createdAt={task.created_at} />
+                          ) : (
+                            new Date(task.created_at).toLocaleString()
+                          )}
+                        </td>
+                        <td style={{ whiteSpace: "nowrap" }}>
+                          {task.status === "failed" && (
+                            <RetryTaskButton projectId={task.project_id} />
+                          )}
+                          {task.status === "completed" && output && (
+                            <Link href={output.href} className="btn btn-details btn-sm">
+                              {output.label}
+                            </Link>
+                          )}
+                        </td>
+                      </tr>
+                      {traceRows.length > 0 && (
+                        <tr className="task-running-details-row">
+                          <td colSpan={6}>
+                            <div className="task-running-details-block">
+                              {traceRows.map((trace) => (
+                                <div key={trace.id} className="task-running-detail-line">
+                                  <span className={`task-running-detail-dot ${trace.statusClass}`} />
+                                  <span className="task-running-detail-step">{trace.step}</span>
+                                  <span className="task-running-detail-text">{trace.detail || "--"}</span>
+                                  <span className="task-running-detail-time">
+                                    {new Date(trace.createdAt).toLocaleTimeString()}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   );
                 })}
               </tbody>
