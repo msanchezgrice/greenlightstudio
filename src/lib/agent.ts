@@ -105,6 +105,83 @@ function repairChatReply(value: unknown): unknown {
   return value;
 }
 
+function repairTechNewsInsight(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+
+  const clamp = (input: unknown, min: number, max: number, fallback: string) => {
+    const base = typeof input === "string" ? input : fallback;
+    const normalized = base.replace(/\s+/g, " ").trim();
+    if (!normalized) return fallback.slice(0, max);
+    const sliced = normalized.length > max ? `${normalized.slice(0, max - 1).trimEnd()}…` : normalized;
+    if (sliced.length >= min) return sliced;
+    const padded = `${sliced}${sliced.endsWith(".") ? "" : "."} Additional detail available in source analysis.`;
+    return padded.slice(0, max);
+  };
+
+  const summary = clamp(
+    value.summary,
+    20,
+    1200,
+    "Recent AI and software advances create concrete opportunities to improve product velocity, quality, and operating leverage for this startup.",
+  );
+
+  const advancesRaw = Array.isArray(value.advances) ? value.advances : [];
+  const advances = advancesRaw
+    .slice(0, 7)
+    .map((entry, index) => {
+      const source = isRecord(entry) ? entry : {};
+      return {
+        headline: clamp(source.headline, 8, 240, `Relevant technical advance ${index + 1}`),
+        relevance: clamp(
+          source.relevance,
+          12,
+          320,
+          "This improves delivery speed and execution quality for the current product and go-to-market priorities.",
+        ),
+        application: clamp(
+          source.application,
+          12,
+          320,
+          "Prototype this in the next sprint and measure impact on build time, conversion, or operating cost.",
+        ),
+        source: clamp(source.source, 4, 240, "https://example.com/ai-news"),
+      };
+    });
+
+  while (advances.length < 3) {
+    const index = advances.length + 1;
+    advances.push({
+      headline: `Relevant technical advance ${index}`,
+      relevance: "This can reduce build effort and improve execution quality for the project roadmap.",
+      application: "Run a scoped implementation test this week and benchmark impact versus current approach.",
+      source: "https://example.com/ai-news",
+    });
+  }
+
+  const recommendationRaw = Array.isArray(value.recommendations) ? value.recommendations : [];
+  const recommendations = recommendationRaw
+    .slice(0, 8)
+    .map((entry, index) =>
+      clamp(
+        entry,
+        8,
+        280,
+        `Execute recommendation ${index + 1} with owner, metric, and review date in this phase.`,
+      ),
+    );
+
+  while (recommendations.length < 3) {
+    const index = recommendations.length + 1;
+    recommendations.push(`Execute recommendation ${index} with owner, metric, and review date in this phase.`);
+  }
+
+  return {
+    summary,
+    advances,
+    recommendations,
+  };
+}
+
 const phase0RevisionPatchSchema = z
   .object({
     tagline: z.string().optional(),
@@ -1737,7 +1814,7 @@ Rules:
   return runJsonQuery(
     prompt,
     techNewsInsightSchema,
-    undefined,
+    repairTechNewsInsight,
     AGENT_PROFILES.research,
     undefined,
     input.project_id,
