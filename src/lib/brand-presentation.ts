@@ -9,6 +9,12 @@ type ProjectInfo = {
   idea_description: string;
 };
 
+type RenderImage = {
+  dataUrl: string;
+  width: number;
+  height: number;
+};
+
 function escapeHtml(input: string): string {
   return input
     .replaceAll("&", "&amp;")
@@ -31,6 +37,52 @@ function normalizeHexNoHash(input: string, label: string): string {
   return normalizeHex(input, label).slice(1);
 }
 
+function hexToRgb(hex: string) {
+  const value = hex.startsWith("#") ? hex.slice(1) : hex;
+  if (!/^[0-9a-fA-F]{6}$/.test(value)) return null;
+  return {
+    r: parseInt(value.slice(0, 2), 16),
+    g: parseInt(value.slice(2, 4), 16),
+    b: parseInt(value.slice(4, 6), 16),
+  };
+}
+
+function channelToLinear(value: number) {
+  const c = value / 255;
+  return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+}
+
+function luminance(hex: string) {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return 0;
+  return 0.2126 * channelToLinear(rgb.r) + 0.7152 * channelToLinear(rgb.g) + 0.0722 * channelToLinear(rgb.b);
+}
+
+function contrastRatio(foreground: string, background: string) {
+  const a = luminance(foreground);
+  const b = luminance(background);
+  const lighter = Math.max(a, b);
+  const darker = Math.min(a, b);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function preferredReadableText(background: string) {
+  const dark = "#0F172A";
+  const light = "#F8FAFC";
+  return contrastRatio(dark, background) >= contrastRatio(light, background) ? dark : light;
+}
+
+function ensureReadableColor(
+  candidate: string,
+  background: string,
+  minContrast: number,
+  fallback: string,
+) {
+  if (contrastRatio(candidate, background) >= minContrast) return candidate;
+  if (contrastRatio(fallback, background) >= minContrast) return fallback;
+  return preferredReadableText(background);
+}
+
 function ensureFont(input: string, label: string): string {
   const value = input.trim();
   if (value.length < 2) {
@@ -39,20 +91,87 @@ function ensureFont(input: string, label: string): string {
   return value;
 }
 
+function resolvePptFont(input: string, fallback: string): string {
+  const safe = new Set([
+    "Arial",
+    "Calibri",
+    "Cambria",
+    "Helvetica",
+    "Helvetica Neue",
+    "Times New Roman",
+    "Georgia",
+    "Verdana",
+    "Tahoma",
+    "Trebuchet MS",
+    "Gill Sans",
+  ]);
+  return safe.has(input) ? input : fallback;
+}
+
 function cssFontParam(name: string): string {
   return name.trim().replace(/\s+/g, "+");
 }
 
+function parseImageDimensions(buffer: Buffer, mimeType: string): { width: number; height: number } {
+  // PNG: width/height are fixed offsets in IHDR chunk.
+  if (mimeType === "image/png" && buffer.length >= 24) {
+    const width = buffer.readUInt32BE(16);
+    const height = buffer.readUInt32BE(20);
+    if (width > 0 && height > 0) return { width, height };
+  }
+
+  // JPEG: scan SOF markers for width/height.
+  if ((mimeType === "image/jpeg" || mimeType === "image/jpg") && buffer.length > 4) {
+    let offset = 2;
+    while (offset + 9 < buffer.length) {
+      if (buffer[offset] !== 0xff) {
+        offset += 1;
+        continue;
+      }
+      const marker = buffer[offset + 1];
+      const size = buffer.readUInt16BE(offset + 2);
+      if (size < 2) break;
+      const isSof =
+        marker === 0xc0 ||
+        marker === 0xc1 ||
+        marker === 0xc2 ||
+        marker === 0xc3 ||
+        marker === 0xc5 ||
+        marker === 0xc6 ||
+        marker === 0xc7 ||
+        marker === 0xc9 ||
+        marker === 0xca ||
+        marker === 0xcb ||
+        marker === 0xcd ||
+        marker === 0xce ||
+        marker === 0xcf;
+      if (isSof && offset + 8 < buffer.length) {
+        const height = buffer.readUInt16BE(offset + 5);
+        const width = buffer.readUInt16BE(offset + 7);
+        if (width > 0 && height > 0) return { width, height };
+      }
+      offset += 2 + size;
+    }
+  }
+
+  return { width: 1600, height: 900 };
+}
+
 function imageDataUrlMap(images: BrandImage[]) {
-  const map: Record<string, string> = {};
+  const map: Record<string, RenderImage> = {};
   for (const image of images) {
     const key = image.filename.replace(/\.\w+$/, "").toLowerCase();
-    map[key] = `data:${image.mimeType};base64,${image.buffer.toString("base64")}`;
+    const dimensions = parseImageDimensions(image.buffer, image.mimeType);
+    map[key] = {
+      dataUrl: `data:${image.mimeType};base64,${image.buffer.toString("base64")}`,
+      width: dimensions.width,
+      height: dimensions.height,
+    };
   }
   return map;
 }
 
-function requireImage(images: Record<string, string>, key: "logo" | "hero", slideTitle: string): string {
+function requireImage(images: Record<string, RenderImage>, key: "logo" | "hero", slideTitle: string): RenderImage {
   const image = images[key];
   if (!image) {
     throw new Error(`Missing ${key} image required by slide: ${slideTitle}`);
@@ -60,15 +179,43 @@ function requireImage(images: Record<string, string>, key: "logo" | "hero", slid
   return image;
 }
 
+function fitImageWithinBox(image: RenderImage, box: { x: number; y: number; w: number; h: number }) {
+  const ratio = image.width > 0 && image.height > 0 ? image.width / image.height : box.w / box.h;
+  if (!Number.isFinite(ratio) || ratio <= 0) return box;
+  const boxRatio = box.w / box.h;
+  if (ratio > boxRatio) {
+    const w = box.w;
+    const h = w / ratio;
+    return { x: box.x, y: box.y + (box.h - h) / 2, w, h };
+  }
+  const h = box.h;
+  const w = h * ratio;
+  return { x: box.x + (box.w - w) / 2, y: box.y, w, h };
+}
+
+function clampText(value: string | null | undefined, maxChars: number) {
+  if (!value) return "";
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (compact.length <= maxChars) return compact;
+  return `${compact.slice(0, maxChars - 1).trimEnd()}…`;
+}
+
+function clampLines(lines: string[], maxItems: number, maxChars: number) {
+  return lines
+    .slice(0, maxItems)
+    .map((line) => clampText(line, maxChars))
+    .filter((line) => line.length > 0);
+}
+
 function bulletListHtml(lines: string[]) {
   if (!lines.length) return "";
   return `<ul>${lines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`;
 }
 
-function renderSlideContentHtml(slide: BrandBriefSlide, images: Record<string, string>): string {
-  const bulletsHtml = bulletListHtml(slide.bullets);
-  const doHtml = bulletListHtml(slide.do ?? []);
-  const dontHtml = bulletListHtml(slide.dont ?? []);
+function renderSlideContentHtml(slide: BrandBriefSlide, images: Record<string, RenderImage>): string {
+  const bulletsHtml = bulletListHtml(clampLines(slide.bullets, 7, 180));
+  const doHtml = bulletListHtml(clampLines(slide.do ?? [], 6, 140));
+  const dontHtml = bulletListHtml(clampLines(slide.dont ?? [], 6, 140));
   const imageKey = slide.image_key;
   const imageSrc = imageKey ? requireImage(images, imageKey, slide.title) : null;
 
@@ -126,7 +273,7 @@ function renderSlideContentHtml(slide: BrandBriefSlide, images: Record<string, s
     return `
       <div class="content-wrap full-image">
         <div class="full-image-frame">
-          <img src="${imageSrc}" alt="${escapeHtml(slide.title)}"/>
+          <img src="${imageSrc.dataUrl}" alt="${escapeHtml(slide.title)}"/>
           <div class="full-image-overlay">
             ${slide.body ? `<p class="body">${escapeHtml(slide.body)}</p>` : ""}
             ${bulletsHtml}
@@ -142,7 +289,7 @@ function renderSlideContentHtml(slide: BrandBriefSlide, images: Record<string, s
       </div>`;
 
   const rightImageHtml = imageSrc
-    ? `<div class="panel image-panel"><img src="${imageSrc}" alt="${escapeHtml(slide.title)}"/></div>`
+    ? `<div class="panel image-panel"><img src="${imageSrc.dataUrl}" alt="${escapeHtml(slide.title)}"/></div>`
     : "";
 
   if (slide.layout === "split_image_left") {
@@ -177,7 +324,7 @@ function renderSlideContentHtml(slide: BrandBriefSlide, images: Record<string, s
       </div>`;
 }
 
-function renderHtmlSlide(project: ProjectInfo, slide: BrandBriefSlide, images: Record<string, string>, index: number) {
+function renderHtmlSlide(project: ProjectInfo, slide: BrandBriefSlide, images: Record<string, RenderImage>, index: number) {
   const coverMeta = `${escapeHtml(project.name)}${project.domain ? ` · ${escapeHtml(project.domain)}` : ""}`;
 
   return `
@@ -188,7 +335,7 @@ function renderHtmlSlide(project: ProjectInfo, slide: BrandBriefSlide, images: R
           <div class="slide-index">${index + 1}</div>
         </div>
         <h1>${escapeHtml(slide.title)}</h1>
-        ${slide.subtitle ? `<p class="subtitle">${escapeHtml(slide.subtitle)}</p>` : ""}
+        ${slide.subtitle ? `<p class="subtitle">${escapeHtml(clampText(slide.subtitle, 180))}</p>` : ""}
         ${renderSlideContentHtml(slide, images)}
         ${slide.kind === "cover" ? `<p class="meta">${coverMeta}</p>` : ""}
       </div>
@@ -205,10 +352,30 @@ export function renderBrandBriefHtml(
 
   const bg = normalizeHex(spec.style_tokens.background, "background");
   const surface = normalizeHex(spec.style_tokens.surface, "surface");
-  const text = normalizeHex(spec.style_tokens.text, "text");
-  const muted = normalizeHex(spec.style_tokens.muted_text, "muted_text");
-  const accent = normalizeHex(spec.style_tokens.accent, "accent");
-  const accent2 = normalizeHex(spec.style_tokens.accent_secondary, "accent_secondary");
+  const textRaw = normalizeHex(spec.style_tokens.text, "text");
+  const mutedRaw = normalizeHex(spec.style_tokens.muted_text, "muted_text");
+  const accentRaw = normalizeHex(spec.style_tokens.accent, "accent");
+  const accent2Raw = normalizeHex(spec.style_tokens.accent_secondary, "accent_secondary");
+
+  const text = ensureReadableColor(textRaw, surface, 4.5, preferredReadableText(surface));
+  const muted = ensureReadableColor(
+    mutedRaw,
+    surface,
+    3,
+    text === "#0F172A" ? "#475569" : "#94A3B8",
+  );
+  const accent = ensureReadableColor(
+    accentRaw,
+    surface,
+    2.2,
+    text === "#0F172A" ? "#2563EB" : "#38BDF8",
+  );
+  const accent2 = ensureReadableColor(
+    accent2Raw,
+    surface,
+    2.2,
+    text === "#0F172A" ? "#0EA5E9" : "#60A5FA",
+  );
 
   const imageMap = imageDataUrlMap(images);
   const slidesHtml = spec.slides.map((slide, index) => renderHtmlSlide(project, slide, imageMap, index)).join("");
@@ -463,7 +630,7 @@ function addBullets(
   fontSize = 16,
 ) {
   if (!lines.length) return;
-  const bullets = lines.map((line) => ({ text: line, options: { bullet: { indent: 14 } } }));
+  const bullets = clampLines(lines, 8, 140).map((line) => ({ text: line, options: { bullet: { indent: 14 } } }));
   slideRef.addText(bullets, {
     x,
     y,
@@ -476,6 +643,7 @@ function addBullets(
     margin: 0.05,
     paraSpaceAfter: 8,
     valign: "top",
+    fit: "shrink",
   });
 }
 
@@ -486,13 +654,34 @@ function addCommonFrame(
   slide: BrandBriefSlide,
   index: number,
 ) {
-  const background = normalizeHexNoHash(spec.style_tokens.background, "background");
-  const surface = normalizeHexNoHash(spec.style_tokens.surface, "surface");
-  const text = normalizeHexNoHash(spec.style_tokens.text, "text");
-  const muted = normalizeHexNoHash(spec.style_tokens.muted_text, "muted_text");
-  const accent = normalizeHexNoHash(spec.style_tokens.accent, "accent");
-  const headingFont = ensureFont(spec.typography.heading_font, "heading");
-  const bodyFont = ensureFont(spec.typography.body_font, "body");
+  const backgroundRaw = normalizeHex(spec.style_tokens.background, "background");
+  const surfaceRaw = normalizeHex(spec.style_tokens.surface, "surface");
+  const textRaw = normalizeHex(spec.style_tokens.text, "text");
+  const mutedRaw = normalizeHex(spec.style_tokens.muted_text, "muted_text");
+  const accentRaw = normalizeHex(spec.style_tokens.accent, "accent");
+
+  const textHex = ensureReadableColor(textRaw, surfaceRaw, 4.5, preferredReadableText(surfaceRaw));
+  const mutedHex = ensureReadableColor(
+    mutedRaw,
+    surfaceRaw,
+    3,
+    textHex === "#0F172A" ? "#475569" : "#94A3B8",
+  );
+  const accentHex = ensureReadableColor(
+    accentRaw,
+    surfaceRaw,
+    2.2,
+    textHex === "#0F172A" ? "#2563EB" : "#38BDF8",
+  );
+
+  const background = normalizeHexNoHash(backgroundRaw, "background");
+  const surface = normalizeHexNoHash(surfaceRaw, "surface");
+  const text = normalizeHexNoHash(textHex, "text");
+  const muted = normalizeHexNoHash(mutedHex, "muted_text");
+  const accent = normalizeHexNoHash(accentHex, "accent");
+
+  const headingFont = resolvePptFont(ensureFont(spec.typography.heading_font, "heading"), "Helvetica Neue");
+  const bodyFont = resolvePptFont(ensureFont(spec.typography.body_font, "body"), "Calibri");
 
   deckSlide.background = { color: background };
 
@@ -564,13 +753,13 @@ function renderSlideBodyPpt(
     surface: string;
     accent: string;
   },
-  images: Record<string, string>,
+  images: Record<string, RenderImage>,
 ) {
   const { bodyFont, text, muted, surface, accent } = frame;
 
   if (slide.kind === "palette") {
     const colors = slide.palette_focus;
-    slideRef.addText(slide.body ?? "", {
+    slideRef.addText(clampText(slide.body, 320), {
       x: 0.76,
       y: 3.0,
       w: 7.0,
@@ -579,6 +768,7 @@ function renderSlideBodyPpt(
       fontSize: 14,
       color: muted,
       breakLine: true,
+      fit: "shrink",
     });
 
     colors.forEach((color, idx) => {
@@ -611,7 +801,7 @@ function renderSlideBodyPpt(
 
   if (slide.kind === "guidelines") {
     if (slide.body) {
-      slideRef.addText(slide.body, {
+      slideRef.addText(clampText(slide.body, 320), {
         x: 0.76,
         y: 3.0,
         w: 6.8,
@@ -620,6 +810,7 @@ function renderSlideBodyPpt(
         fontSize: 14,
         color: muted,
         breakLine: true,
+        fit: "shrink",
       });
     }
 
@@ -672,21 +863,22 @@ function renderSlideBodyPpt(
   if (slide.body) {
     const textX = slide.layout === "split_image_left" ? 5.25 : 0.76;
     const textW = slide.layout === "split_image_left" ? 3.45 : 6.8;
-    slideRef.addText(slide.body, {
-      x: textX,
-      y: slide.subtitle ? 2.9 : 2.45,
-      w: textW,
-      h: 1.2,
-      fontFace: bodyFont,
-      fontSize: 14,
-      color: muted,
-      breakLine: true,
-      lineSpacingMultiple: 1.25,
-    });
-  }
+      slideRef.addText(clampText(slide.body, 380), {
+        x: textX,
+        y: slide.subtitle ? 2.9 : 2.45,
+        w: textW,
+        h: 1.2,
+        fontFace: bodyFont,
+        fontSize: 14,
+        color: muted,
+        breakLine: true,
+        lineSpacingMultiple: 1.25,
+        fit: "shrink",
+      });
+    }
 
   if (slide.layout === "grid") {
-    const cards = slide.bullets.slice(0, 6);
+      const cards = clampLines(slide.bullets, 6, 110);
     cards.forEach((line, idx) => {
       const x = 0.78 + (idx % 3) * 2.33;
       const y = 4.0 + Math.floor(idx / 3) * 1.17;
@@ -720,9 +912,11 @@ function renderSlideBodyPpt(
 
   const imageKey = slide.image_key;
   if (imageKey) {
-    const imageData = requireImage(images, imageKey, slide.title);
-    if (slide.layout === "full_image") {
-      slideRef.addShape(pptx.ShapeType.roundRect, {
+      const imageData = requireImage(images, imageKey, slide.title);
+      if (slide.layout === "full_image") {
+        const box = { x: 8.12, y: 1.94, w: 4.46, h: 4.74 };
+        const fitted = fitImageWithinBox(imageData, box);
+        slideRef.addShape(pptx.ShapeType.roundRect, {
         x: 8.05,
         y: 1.86,
         w: 4.6,
@@ -731,11 +925,13 @@ function renderSlideBodyPpt(
         line: { color: accent, transparency: 50, pt: 1 },
         rectRadius: 0.08,
       });
-      slideRef.addImage({ data: imageData, x: 8.12, y: 1.94, w: 4.46, h: 4.74 });
-    } else {
-      const imageX = slide.layout === "split_image_left" ? 0.8 : 8.15;
+        slideRef.addImage({ data: imageData.dataUrl, x: fitted.x, y: fitted.y, w: fitted.w, h: fitted.h });
+      } else {
+        const imageX = slide.layout === "split_image_left" ? 0.8 : 8.15;
+        const box = { x: imageX, y: 2.43, w: 4.39, h: 3.19 };
+        const fitted = fitImageWithinBox(imageData, box);
 
-      slideRef.addShape(pptx.ShapeType.roundRect, {
+        slideRef.addShape(pptx.ShapeType.roundRect, {
         x: imageX - 0.08,
         y: 2.35,
         w: 4.55,
@@ -744,9 +940,9 @@ function renderSlideBodyPpt(
         line: { color: accent, transparency: 54, pt: 1 },
         rectRadius: 0.08,
       });
-      slideRef.addImage({ data: imageData, x: imageX, y: 2.43, w: 4.39, h: 3.19 });
+        slideRef.addImage({ data: imageData.dataUrl, x: fitted.x, y: fitted.y, w: fitted.w, h: fitted.h });
+      }
     }
-  }
 }
 
 function renderPptSlide(
@@ -754,7 +950,7 @@ function renderPptSlide(
   spec: BrandBriefDeckSpec,
   slide: BrandBriefSlide,
   index: number,
-  images: Record<string, string>,
+  images: Record<string, RenderImage>,
 ) {
   const deckSlide = pptx.addSlide();
   const frame = addCommonFrame(pptx, deckSlide, spec, slide, index);
@@ -762,20 +958,21 @@ function renderPptSlide(
   const muted = frame.muted;
 
   if (slide.subtitle) {
-    deckSlide.addText(slide.subtitle, {
+    deckSlide.addText(clampText(slide.subtitle, 180), {
       x: 0.76,
       y: slide.kind === "cover" ? 2.3 : 2.05,
       w: 7.8,
       h: 0.8,
       fontFace: bodyFont,
       fontSize: 17,
-      color: "D9E5F2",
+      color: frame.text,
       breakLine: true,
+      fit: "shrink",
     });
   }
 
   if (slide.kind === "cover") {
-    deckSlide.addText(spec.visual_direction, {
+    deckSlide.addText(clampText(spec.visual_direction, 220), {
       x: 0.76,
       y: 3.12,
       w: 7.2,
@@ -785,6 +982,7 @@ function renderPptSlide(
       color: muted,
       breakLine: true,
       italic: true,
+      fit: "shrink",
     });
   }
 
@@ -796,7 +994,7 @@ function renderPptSlide(
       h: 0,
       line: { color: "FFFFFF", transparency: 84, pt: 1 },
     });
-    deckSlide.addText(spec.narrative, {
+    deckSlide.addText(clampText(spec.narrative, 340), {
       x: 0.76,
       y: 5.12,
       w: 11.2,
@@ -806,12 +1004,15 @@ function renderPptSlide(
       color: muted,
       breakLine: true,
       italic: true,
+      fit: "shrink",
     });
   }
 
   if (slide.kind === "cover") {
     const hero = images.hero;
     if (hero) {
+      const box = { x: 8.08, y: 1.68, w: 4.5, h: 4.74 };
+      const fitted = fitImageWithinBox(hero, box);
       deckSlide.addShape(pptx.ShapeType.roundRect, {
         x: 8.0,
         y: 1.6,
@@ -821,11 +1022,11 @@ function renderPptSlide(
         line: { color: frame.accent, transparency: 55, pt: 1 },
         rectRadius: 0.08,
       });
-      deckSlide.addImage({ data: hero, x: 8.08, y: 1.68, w: 4.5, h: 4.74 });
+      deckSlide.addImage({ data: hero.dataUrl, x: fitted.x, y: fitted.y, w: fitted.w, h: fitted.h });
     }
 
     if (slide.body) {
-      deckSlide.addText(slide.body, {
+      deckSlide.addText(clampText(slide.body, 280), {
         x: 0.76,
         y: 3.9,
         w: 7.0,
@@ -835,6 +1036,7 @@ function renderPptSlide(
         color: muted,
         breakLine: true,
         lineSpacingMultiple: 1.25,
+        fit: "shrink",
       });
     }
 

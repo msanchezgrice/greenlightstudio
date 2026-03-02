@@ -80,6 +80,21 @@ function landingVariantIndex(metadata: Record<string, unknown> | null | undefine
   return null;
 }
 
+function renderLinkedText(text: string | null | undefined) {
+  if (!text) return null;
+  const pattern = /(https?:\/\/[^\s]+)/g;
+  const parts = text.split(pattern);
+  if (parts.length === 1) return text;
+  return parts.map((part, index) => {
+    if (!/^https?:\/\/[^\s]+$/i.test(part)) return <span key={`txt-${index}`}>{part}</span>;
+    return (
+      <a key={`url-${index}`} href={part} target="_blank" rel="noopener noreferrer">
+        {part}
+      </a>
+    );
+  });
+}
+
 export default async function ProjectPhaseWorkspacePage({
   params,
 }: {
@@ -106,7 +121,7 @@ export default async function ProjectPhaseWorkspacePage({
   const projectIds = projects.map((entry) => entry.id);
   const { total: pendingCount } = await getPendingApprovalsByProject(projectIds);
 
-  const [projectQuery, packetQuery, approvalsQuery, tasksQuery, deploymentQuery, assetsQuery] = await Promise.all([
+  const [projectQuery, packetQuery, approvalsQuery, tasksQuery, deploymentQuery, assetsQuery, brandFallbackAssetsQuery] = await Promise.all([
     withRetry(() =>
       db
         .from("projects")
@@ -156,8 +171,19 @@ export default async function ProjectPhaseWorkspacePage({
         .eq("phase", phase)
         .eq("status", "uploaded")
         .order("created_at", { ascending: false })
-        .limit(50),
+        .limit(200),
     ),
+    phase === 1
+      ? withRetry(() =>
+          db
+            .from("project_assets")
+            .select("id,kind,storage_path,filename,mime_type,metadata,created_at")
+            .eq("project_id", projectId)
+            .eq("status", "uploaded")
+            .order("created_at", { ascending: false })
+            .limit(220),
+        )
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (projectQuery.error || !projectQuery.data) {
@@ -180,7 +206,26 @@ export default async function ProjectPhaseWorkspacePage({
   const allTasks = (tasksQuery.data ?? []) as TaskRow[];
   const phaseTasks = allTasks.filter((task) => task.description.startsWith(`phase${phase}_`)).slice(0, 30);
   const deployment = deploymentQuery.data as { project_id: string; phase: number; status: string; metadata: Record<string, unknown>; deployed_at: string } | null;
-  const assets = (assetsQuery.data ?? []) as Array<{
+  const assets = ([
+    ...((assetsQuery.data ?? []) as Array<{
+      id: string;
+      kind: string;
+      storage_path: string;
+      filename: string;
+      mime_type: string | null;
+      metadata: Record<string, unknown>;
+      created_at: string;
+    }>),
+    ...((brandFallbackAssetsQuery.data ?? []) as Array<{
+      id: string;
+      kind: string;
+      storage_path: string;
+      filename: string;
+      mime_type: string | null;
+      metadata: Record<string, unknown>;
+      created_at: string;
+    }>),
+  ].reduce<Array<{
     id: string;
     kind: string;
     storage_path: string;
@@ -188,8 +233,13 @@ export default async function ProjectPhaseWorkspacePage({
     mime_type: string | null;
     metadata: Record<string, unknown>;
     created_at: string;
-  }>;
+  }>>((acc, asset) => {
+    if (acc.some((row) => row.id === asset.id)) return acc;
+    acc.push(asset);
+    return acc;
+  }, []));
   const brandAssets = assets.filter((a) => a.metadata?.brand_asset === true);
+  const brandImageAssets = brandAssets.filter((asset) => (asset.mime_type ?? "").startsWith("image/"));
   const techNewsAsset = assets.find((a) => a.metadata?.tech_news_insights === true || a.filename === "tech-news-insights.md");
   const brandBriefHtmlAsset = assets.find((a) => a.filename === "brand-brief.html" || a.metadata?.brand_brief === true);
   const brandBriefPptxAsset = assets.find((a) => a.filename === "brand-brief.pptx" || a.metadata?.brand_brief_pptx === true);
@@ -228,6 +278,20 @@ export default async function ProjectPhaseWorkspacePage({
       external: true,
     };
   });
+  const phaseAssetLinks: Array<{ label: string; href: string; external: boolean }> = [
+    ...(packetDeckHtmlAsset ? [{ label: `Phase ${phase} Pitch Deck (HTML)`, href: `/api/projects/${projectId}/assets/${packetDeckHtmlAsset.id}/preview`, external: true }] : []),
+    ...(packetDeckPptxAsset ? [{ label: `Phase ${phase} Pitch Deck (PPTX)`, href: `/api/projects/${projectId}/assets/${packetDeckPptxAsset.id}/preview`, external: true }] : []),
+    ...(liveUrl ? [{ label: "Landing Page (Live)", href: liveUrl, external: true }] : []),
+    ...(brandBriefHtmlAsset ? [{ label: "Brand Brief (HTML)", href: `/api/projects/${projectId}/assets/${brandBriefHtmlAsset.id}/preview`, external: true }] : []),
+    ...(brandBriefPptxAsset ? [{ label: "Brand Brief (PPTX)", href: `/api/projects/${projectId}/assets/${brandBriefPptxAsset.id}/preview`, external: true }] : []),
+    ...(techNewsAsset ? [{ label: "Tech + AI News Brief", href: `/api/projects/${projectId}/assets/${techNewsAsset.id}/preview`, external: true }] : []),
+    ...landingVariantLinks,
+    ...brandImageAssets.slice(0, 8).map((asset) => ({
+      label: ((asset.metadata?.label as string) ?? asset.filename).slice(0, 42),
+      href: `/api/projects/${projectId}/assets/${asset.id}/preview`,
+      external: true,
+    })),
+  ];
 
   const currentPhaseDefinition = PHASES.find((entry) => entry.id === phase) ?? PHASES[0];
   const status = phaseStatus(project.phase, phase);
@@ -300,6 +364,27 @@ export default async function ProjectPhaseWorkspacePage({
               </span>
             ))}
           </div>
+        </section>
+
+        <section className="studio-card">
+          <h2>Asset Links</h2>
+          {!phaseAssetLinks.length ? (
+            <p className="meta-line">No generated links yet for this phase.</p>
+          ) : (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {phaseAssetLinks.map((link) => (
+                <a
+                  key={`${link.label}-${link.href}`}
+                  href={link.href}
+                  target={link.external ? "_blank" : undefined}
+                  rel={link.external ? "noopener noreferrer" : undefined}
+                  className="btn btn-details btn-sm"
+                >
+                  {link.label}
+                </a>
+              ))}
+            </div>
+          )}
         </section>
 
         {!packetRow && (
@@ -602,16 +687,22 @@ export default async function ProjectPhaseWorkspacePage({
                   )}
                 </div>
               </div>
-              {brandAssets.length > 0 && (
+              {brandImageAssets.length > 0 && (
                 <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginBottom: 20 }}>
-                  {brandAssets.map((asset) => {
+                  {brandImageAssets.map((asset) => {
                     const label = (asset.metadata?.label as string) ?? asset.filename;
                     return (
-                      <div key={asset.id} style={{ textAlign: "center" }}>
+                      <a
+                        key={asset.id}
+                        href={`/api/projects/${projectId}/assets/${asset.id}/preview`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ textAlign: "center", textDecoration: "none", color: "inherit" }}
+                      >
                         <div
                           style={{
-                            width: 100,
-                            height: 100,
+                            width: 180,
+                            height: 120,
                             borderRadius: 16,
                             border: "1px solid var(--border)",
                             background: "var(--surface, rgba(255,255,255,.03))",
@@ -626,11 +717,11 @@ export default async function ProjectPhaseWorkspacePage({
                           <img
                             src={`/api/projects/${projectId}/assets/${asset.id}/preview`}
                             alt={label}
-                            style={{ width: "80%", height: "80%", objectFit: "contain" }}
+                            style={{ width: "100%", height: "100%", objectFit: "cover" }}
                           />
                         </div>
                         <div className="meta-line" style={{ fontSize: 12 }}>{label}</div>
-                      </div>
+                      </a>
                     );
                   })}
                 </div>
@@ -930,10 +1021,10 @@ export default async function ProjectPhaseWorkspacePage({
               <table className="studio-table compact">
                 <thead>
                   <tr>
-                    <th>Agent</th>
-                    <th>Task</th>
-                    <th>Status</th>
-                    <th>Created</th>
+                    <th className="col-agent">Agent</th>
+                    <th className="col-task">Task</th>
+                    <th className="col-status">Status</th>
+                    <th className="col-created">Created</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -943,23 +1034,23 @@ export default async function ProjectPhaseWorkspacePage({
                     const output = taskOutputLink(task.description, projectId);
                     return (
                       <tr key={task.id}>
-                        <td>
-                          <span style={{ color: agent.color, fontWeight: 600 }}>
+                        <td className="col-agent">
+                          <span className="agent-inline-label" style={{ color: agent.color, fontWeight: 600 }}>
                             {agent.icon} {agent.name}
                           </span>
                         </td>
-                        <td>
+                        <td className="col-task">
                           <div className="table-main">{humanizeTaskDescription(task.description)}</div>
-                          <div className="table-sub">{task.detail ?? ""}</div>
+                          <div className="table-sub">{renderLinkedText(task.detail)}</div>
                         </td>
-                        <td className={statusClass(task.status)}>
+                        <td className={`col-status ${statusClass(task.status)}`}>
                           {task.status === "running" ? (
                             <AgentActivityIndicator agentKey={task.agent} taskDescription={humanizeTaskDescription(task.description)} compact />
                           ) : (
                             task.status
                           )}
                         </td>
-                        <td>{new Date(task.created_at).toLocaleString()}</td>
+                        <td className="col-created">{new Date(task.created_at).toLocaleString()}</td>
                         <td style={{ whiteSpace: "nowrap" }}>
                           {task.status === "failed" && (
                             <RetryTaskButton projectId={projectId} />
@@ -1021,6 +1112,13 @@ export default async function ProjectPhaseWorkspacePage({
                 ...landingVariantLinks,
                 ...(brandBriefHtmlAsset ? [{ label: "Brand Brief", href: `/api/projects/${projectId}/assets/${brandBriefHtmlAsset.id}/preview`, external: true }] : []),
                 ...(brandBriefPptxAsset ? [{ label: "Brand Deck (PPTX)", href: `/api/projects/${projectId}/assets/${brandBriefPptxAsset.id}/preview`, external: true }] : []),
+                ...brandImageAssets
+                  .slice(0, 4)
+                  .map((asset) => ({
+                    label: ((asset.metadata?.label as string) ?? asset.filename).slice(0, 36),
+                    href: `/api/projects/${projectId}/assets/${asset.id}/preview`,
+                    external: true,
+                  })),
                 { label: "Phase 1 Workspace", href: `/projects/${projectId}/phases/1` },
               ] : [
                 ...(packetDeckHtmlAsset ? [{ label: "Phase Deck", href: `/api/projects/${projectId}/assets/${packetDeckHtmlAsset.id}/preview`, external: true }] : []),

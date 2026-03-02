@@ -139,6 +139,11 @@ export type Phase3Packet = z.infer<typeof phase3PacketSchema>;
 
 export type PhasePacket = Phase0Packet | Phase1Packet | Phase2Packet | Phase3Packet;
 
+export function parsePhasePacket(phase: 0, payload: unknown): Phase0Packet;
+export function parsePhasePacket(phase: 1, payload: unknown): Phase1Packet;
+export function parsePhasePacket(phase: 2, payload: unknown): Phase2Packet;
+export function parsePhasePacket(phase: 3, payload: unknown): Phase3Packet;
+export function parsePhasePacket(phase: number, payload: unknown): PhasePacket;
 export function parsePhasePacket(phase: number, payload: unknown): PhasePacket {
   if (phase === 0) return phase0PacketSchema.parse(payload);
   if (phase === 1) return phase1PacketSchema.parse(payload);

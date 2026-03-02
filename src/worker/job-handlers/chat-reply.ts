@@ -68,6 +68,10 @@ const EXECUTION_OBJECT_REGEX =
 const REFINEMENT_VERB_REGEX = /\b(refine|improve|edit|update|change|tweak|rework|iterate|regenerate|redo|fix)\b/i;
 const REFINEMENT_OBJECT_REGEX =
   /\b(landing|button|cta|copy|design|brand|logo|palette|deck|packet|slide|asset|social|hero|image|email)\b/i;
+const ASSET_LINK_INTENT_REGEX =
+  /\b(asset|assets|brand|logo|hero|deck|pitch deck|pptx|landing|preview|file|files|image|images|link|url|download)\b/i;
+const ASSET_LINK_ACTION_REGEX =
+  /\b(show|share|send|post|where|open|link|url|download|access|see|view|provide)\b/i;
 
 function shouldEvaluateExecutionIntent(message: string) {
   const trimmed = message.trim();
@@ -80,6 +84,12 @@ function looksLikeRefinementRequest(message: string) {
   const trimmed = message.trim();
   if (trimmed.length < 6) return false;
   return REFINEMENT_VERB_REGEX.test(trimmed) && REFINEMENT_OBJECT_REGEX.test(trimmed);
+}
+
+function wantsAssetLinks(message: string) {
+  const trimmed = message.trim();
+  if (trimmed.length < 6) return false;
+  return ASSET_LINK_INTENT_REGEX.test(trimmed) && ASSET_LINK_ACTION_REGEX.test(trimmed);
 }
 
 function isTruthyFlag(value: unknown) {
@@ -332,12 +342,12 @@ export async function handleChatReply(
 
   const project = await db
     .from("projects")
-    .select("id,name,domain,phase,idea_description,repo_url,runtime_mode,focus_areas,permissions")
+    .select("id,name,domain,phase,idea_description,repo_url,runtime_mode,focus_areas,permissions,live_url")
     .eq("id", projectId)
     .single();
   if (project.error || !project.data) throw new Error("Project not found");
 
-  const [messagesQuery, packetQuery, tasksQuery, approvalsQuery] = await Promise.all([
+  const [messagesQuery, packetQuery, tasksQuery, approvalsQuery, assetsQuery] = await Promise.all([
     db
       .from("project_chat_messages")
       .select("id,role,content,created_at")
@@ -365,10 +375,25 @@ export async function handleChatReply(
       .eq("project_id", projectId)
       .order("created_at", { ascending: false })
       .limit(6),
+    db
+      .from("project_assets")
+      .select("id,filename,mime_type,metadata,created_at,status")
+      .eq("project_id", projectId)
+      .eq("status", "uploaded")
+      .order("created_at", { ascending: false })
+      .limit(30),
   ]);
 
   type ChatRow = { role: string; content: string };
   type PacketRow = { id: string; phase: number; confidence: number; packet: unknown; packet_data: unknown };
+  type AssetRow = {
+    id: string;
+    filename: string;
+    mime_type: string | null;
+    metadata: Record<string, unknown> | null;
+    created_at: string;
+    status: string;
+  };
 
   const messages = ((messagesQuery.data ?? []) as ChatRow[])
     .slice()
@@ -379,6 +404,26 @@ export async function handleChatReply(
     }));
 
   const latestPacketRow = packetQuery.data as PacketRow | null;
+  const appBaseUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/+$/, "");
+  const toAbsoluteUrl = (path: string) => (path.startsWith("http") ? path : appBaseUrl ? `${appBaseUrl}${path}` : path);
+  const liveUrl = typeof project.data.live_url === "string" && project.data.live_url.trim().length > 0 ? project.data.live_url : null;
+  const assetLinks = ((assetsQuery.data ?? []) as AssetRow[])
+    .map((asset) => {
+      const label = (typeof asset.metadata?.label === "string" ? asset.metadata.label : asset.filename).trim();
+      return {
+        label: label.length > 0 ? label : "Project Asset",
+        url: toAbsoluteUrl(`/api/projects/${projectId}/assets/${asset.id}/preview`),
+        mime: asset.mime_type ?? "",
+      };
+    })
+    .slice(0, 12);
+  if (liveUrl) {
+    assetLinks.unshift({
+      label: "Live Landing Page",
+      url: toAbsoluteUrl(liveUrl),
+      mime: "text/html",
+    });
+  }
 
   const enrichedMessage = memoryContext
     ? `[Project memory context]\n${memoryContext}\n\n[User message]\n${message}`
@@ -494,6 +539,7 @@ export async function handleChatReply(
     companyMemory: companyContext.memory_markdown,
     companyKpis: companyContext.kpis,
     companyDeltaEvents: companyContext.delta_events.slice(0, 20),
+    assetLinks,
     chatAutomation: automationOutcome,
     messages: messages.slice(-8),
   };
@@ -508,6 +554,8 @@ Behavior rules:
 - If information is missing, say exactly what is missing and how to get it.
 - If chatAutomation.status is "queued" or "existing", acknowledge it clearly in the first sentence and tell user to use Inbox.
 - If chatAutomation.status is "blocked", explain the exact blocker and the concrete prerequisite.
+- If the user asks for assets, docs, previews, or downloads, include direct links from assetLinks in your reply.
+- Never claim links are unavailable when assetLinks contains matches.
 - Reply in <= 140 words unless the user explicitly asks for more.
 - No markdown code fences.
 
@@ -586,6 +634,14 @@ ${companyContextMarkdown}
   }
   if (!reply.trim()) {
     throw new Error("Chat reply was empty");
+  }
+
+  if (wantsAssetLinks(message) && assetLinks.length > 0 && !/\/api\/projects\/.+\/assets\/.+\/preview|\/launch\//i.test(reply)) {
+    const linksBlock = assetLinks
+      .slice(0, 8)
+      .map((asset) => `- ${asset.label}: ${asset.url}`)
+      .join("\n");
+    reply = `${reply.trim()}\n\nAsset links:\n${linksBlock}`;
   }
 
   const { error: insertErr } = await db.from("project_chat_messages").insert({

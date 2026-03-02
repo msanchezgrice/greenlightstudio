@@ -4,6 +4,7 @@ import { createServiceSupabase } from "@/lib/supabase";
 import { withRetry } from "@/lib/retry";
 import { StudioNav } from "@/components/studio-nav";
 import { ProjectChatPane } from "@/components/project-chat-pane";
+import { TechNewsRefreshButton } from "@/components/tech-news-refresh-button";
 import { getOwnedProjects, getPendingApprovalsByProject } from "@/lib/studio";
 import { PHASES, phaseStatus, taskPhase, getAgentProfile, humanizeTaskDescription, type PhaseId } from "@/lib/phases";
 
@@ -62,6 +63,11 @@ type TechNewsEventRow = {
   } | null;
 };
 
+type TechNewsAssetFallbackRow = {
+  id: string;
+  created_at: string;
+};
+
 function gateClass(status: ApprovalRow["status"] | null) {
   if (status === "approved") return "good";
   if (status === "pending" || status === "revised") return "warn";
@@ -84,6 +90,21 @@ function phaseChip(status: string) {
 
 function clampPhaseRoute(phase: number) {
   return Math.max(0, Math.min(3, phase));
+}
+
+function renderLinkedText(text: string | null | undefined) {
+  if (!text) return null;
+  const pattern = /(https?:\/\/[^\s]+)/g;
+  const parts = text.split(pattern);
+  if (parts.length === 1) return text;
+  return parts.map((part, index) => {
+    if (!/^https?:\/\/[^\s]+$/i.test(part)) return <span key={`txt-${index}`}>{part}</span>;
+    return (
+      <a key={`url-${index}`} href={part} target="_blank" rel="noopener noreferrer">
+        {part}
+      </a>
+    );
+  });
 }
 
 const phaseColorMap: Record<number, { gradient: string; border: string; glow: string; accent: string }> = {
@@ -111,6 +132,7 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
     packetQuery,
     recommendationEventQuery,
     techNewsEventQuery,
+    techNewsAssetFallbackQuery,
   ] = await Promise.all([
     getPendingApprovalsByProject(projectIds),
     withRetry(() =>
@@ -165,6 +187,17 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
         .limit(1)
         .maybeSingle(),
     ),
+    withRetry(() =>
+      db
+        .from("project_assets")
+        .select("id,created_at")
+        .eq("project_id", projectId)
+        .eq("filename", "tech-news-insights.md")
+        .eq("status", "uploaded")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ),
   ]);
 
   if (projectQuery.error || !projectQuery.data) {
@@ -191,10 +224,13 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
     : [];
   const topRecommendations = recommendations.slice(0, 3);
   const latestTechNewsEvent = (techNewsEventQuery.data as TechNewsEventRow | null) ?? null;
-  const techNewsAssetId =
+  const techNewsFallbackAsset = (techNewsAssetFallbackQuery.data as TechNewsAssetFallbackRow | null) ?? null;
+  const eventTechNewsAssetId =
     typeof latestTechNewsEvent?.data?.asset_id === "string" && latestTechNewsEvent.data.asset_id.trim().length > 0
       ? latestTechNewsEvent.data.asset_id
       : null;
+  const techNewsAssetId =
+    eventTechNewsAssetId ?? (techNewsFallbackAsset?.id ?? null);
   const techNewsSummary =
     typeof latestTechNewsEvent?.data?.summary_preview === "string"
       ? latestTechNewsEvent.data.summary_preview
@@ -203,6 +239,7 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
     typeof latestTechNewsEvent?.data?.advances_count === "number"
       ? latestTechNewsEvent.data.advances_count
       : null;
+  const techNewsGeneratedAt = latestTechNewsEvent?.created_at ?? techNewsFallbackAsset?.created_at ?? null;
 
   const tasksByPhase = new Map<PhaseId, TaskRow[]>();
   for (const phase of PHASES) tasksByPhase.set(phase.id, []);
@@ -313,7 +350,12 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
             <section className="studio-card">
               <h2>Tech + AI News</h2>
               {!techNewsAssetId ? (
-                <p className="meta-line">No tech-news insight has been generated yet.</p>
+                <>
+                  <p className="meta-line">No tech-news insight has been generated yet.</p>
+                  <div className="card-actions" style={{ marginTop: 12 }}>
+                    <TechNewsRefreshButton projectId={projectId} />
+                  </div>
+                </>
               ) : (
                 <>
                   <p className="meta-line" style={{ marginBottom: 10 }}>
@@ -322,7 +364,7 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
                   <div className="project-metrics">
                     <div>
                       <div className="metric-label">Generated</div>
-                      <div className="metric-value">{new Date(latestTechNewsEvent?.created_at ?? new Date().toISOString()).toLocaleString()}</div>
+                      <div className="metric-value">{new Date(techNewsGeneratedAt ?? new Date().toISOString()).toLocaleString()}</div>
                     </div>
                     <div>
                       <div className="metric-label">Advances Tracked</div>
@@ -330,6 +372,7 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
                     </div>
                   </div>
                   <div className="card-actions" style={{ marginTop: 12 }}>
+                    <TechNewsRefreshButton projectId={projectId} />
                     <a
                       href={`/api/projects/${projectId}/assets/${techNewsAssetId}/preview`}
                       target="_blank"
@@ -433,10 +476,10 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
                           <table className="studio-table compact">
                             <thead>
                               <tr>
-                                <th>Task</th>
-                                <th>Agent</th>
-                                <th>Status</th>
-                                <th>Created</th>
+                                <th className="col-task">Task</th>
+                                <th className="col-agent">Agent</th>
+                                <th className="col-status">Status</th>
+                                <th className="col-created">Created</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -444,17 +487,17 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
                                 const agent = getAgentProfile(task.agent);
                                 return (
                                   <tr key={task.id}>
-                                    <td>
+                                    <td className="col-task">
                                       <div className="table-main">{humanizeTaskDescription(task.description)}</div>
-                                      <div className="table-sub">{task.detail ?? ""}</div>
+                                      <div className="table-sub">{renderLinkedText(task.detail)}</div>
                                     </td>
-                                    <td>
-                                      <span style={{ color: agent.color, fontWeight: 600 }}>
+                                    <td className="col-agent">
+                                      <span className="agent-inline-label" style={{ color: agent.color, fontWeight: 600 }}>
                                         {agent.icon} {agent.name}
                                       </span>
                                     </td>
-                                    <td className={taskClass(task.status)}>{task.status}</td>
-                                    <td>{new Date(task.created_at).toLocaleString()}</td>
+                                    <td className={`col-status ${taskClass(task.status)}`}>{task.status}</td>
+                                    <td className="col-created">{new Date(task.created_at).toLocaleString()}</td>
                                   </tr>
                                 );
                               })}
@@ -466,22 +509,30 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
                             <summary>Show {hiddenTasks.length} more task{hiddenTasks.length === 1 ? "" : "s"}</summary>
                             <div className="table-shell" style={{ marginTop: 8 }}>
                               <table className="studio-table compact">
+                                <thead>
+                                  <tr>
+                                    <th className="col-task">Task</th>
+                                    <th className="col-agent">Agent</th>
+                                    <th className="col-status">Status</th>
+                                    <th className="col-created">Created</th>
+                                  </tr>
+                                </thead>
                                 <tbody>
                                   {hiddenTasks.map((task) => {
                                     const agent = getAgentProfile(task.agent);
                                     return (
                                       <tr key={task.id}>
-                                        <td>
+                                        <td className="col-task">
                                           <div className="table-main">{humanizeTaskDescription(task.description)}</div>
-                                          <div className="table-sub">{task.detail ?? ""}</div>
+                                          <div className="table-sub">{renderLinkedText(task.detail)}</div>
                                         </td>
-                                        <td>
-                                          <span style={{ color: agent.color, fontWeight: 600 }}>
+                                        <td className="col-agent">
+                                          <span className="agent-inline-label" style={{ color: agent.color, fontWeight: 600 }}>
                                             {agent.icon} {agent.name}
                                           </span>
                                         </td>
-                                        <td className={taskClass(task.status)}>{task.status}</td>
-                                        <td>{new Date(task.created_at).toLocaleString()}</td>
+                                        <td className={`col-status ${taskClass(task.status)}`}>{task.status}</td>
+                                        <td className="col-created">{new Date(task.created_at).toLocaleString()}</td>
                                       </tr>
                                     );
                                   })}

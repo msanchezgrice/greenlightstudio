@@ -23,6 +23,7 @@ type ProjectChatPaneProps = {
 
 const CHAT_CACHE_KEY = "sm_chat_cache";
 const CHAT_CACHE_TTL_MS = 5 * 60 * 1000;
+const CHAT_CACHE_EVENT = "sm-chat-cache-updated";
 
 type CacheStore = Record<string, { messages: ChatMessage[]; ts: number }>;
 
@@ -43,6 +44,15 @@ function saveChatCacheStore(store: CacheStore) {
   } catch {
     // ignore localStorage write failures
   }
+}
+
+function emitChatCacheUpdate(projectId: string) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(CHAT_CACHE_EVENT, {
+      detail: { projectId },
+    }),
+  );
 }
 
 function roleLabel(role: ChatMessage["role"]) {
@@ -119,9 +129,7 @@ export function ProjectChatPane({ projectId, title = "Project Chat", deliverable
       setLoading(false);
     }
 
-    if (isFresh && !forceNetwork) {
-      return;
-    }
+    if (!forceNetwork && isFresh && !cached?.messages?.length) return;
 
     const response = await fetch(`/api/projects/${projectId}/chat`, { cache: "no-store" });
     const raw = await response.text();
@@ -156,7 +164,26 @@ export function ProjectChatPane({ projectId, title = "Project Chat", deliverable
     return () => {
       active = false;
     };
-  }, [reloadMessages]);
+  }, [projectId, reloadMessages]);
+
+  useEffect(() => {
+    const onCacheEvent = (event: Event) => {
+      const detail = (event as CustomEvent<{ projectId?: string }>).detail;
+      if (detail?.projectId !== projectId) return;
+      reloadMessages(true).catch(() => {});
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== CHAT_CACHE_KEY) return;
+      reloadMessages(true).catch(() => {});
+    };
+
+    window.addEventListener(CHAT_CACHE_EVENT, onCacheEvent as EventListener);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(CHAT_CACHE_EVENT, onCacheEvent as EventListener);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [projectId, reloadMessages]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -176,6 +203,7 @@ export function ProjectChatPane({ projectId, title = "Project Chat", deliverable
     setSending(false);
     delete cacheRef.current[projectId];
     saveChatCacheStore(cacheRef.current);
+    emitChatCacheUpdate(projectId);
     reloadMessages(true).catch(() => {});
   }, [projectId, reloadMessages]);
 
@@ -223,6 +251,7 @@ export function ProjectChatPane({ projectId, title = "Project Chat", deliverable
         delete cacheRef.current[projectId];
         saveChatCacheStore(cacheRef.current);
         await reloadMessages(true);
+        emitChatCacheUpdate(projectId);
         setSending(false);
       }
     } catch (err) {

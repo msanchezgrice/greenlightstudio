@@ -99,6 +99,10 @@ export function derivePhaseHighlights(phase: number, packet: unknown, summary: s
     out.push(`Landing: ${asString(landing.headline, "Landing headline pending")}`);
     out.push(`CTA: ${asString(landing.primary_cta, "Primary CTA pending")}`);
     out.push(`Brand voice: ${asString(brand.voice, "Voice pending")}`);
+    const palette = asStringArray(brand.color_palette, 4);
+    if (palette.length) out.push(`Brand palette: ${palette.join(" · ")}`);
+    const fontPair = asString(brand.font_pairing, "");
+    if (fontPair) out.push(`Brand typography: ${fontPair}`);
     out.push(`Target conversion: ${asString(waitlist.target_conversion_rate, "Not set")}`);
   } else if (phase === 2) {
     const strategy = asRecord(record.distribution_strategy);
@@ -187,6 +191,73 @@ function buildSlides(input: {
         ],
       });
       return slides;
+    }
+  }
+
+  if (input.phase === 1) {
+    try {
+      const parsed = parsePhasePacket(1, input.packet);
+      const palette = parsed.brand_kit.color_palette.slice(0, 6).join(" · ");
+      const featureBullets = parsed.landing_page.sections.slice(0, 6).map((section) => `Feature focus: ${section}`);
+      const launchNotes = parsed.landing_page.launch_notes.slice(0, 4).map((note) => `Launch note: ${note}`);
+      const analyticsEvents = parsed.analytics.events.slice(0, 6).map((event) => `Track: ${event}`);
+      const dashboardViews = parsed.analytics.dashboard_views.slice(0, 4).map((view) => `Dashboard: ${view}`);
+      const nextActions = parsed.reasoning_synopsis.next_actions.slice(0, 4).map((action) => `Next action: ${action}`);
+      const risks = parsed.reasoning_synopsis.risks.slice(0, 3).map((risk) => `Risk: ${risk}`);
+
+      slides.push({
+        title: "Validation Recommendation",
+        subtitle: `${parsed.reasoning_synopsis.decision.toUpperCase()} · Confidence ${parsed.reasoning_synopsis.confidence}/100`,
+        paragraphs: [parsed.summary],
+        bullets: [...parsed.reasoning_synopsis.rationale.slice(0, 4), ...nextActions],
+      });
+
+      slides.push({
+        title: "Landing Page Narrative",
+        subtitle: parsed.landing_page.headline,
+        paragraphs: [parsed.landing_page.subheadline],
+        metrics: [
+          { label: "Primary CTA", value: parsed.landing_page.primary_cta },
+          { label: "Waitlist Fields", value: parsed.waitlist.form_fields.join(", ") },
+          { label: "Target CVR", value: parsed.waitlist.target_conversion_rate },
+        ],
+        bullets: [...featureBullets, ...launchNotes].slice(0, 7),
+      });
+
+      slides.push({
+        title: "Brand System Direction",
+        subtitle: parsed.brand_kit.voice,
+        paragraphs: [parsed.brand_kit.logo_prompt],
+        metrics: [
+          { label: "Typography", value: parsed.brand_kit.font_pairing },
+          { label: "Palette", value: palette || "Not specified" },
+        ],
+        bullets: [
+          `Voice: ${parsed.brand_kit.voice}`,
+          `Font system: ${parsed.brand_kit.font_pairing}`,
+          `Logo concept: ${parsed.brand_kit.logo_prompt}`,
+        ],
+      });
+
+      slides.push({
+        title: "Waitlist + Analytics Plan",
+        subtitle: `${parsed.waitlist.capture_stack} · ${parsed.waitlist.double_opt_in ? "Double opt-in" : "Single opt-in"}`,
+        metrics: [
+          { label: "Analytics Provider", value: parsed.analytics.provider },
+          { label: "Target Conversion", value: parsed.waitlist.target_conversion_rate },
+          { label: "Email Sequence", value: `${parsed.email_sequence.emails.length} emails` },
+        ],
+        bullets: [...analyticsEvents, ...dashboardViews].slice(0, 8),
+      });
+
+      slides.push({
+        title: "Risk + Execution Priorities",
+        bullets: [...risks, ...nextActions, ...parsed.reasoning_synopsis.evidence.slice(0, 2).map((e) => `${e.claim} (${e.source})`)].slice(0, 8),
+      });
+
+      return slides;
+    } catch {
+      // Fall through to generic highlights rendering if packet parsing fails.
     }
   }
 

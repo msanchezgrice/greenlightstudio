@@ -204,6 +204,7 @@ function renderMessageContent(content: string, role: string): ReactNode {
 
 const CHAT_CACHE_KEY = "sm_chat_cache";
 const CHAT_CACHE_TTL_MS = 5 * 60 * 1000;
+const CHAT_CACHE_EVENT = "sm-chat-cache-updated";
 
 type CacheStore = Record<string, { messages: Message[]; ts: number }>;
 
@@ -220,6 +221,15 @@ function saveCacheStore(store: CacheStore) {
   try {
     localStorage.setItem(CHAT_CACHE_KEY, JSON.stringify(store));
   } catch { /* quota exceeded */ }
+}
+
+function emitChatCacheUpdate(projectId: string) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(CHAT_CACHE_EVENT, {
+      detail: { projectId },
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -455,7 +465,7 @@ export function ChatPage() {
 
     setError(null);
 
-    if (isFresh) return;
+    if (isFresh && !entry?.messages?.length) return;
 
     try {
       const res = await fetch(`/api/projects/${projectId}/chat`, { cache: "no-store" });
@@ -483,7 +493,6 @@ export function ChatPage() {
 
   useEffect(() => {
     if (selectedId) {
-      delete messageCacheRef.current[selectedId];
       loadMessages(selectedId);
     } else {
       setMessages([]);
@@ -491,10 +500,30 @@ export function ChatPage() {
   }, [selectedId, loadMessages]);
 
   useEffect(() => {
+    if (!selectedId) return;
+
+    const onCacheEvent = (event: Event) => {
+      const detail = (event as CustomEvent<{ projectId?: string }>).detail;
+      if (detail?.projectId !== selectedId) return;
+      void loadMessages(selectedId);
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== CHAT_CACHE_KEY) return;
+      void loadMessages(selectedId);
+    };
+
+    window.addEventListener(CHAT_CACHE_EVENT, onCacheEvent as EventListener);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(CHAT_CACHE_EVENT, onCacheEvent as EventListener);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [selectedId, loadMessages]);
+
+  useEffect(() => {
     if (!selectedId || sending) return;
     const timer = setInterval(() => {
       if (document.visibilityState === "visible") {
-        delete messageCacheRef.current[selectedId];
         loadMessages(selectedId);
       }
     }, 10000);
@@ -512,7 +541,9 @@ export function ChatPage() {
     setSending(false);
 
     delete messageCacheRef.current[projectId];
+    saveCacheStore(messageCacheRef.current);
     await loadMessages(projectId);
+    emitChatCacheUpdate(projectId);
 
     if (status === "failed") {
       setError("CEO agent failed to respond. Please retry.");
@@ -620,7 +651,9 @@ export function ChatPage() {
         setStreamingJobId(json.jobId);
       } else {
         delete messageCacheRef.current[selectedId];
+        saveCacheStore(messageCacheRef.current);
         await loadMessages(selectedId);
+        emitChatCacheUpdate(selectedId);
       }
 
       if (!keepSending) {

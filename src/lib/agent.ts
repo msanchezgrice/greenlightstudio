@@ -1889,13 +1889,13 @@ export async function generateBrandBriefDeckSpec(input: {
         maxItems: 7,
         fallbackPrefix: "Actionable",
       }).slice(0, 7);
-      let doItems = normalizeStringList(source.do, {
+      const doItems = normalizeStringList(source.do, {
         minItem: 4,
         maxItem: 140,
         maxItems: 6,
         fallbackPrefix: "Do",
       }).slice(0, 6);
-      let dontItems = normalizeStringList(source.dont, {
+      const dontItems = normalizeStringList(source.dont, {
         minItem: 4,
         maxItem: 140,
         maxItems: 6,
@@ -2191,7 +2191,17 @@ export async function generatePhase1LandingHtml(input: {
   improvement_guidance?: string;
   reference_images?: Array<{ label: string; mime_type: string; data_base64: string }>;
   preferred_model?: "anthropic" | "gemini";
-}): Promise<{ html: string; traces: ToolTrace[] }> {
+  style_direction?: string;
+}): Promise<{
+  html: string;
+  traces: ToolTrace[];
+  generator: {
+    provider: "gemini" | "anthropic";
+    model: string;
+    used_reference_images: number;
+    fallback_used: false;
+  };
+}> {
   function sanitizeGeneratedHtml(rawHtml: string) {
     let html = rawHtml;
     html = html.replace(/^```(?:html)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
@@ -2257,7 +2267,7 @@ export async function generatePhase1LandingHtml(input: {
       .join("\n")
       .trim();
     if (!raw) throw new Error("Gemini returned an empty landing response");
-    return raw;
+    return { raw, model };
   }
 
   const requestedModel = input.preferred_model ?? "anthropic";
@@ -2271,6 +2281,14 @@ Iteration guidance (must be addressed explicitly):
 - Preserve strong elements from the prior attempt while fixing the issues above.
 - Increase visual distinctiveness and polish; do not repeat the same composition.`
     : "";
+  const styleDirection = input.style_direction?.trim();
+  const directionBlock = styleDirection
+    ? `
+MANDATORY STYLE DIRECTION FOR THIS VARIANT:
+- ${styleDirection}
+- Use this direction across typography, spacing rhythm, section composition, motion, and visual accents.
+- Do not drift toward a generic SaaS template composition.`
+    : "";
 
   const prompt = `You are an elite frontend designer building a production landing page. Your output will be deployed live.
 
@@ -2282,6 +2300,7 @@ DESIGN PHILOSOPHY — read carefully:
 - Spatial composition: Unexpected layouts. Asymmetry. Overlap. Grid-breaking hero sections. Generous negative space OR controlled density — match the chosen aesthetic.
 - Backgrounds: Create atmosphere — gradient meshes, noise/grain overlays, geometric patterns, layered transparencies, dramatic shadows. NOT flat solid colors.
 - Details: Custom decorative elements, creative section dividers, floating accent shapes, subtle parallax. Every pixel should feel intentional.
+${directionBlock}
 
 ABSOLUTE RULES:
 - Complete self-contained HTML document (all CSS in <style>, JS in <script>)
@@ -2325,15 +2344,36 @@ Do NOT include commentary, explanations, or JSON. Just the HTML.`;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      const htmlText = useGemini
-        ? await generateLandingHtmlWithGemini(prompt, input.reference_images ?? [])
-        : await runDirectTextPrompt(
-            prompt,
-            AGENT_PROFILES.designer_frontend.timeoutMs,
-            8192,
-          );
+      if (useGemini) {
+        const { raw, model } = await generateLandingHtmlWithGemini(prompt, input.reference_images ?? []);
+        return {
+          html: sanitizeGeneratedHtml(raw),
+          traces: allTraces,
+          generator: {
+            provider: "gemini",
+            model,
+            used_reference_images: Math.min((input.reference_images ?? []).length, 4),
+            fallback_used: false,
+          },
+        };
+      }
 
-      return { html: sanitizeGeneratedHtml(htmlText), traces: allTraces };
+      const htmlText = await runDirectTextPrompt(
+        prompt,
+        AGENT_PROFILES.designer_frontend.timeoutMs,
+        8192,
+      );
+
+      return {
+        html: sanitizeGeneratedHtml(htmlText),
+        traces: allTraces,
+        generator: {
+          provider: "anthropic",
+          model: process.env.CLAUDE_MODEL?.trim() || "anthropic-default",
+          used_reference_images: 0,
+          fallback_used: false,
+        },
+      };
     } catch (error) {
       lastError = error instanceof Error ? error : new Error("Landing HTML generation failed");
       const retryable = /timed out|empty response|valid html document/i.test(lastError.message);

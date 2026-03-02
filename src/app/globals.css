@@ -4,6 +4,7 @@
   --bg: #070b14;
   --card: #0b1220;
   --card2: #0f172a;
+  --surface: #0f172a;
   --border: #1e293b;
   --border-bright: #243354;
   --green: #22c55e;
@@ -40,6 +41,7 @@
   --bg: #faf9f6;
   --card: #ffffff;
   --card2: #f5f3ef;
+  --surface: #f5f3ef;
   --border: #e7e5e4;
   --border-bright: #d6d3d1;
   --green: #166534;
@@ -2058,6 +2060,7 @@ a {
 }
 
 .table-shell {
+  max-width: 100%;
   overflow-x: auto;
 }
 
@@ -2068,7 +2071,7 @@ a {
 }
 
 .studio-table.compact {
-  min-width: 640px;
+  min-width: 900px;
 }
 
 .studio-table th {
@@ -2089,6 +2092,31 @@ a {
   vertical-align: top;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.studio-table .col-task {
+  min-width: 340px;
+}
+
+.studio-table .col-agent {
+  min-width: 140px;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.studio-table .col-status {
+  min-width: 100px;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.studio-table .col-created {
+  min-width: 180px;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .studio-table tr:last-child td {
@@ -2299,14 +2327,22 @@ a {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px 10px;
-  background: #08101f;
+  background: var(--card2);
 }
 
 .phase-task-collapse > summary {
   cursor: pointer;
-  color: var(--text2);
+  color: var(--heading);
   font-size: 12px;
   font-weight: 600;
+}
+
+.agent-inline-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  line-height: 1.2;
 }
 
 .phase-subtitle {

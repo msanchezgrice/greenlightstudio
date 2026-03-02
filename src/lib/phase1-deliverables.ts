@@ -127,6 +127,11 @@ export async function generatePhase1Deliverables(
 
   const landingTrack = async () => {
     const MAX_LANDING_VARIANTS = 3;
+    const LANDING_STYLE_DIRECTIONS = [
+      "Editorial boldness with asymmetrical magazine-style layout, oversized type hierarchy, and sharp section breaks.",
+      "Premium product minimalism with controlled whitespace, glassmorphism accents, and strong conversion-focused visual rhythm.",
+      "High-energy futurist composition with layered gradients, motion-forward hero treatment, and modular storytelling blocks.",
+    ] as const;
     const useGeminiLanding = shouldUseGeminiLandingGenerator();
     const referenceImages = useGeminiLanding ? await loadLandingReferenceImages(project.id) : [];
     await log_task(project.id, "design_agent", "phase1_landing_deploy", "running", "Agent designing production landing page (frontend-design skill)");
@@ -151,6 +156,10 @@ export async function generatePhase1Deliverables(
       assetId: string;
       storagePath: string;
       createdAt: string;
+      generatorProvider: "gemini" | "anthropic";
+      generatorModel: string;
+      usedReferenceImages: number;
+      styleDirection: string;
     }> = [];
 
     let reviewGuidance: string | undefined;
@@ -159,6 +168,7 @@ export async function generatePhase1Deliverables(
 
     try {
       for (let attempt = 1; attempt <= MAX_LANDING_VARIANTS; attempt += 1) {
+        const styleDirection = LANDING_STYLE_DIRECTIONS[(attempt - 1) % LANDING_STYLE_DIRECTIONS.length];
         await log_task(
           project.id,
           "design_agent",
@@ -174,6 +184,7 @@ export async function generatePhase1Deliverables(
           improvement_guidance: reviewGuidance,
           reference_images: referenceImages,
           preferred_model: useGeminiLanding ? "gemini" : "anthropic",
+          style_direction: styleDirection,
         });
         traces.push(...agentResult.traces);
 
@@ -204,6 +215,11 @@ export async function generatePhase1Deliverables(
           design_pass: review.pass,
           design_feedback: review.feedback.slice(0, 1200),
           selected_variant: false,
+          generator_provider: agentResult.generator.provider,
+          generator_model: agentResult.generator.model,
+          used_reference_images: agentResult.generator.used_reference_images,
+          fallback_used: agentResult.generator.fallback_used,
+          style_direction: styleDirection,
         };
 
         const { data: asset, error: assetError } = await withRetry(() =>
@@ -237,6 +253,10 @@ export async function generatePhase1Deliverables(
           assetId: asset.id as string,
           storagePath,
           createdAt,
+          generatorProvider: agentResult.generator.provider,
+          generatorModel: agentResult.generator.model,
+          usedReferenceImages: agentResult.generator.used_reference_images,
+          styleDirection,
         });
 
         await log_task(
@@ -320,6 +340,11 @@ export async function generatePhase1Deliverables(
                 design_pass: variant.pass,
                 design_feedback: variant.feedback.slice(0, 1200),
                 selected_variant: variant.assetId === selectedVariant.assetId,
+                generator_provider: variant.generatorProvider,
+                generator_model: variant.generatorModel,
+                used_reference_images: variant.usedReferenceImages,
+                fallback_used: false,
+                style_direction: variant.styleDirection,
               },
             })
             .eq("id", variant.assetId),
@@ -350,8 +375,13 @@ export async function generatePhase1Deliverables(
               asset_id: selectedVariant.assetId,
               storage_path: selectedVariant.storagePath,
               auto_generated: true,
-              selected_variant_index: selectedVariant.index,
-              selected_score: selectedVariant.score,
+                  selected_variant_index: selectedVariant.index,
+                  selected_score: selectedVariant.score,
+              generator_provider: selectedVariant.generatorProvider,
+              generator_model: selectedVariant.generatorModel,
+              used_reference_images: selectedVariant.usedReferenceImages,
+              fallback_used: false,
+              style_direction: selectedVariant.styleDirection,
               landing_variants: landingVariants.map((variant) => ({
                 asset_id: variant.assetId,
                 variant_index: variant.index,
