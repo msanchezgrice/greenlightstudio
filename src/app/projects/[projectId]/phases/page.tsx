@@ -60,6 +60,11 @@ type TechNewsEventRow = {
     asset_id?: string | null;
     summary_preview?: string | null;
     advances_count?: number | null;
+    stories?: Array<{
+      headline?: string | null;
+      source?: string | null;
+      applicability?: string | null;
+    }> | null;
   } | null;
 };
 
@@ -239,6 +244,19 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
     typeof latestTechNewsEvent?.data?.advances_count === "number"
       ? latestTechNewsEvent.data.advances_count
       : null;
+  const techNewsStories = Array.isArray(latestTechNewsEvent?.data?.stories)
+    ? latestTechNewsEvent.data.stories
+        .map((story) => ({
+          headline: typeof story?.headline === "string" ? story.headline.trim() : "",
+          source:
+            typeof story?.source === "string" && /^https?:\/\//i.test(story.source.trim())
+              ? story.source.trim()
+              : "",
+          applicability: typeof story?.applicability === "string" ? story.applicability.trim() : "",
+        }))
+        .filter((story) => story.headline.length > 0)
+        .slice(0, 5)
+    : [];
   const techNewsGeneratedAt = latestTechNewsEvent?.created_at ?? techNewsFallbackAsset?.created_at ?? null;
 
   const tasksByPhase = new Map<PhaseId, TaskRow[]>();
@@ -366,6 +384,34 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
                   <p className="meta-line" style={{ marginBottom: 10 }}>
                     {techNewsSummary ?? "Latest technical and AI advances relevant to this project."}
                   </p>
+                  {techNewsStories.length > 0 && (
+                    <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
+                      {techNewsStories.map((story, index) => (
+                        <div
+                          key={`tech-story-${index}`}
+                          style={{
+                            border: "1px solid var(--border)",
+                            borderRadius: 10,
+                            background: "var(--card2)",
+                            padding: "10px 12px",
+                          }}
+                        >
+                          <div style={{ fontWeight: 600, fontSize: 13, color: "var(--heading)", marginBottom: 4 }}>
+                            {story.source ? (
+                              <a href={story.source} target="_blank" rel="noopener noreferrer">
+                                {story.headline} ↗
+                              </a>
+                            ) : (
+                              story.headline
+                            )}
+                          </div>
+                          <div className="meta-line" style={{ fontSize: 12 }}>
+                            {story.applicability || "Directly applicable to project execution in this phase."}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div className="project-metrics">
                     <div>
                       <div className="metric-label">Generated</div>

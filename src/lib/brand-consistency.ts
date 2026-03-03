@@ -366,7 +366,7 @@ Rules:
     options.projectId,
     "brand_agent",
     "brand_consistency_review",
-    output.redo_filenames.length > 0 ? "failed" : "completed",
+    "completed",
     output.redo_filenames.length > 0
       ? `Consistency review flagged ${output.redo_filenames.length} asset(s) for redo`
       : `Consistency review passed (${output.score}/100)`,

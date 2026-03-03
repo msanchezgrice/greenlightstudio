@@ -118,6 +118,20 @@ function repairTechNewsInsight(value: unknown): unknown {
     return padded.slice(0, max);
   };
 
+  const normalizeSourceUrl = (input: unknown) => {
+    const fallback = "https://example.com/ai-news";
+    const raw = typeof input === "string" ? input.trim() : "";
+    if (!raw) return fallback;
+    const embedded = raw.match(/https?:\/\/[^\s)]+/i)?.[0];
+    if (embedded) return embedded.slice(0, 240);
+    const bareDomain = raw.match(/([a-z0-9-]+\.)+[a-z]{2,}(\/[^\s]*)?/i)?.[0];
+    if (bareDomain) {
+      const candidate = `https://${bareDomain.replace(/^\/+/, "")}`;
+      return candidate.slice(0, 240);
+    }
+    return fallback;
+  };
+
   const summary = clamp(
     value.summary,
     20,
@@ -144,7 +158,7 @@ function repairTechNewsInsight(value: unknown): unknown {
           320,
           "Prototype this in the next sprint and measure impact on build time, conversion, or operating cost.",
         ),
-        source: clamp(source.source, 4, 240, "https://example.com/ai-news"),
+        source: normalizeSourceUrl(source.source),
       };
     });
 
@@ -154,7 +168,7 @@ function repairTechNewsInsight(value: unknown): unknown {
       headline: `Relevant technical advance ${index}`,
       relevance: "This can reduce build effort and improve execution quality for the project roadmap.",
       application: "Run a scoped implementation test this week and benchmark impact versus current approach.",
-      source: "https://example.com/ai-news",
+      source: normalizeSourceUrl("https://example.com/ai-news"),
     });
   }
 
@@ -1806,12 +1820,12 @@ export async function generateTechNewsInsights(input: {
   packet_excerpt?: unknown;
   signal?: AbortSignal;
 }): Promise<TechNewsInsight> {
-  const configuredTimeoutMs = Number(process.env.TECH_NEWS_AGENT_TIMEOUT_MS ?? 180_000);
-  const techNewsTimeoutMs = Number.isFinite(configuredTimeoutMs) ? Math.max(45_000, configuredTimeoutMs) : 180_000;
-  const configuredTurns = Number(process.env.TECH_NEWS_AGENT_MAX_TURNS ?? 5);
-  const techNewsMaxTurns = Number.isFinite(configuredTurns) ? Math.max(2, Math.min(8, Math.floor(configuredTurns))) : 5;
+  const configuredTimeoutMs = Number(process.env.TECH_NEWS_AGENT_TIMEOUT_MS ?? 240_000);
+  const techNewsTimeoutMs = Number.isFinite(configuredTimeoutMs) ? Math.max(45_000, configuredTimeoutMs) : 240_000;
+  const configuredTurns = Number(process.env.TECH_NEWS_AGENT_MAX_TURNS ?? 4);
+  const techNewsMaxTurns = Number.isFinite(configuredTurns) ? Math.max(2, Math.min(8, Math.floor(configuredTurns))) : 4;
   const techNewsAgentProfile: AgentProfile = {
-    ...AGENT_PROFILES.research,
+    ...AGENT_PROFILES.researcher_quick,
     timeoutMs: techNewsTimeoutMs,
     maxTurns: techNewsMaxTurns,
   };
@@ -1828,7 +1842,7 @@ Return STRICT JSON only:
       "headline": "advance headline",
       "relevance": "why this matters for this startup",
       "application": "how to apply it in the product or go-to-market",
-      "source": "source URL or publication"
+      "source": "full source URL (https://...)"
     }
   ],
   "recommendations": ["specific action", "specific action", "specific action"]
@@ -1852,6 +1866,7 @@ Rules:
 - Focus on advances that can make this startup faster, better, or cheaper.
 - advances must be specific and actionable.
 - recommendations must be concrete next steps tied to the advances.
+- source must be a full clickable URL for each story.
 - No markdown, no prose wrappers, JSON only.`;
 
   return runJsonQuery(

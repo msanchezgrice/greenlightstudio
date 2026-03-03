@@ -20,8 +20,8 @@ export async function handleResearchTechNewsRefresh(
     message: `Refreshing tech-news insights (${reason})`,
   });
 
-  const configuredTimeout = Number(process.env.TECH_NEWS_REFRESH_TIMEOUT_MS ?? 180_000);
-  const refreshTimeoutMs = Number.isFinite(configuredTimeout) ? Math.max(60_000, configuredTimeout) : 180_000;
+  const configuredTimeout = Number(process.env.TECH_NEWS_REFRESH_TIMEOUT_MS ?? 300_000);
+  const refreshTimeoutMs = Number.isFinite(configuredTimeout) ? Math.max(60_000, configuredTimeout) : 300_000;
   const controller = new AbortController();
   const timeoutHandle = setTimeout(() => {
     controller.abort();

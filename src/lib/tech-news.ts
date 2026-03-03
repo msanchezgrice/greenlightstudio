@@ -24,6 +24,12 @@ function renderInsightMarkdown(input: {
   phase: number;
   insight: TechNewsInsight;
 }) {
+  const stories = input.insight.advances.slice(0, 5).map((entry) => ({
+    headline: entry.headline,
+    source: entry.source,
+    applicability: entry.application,
+  }));
+
   const lines: string[] = [];
   lines.push(`# Tech + AI News Relevance — ${input.projectName}`);
   lines.push("");
@@ -34,12 +40,12 @@ function renderInsightMarkdown(input: {
   lines.push("## Summary");
   lines.push(input.insight.summary);
   lines.push("");
-  lines.push("## Relevant Advances");
-  input.insight.advances.forEach((entry, index) => {
+  lines.push("## Top Stories + Project Applicability");
+  stories.forEach((entry, index) => {
     lines.push(`### ${index + 1}. ${entry.headline}`);
-    lines.push(`- Relevance: ${entry.relevance}`);
-    lines.push(`- Application: ${entry.application}`);
     lines.push(`- Source: ${entry.source}`);
+    lines.push(`- Applicability: ${entry.applicability}`);
+    lines.push(`- Why it matters: ${input.insight.advances[index]?.relevance ?? "Directly improves project execution leverage."}`);
     lines.push("");
   });
   lines.push("## Recommended Actions");
@@ -162,6 +168,11 @@ export async function refreshProjectTechNewsInsights(options: RefreshOptions) {
       advances_count: insight.advances.length,
       asset_id: asset?.id ?? null,
       summary_preview: insight.summary.slice(0, 220),
+      stories: insight.advances.slice(0, 5).map((entry) => ({
+        headline: entry.headline.slice(0, 220),
+        source: entry.source.slice(0, 240),
+        applicability: entry.application.slice(0, 260),
+      })),
     },
     agentKey: "research",
   });
