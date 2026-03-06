@@ -32,6 +32,39 @@ Artifacts:
 - The only alternate method available on the account is the same email code. There is no backup code, TOTP, or passkey path exposed to the runner.
 - Result: existing-account automation is blocked pending the one-time email code, but this is a narrower blocker than the signup Turnstile because it is account-specific rather than universal.
 
+## Manual MFA-assisted verification result
+
+- After the email verification code is entered, the user is redirected back to `/onboarding`.
+- The authenticated user lands on the launch review step with the final CTA enabled: `Launch Full Phase 0`.
+- This confirms the primary signed-in handoff is working end to end: preview -> sign-in -> email MFA -> launch-ready onboarding state.
+
+## Additional issues visible after login
+
+### 1. Buy: the page still looks like preview mode after auth
+
+- Cost: Low
+- Upside: Medium
+- Why: the signed-in user still sees the `FOUNDER PREVIEW` badge and the active nav label remains `Preview`, even though the product is now in a real launch state. That weakens the sense of progression from try-before-signup into actual setup.
+
+### 2. Buy: the signed-in helper text clips in the top rail
+
+- Cost: Low
+- Upside: Medium
+- Why: on the verified desktop state, the top-right helper text truncates instead of fitting cleanly. That makes the signed-in state look unfinished at exactly the moment trust should be highest.
+
+### 3. Buy: the launch review screen shows too many empty fields
+
+- Cost: Low to medium
+- Upside: Medium
+- Why: the confirm table contains several `Not provided` and `Unknown` rows. For a lightweight idea-only path, this creates visual drag and makes the project feel less complete than it is.
+- Recommendation: collapse empty rows by default, or group them behind an `Add more detail` section.
+
+### 4. Hold: add a stronger post-auth ownership cue
+
+- Cost: Low
+- Upside: Medium
+- Why: after login, the page does not strongly signal that the work is now tied to the user account. An avatar, account chip, autosave message, or `Saved to your workspace` state would make the transition clearer.
+
 ## Ranked follow-ups
 
 ### 1. Strong Buy: tune or defer the Turnstile challenge on signup
