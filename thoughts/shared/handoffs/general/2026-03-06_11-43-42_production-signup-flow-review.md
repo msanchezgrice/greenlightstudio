@@ -38,6 +38,27 @@ Artifacts:
 - The authenticated user lands on the launch review step with the final CTA enabled: `Launch Full Phase 0`.
 - This confirms the primary signed-in handoff is working end to end: preview -> sign-in -> email MFA -> launch-ready onboarding state.
 
+## Launch verification result
+
+- The production launch action succeeds. `POST /api/projects/{id}/launch` returned `200` with `{ "ok": true, "started": true, "jobId": "..." }`.
+- The new project appears on the board and begins Phase 0 processing. The live board showed the test project in active research with progress visible.
+- The redirect target is inconsistent with the code path. The onboarding wizard intends to send the user to `/projects/{projectId}/phases/0`, but the observed final browser URL was `/board`.
+- The progress polling endpoint returned `200` repeatedly, but with empty `tasks` arrays during the redirect window.
+
+### 1. Strong Buy: fix post-launch routing consistency
+
+- Cost: Low to medium
+- Upside: High
+- Why: the most important activation moment after signup is opening the specific workspace the user just created. Landing on the board instead weakens focus and makes the launch feel less deterministic.
+- Expected behavior from code: redirect to `/projects/{projectId}/phases/0`.
+- Observed behavior in production: landed on `/board` while the project was active in Phase 0.
+
+### 2. Buy: make the launched state more resilient when progress is initially empty
+
+- Cost: Low
+- Upside: Medium
+- Why: the launch polling returned empty task arrays several times immediately after launch. The UI should still preserve a strong sense of progress and route confidence even before the first task event arrives.
+
 ## Additional issues visible after login
 
 ### 1. Buy: the page still looks like preview mode after auth
