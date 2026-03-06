@@ -258,6 +258,7 @@ export function OnboardingWizard({ authEnabled, initialSignedIn }: OnboardingWiz
   const resetRequested = searchParams.get("new") === "1";
   const isSignedIn = authEnabled && initialSignedIn;
   const signInHref = "/sign-in?redirect_url=/onboarding";
+  const signUpHref = "/sign-up?redirect_url=/onboarding";
 
   useEffect(() => {
     track("onboarding_opened", { auth_enabled: authEnabled, signed_in: initialSignedIn });
@@ -1655,17 +1656,24 @@ export function OnboardingWizard({ authEnabled, initialSignedIn }: OnboardingWiz
             <div className="warning-state" style={{ marginTop: 12 }}>
               <p className="warning-text">
                 {authEnabled
-                  ? "Sign in is required before launching this project."
+                  ? "Create an account to save and launch this project. Existing users can sign in instead."
                   : "Saving and launching are disabled in this environment because auth is not configured."}
               </p>
               {authEnabled && (
                 <div className="button-row" style={{ marginTop: 8 }}>
                   <a
-                    href={signInHref}
+                    href={signUpHref}
                     className="mock-btn primary"
+                    onClick={() => track("onboarding_signup_clicked", { placement: "confirm" })}
+                  >
+                    Create account to save & launch
+                  </a>
+                  <a
+                    href={signInHref}
+                    className="mock-btn secondary"
                     onClick={() => track("onboarding_signin_clicked", { placement: "confirm" })}
                   >
-                    Sign in to save & launch
+                    I already have an account
                   </a>
                 </div>
               )}

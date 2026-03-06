@@ -15,7 +15,7 @@ export default function SignInPage() {
       }}
     >
       {authEnabled ? (
-        <SignIn afterSignInUrl="/onboarding" signUpUrl="/sign-up" />
+        <SignIn fallbackRedirectUrl="/onboarding" signUpUrl="/sign-up" />
       ) : (
         <div
           style={{
