@@ -1,9 +1,14 @@
 import Link from "next/link";
+import { auth } from "@clerk/nextjs/server";
 import styles from "./landing.module.css";
 import { WaitlistForm } from "@/components/waitlist-form";
-import { SignInButton, SignedIn, SignedOut } from "@clerk/nextjs";
+import { LandingProofSection } from "@/components/landing-proof-section";
+import { TrackedLinkButton } from "@/components/tracked-link-button";
 
-export default function Home() {
+export default async function Home() {
+  const authEnabled = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY);
+  const userId = authEnabled ? (await auth()).userId : null;
+
   return (
     <main className={styles.page}>
       <nav className={styles.nav}>
@@ -11,20 +16,24 @@ export default function Home() {
           <div className={styles.navLogo}>▲ Startup Machine</div>
         <div className={styles.navLinks}>
           <a href="#how">How It Works</a>
+          <a href="#proof">Proof</a>
           <a href="#phases">Phases</a>
           <a href="#features">Features</a>
-          <a href="#agents">Agents</a>
-          <SignedOut>
-            <SignInButton mode="modal" forceRedirectUrl="/board">
-              <button className={styles.navSignIn}>Sign In</button>
-            </SignInButton>
-          </SignedOut>
-          <SignedIn>
+          {authEnabled && !userId ? (
+            <Link href="/sign-in" className={styles.navSignIn}>Sign In</Link>
+          ) : null}
+          {userId ? (
             <Link href="/board" className={styles.navCta}>Dashboard</Link>
-          </SignedIn>
-          <SignedOut>
-            <Link href="/onboarding" className={styles.navCta}>Get Started</Link>
-          </SignedOut>
+          ) : (
+            <TrackedLinkButton
+              href="/onboarding?new=1"
+              className={styles.navCta}
+              eventName="landing_nav_cta_clicked"
+              eventProps={{ placement: "nav" }}
+            >
+              Preview My Brief
+            </TrackedLinkButton>
+          )}
         </div>
         </div>
       </nav>
@@ -37,21 +46,26 @@ export default function Home() {
           the market, drafts a pitch deck, and delivers a go/no-go recommendation by morning.
         </p>
         <div className={styles.heroCtas}>
-          <Link href="/onboarding" className={styles.btnPrimary}>
-            Get Started →
-          </Link>
-          <a href="#phases" className={styles.btnSecondary}>
-            See the pipeline
+          <TrackedLinkButton
+            href="/onboarding?new=1"
+            className={styles.btnPrimary}
+            eventName="landing_hero_cta_clicked"
+            eventProps={{ placement: "hero" }}
+          >
+            Preview My Brief →
+          </TrackedLinkButton>
+          <a href="#proof" className={styles.btnSecondary}>
+            See a sample brief
           </a>
         </div>
         <div className={styles.heroStats}>
           <div className={styles.heroStat}>
-            <div className={styles.heroNum}>47m</div>
-            <div className={styles.heroLabel}>Avg. time to pitch deck</div>
+            <div className={styles.heroNum}>90s</div>
+            <div className={styles.heroLabel}>To first preview</div>
           </div>
           <div className={styles.heroStat}>
-            <div className={styles.heroNum}>13</div>
-            <div className={styles.heroLabel}>Deliverables per phase</div>
+            <div className={styles.heroNum}>3</div>
+            <div className={styles.heroLabel}>Signals before signup</div>
           </div>
           <div className={styles.heroStat}>
             <div className={styles.heroNum}>8</div>
@@ -66,17 +80,16 @@ export default function Home() {
 
       <section className={styles.section} id="how">
         <div className={styles.sectionLabel}>How It Works</div>
-        <div className={styles.sectionTitle}>Idea to decision in 4 steps</div>
+        <div className={styles.sectionTitle}>Idea to founder brief in 4 steps</div>
         <div className={styles.sectionSub}>
-          No spreadsheets. No weeks of research. Just drop in your idea and let the agents work.
+          Start with the lightest possible input. See the recommendation first. Sign in only when you want to save and launch.
         </div>
         <div className={styles.steps}>
           <div className={styles.stepCard}>
             <div className={styles.stepNum}>1</div>
-            <div className={styles.stepTitle}>Import</div>
+            <div className={styles.stepTitle}>Start Small</div>
             <div className={styles.stepDesc}>
-              Drop a domain, paste a repo URL, or describe your idea in plain text. Upload pitch decks or
-              wireframes if you have them.
+              Pick the path that matches what you have right now: a one-line idea, a domain, or a repo.
             </div>
           </div>
           <div className={styles.stepArrow}>→</div>
@@ -84,28 +97,29 @@ export default function Home() {
             <div className={styles.stepNum}>2</div>
             <div className={styles.stepTitle}>Discover</div>
             <div className={styles.stepDesc}>
-              Our inline scanner helper checks your domain and reads your repo. Competitors are identified automatically.
+              If you have real assets, Startup Machine scans them in read-only mode and surfaces competitor and market clues automatically.
             </div>
           </div>
           <div className={styles.stepArrow}>→</div>
           <div className={styles.stepCard}>
             <div className={styles.stepNum}>3</div>
-            <div className={styles.stepTitle}>Clarify</div>
+            <div className={styles.stepTitle}>Preview</div>
             <div className={styles.stepDesc}>
-              Set permissions, choose your runtime mode, and pick focus areas. Everything is safe by default.
+              Get an instant recommendation, a key risk, and the first market read before you commit to account setup.
             </div>
           </div>
           <div className={styles.stepArrow}>→</div>
           <div className={styles.stepCard}>
             <div className={styles.stepNum}>4</div>
-            <div className={styles.stepTitle}>Decide</div>
+            <div className={styles.stepTitle}>Launch</div>
             <div className={styles.stepDesc}>
-              Your CEO Agent produces a meeting-style pitch deck with market sizing, competitors, MVP scope, and a
-              confidence-scored recommendation.
+              Save the project, kick off Phase 0, and watch the CEO agent turn the preview into a full decision-ready brief.
             </div>
           </div>
         </div>
       </section>
+
+      <LandingProofSection />
 
       <section className={styles.section} id="phases">
         <div className={styles.sectionLabel}>Phase Pipeline</div>
@@ -315,9 +329,23 @@ export default function Home() {
       </section>
 
       <section className={styles.ctaSection} id="cta">
-        <div className={styles.ctaTitle}>Ready to decide on your next idea?</div>
-        <div className={styles.ctaSub}>Join the waitlist. First 100 projects get Phase 0 free.</div>
-        <WaitlistForm />
+        <div className={styles.ctaTitle}>Want a sample founder brief in your inbox?</div>
+        <div className={styles.ctaSub}>Get the sample brief now, or jump straight into a live preview with no account required.</div>
+        <WaitlistForm
+          source="landing_sample_brief"
+          buttonLabel="Email Me A Sample Brief"
+          successMessage="You’re in. We saved your sample brief request."
+        />
+        <div className={styles.ctaLinks}>
+          <TrackedLinkButton
+            href="/onboarding?new=1"
+            className={styles.ctaInlineLink}
+            eventName="landing_footer_cta_clicked"
+            eventProps={{ placement: "footer" }}
+          >
+            Start a live preview instead →
+          </TrackedLinkButton>
+        </div>
       </section>
 
       <footer className={styles.footer}>

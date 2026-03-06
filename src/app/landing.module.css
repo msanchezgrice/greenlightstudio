@@ -488,6 +488,224 @@
   color: #475569;
 }
 
+.showcaseSection {
+  padding: 80px 32px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.showcaseTabs {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 22px;
+  flex-wrap: wrap;
+}
+
+.showcaseTab {
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid #1e293b;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.showcaseTabActive {
+  color: #f8fafc;
+  border-color: rgb(34 197 94 / 28%);
+  background: rgb(34 197 94 / 10%);
+}
+
+.showcaseGrid {
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.showcasePanel {
+  background: #0b1220;
+  border: 1px solid #1e293b;
+  border-radius: 18px;
+  padding: 22px;
+}
+
+.showcasePanelBright {
+  background:
+    radial-gradient(circle at top right, rgb(59 130 246 / 14%), transparent 35%),
+    linear-gradient(145deg, #0d1728 0%, #111c2f 100%);
+  border-color: rgb(34 197 94 / 16%);
+}
+
+.showcaseEyebrow {
+  margin-bottom: 10px;
+  color: #22c55e;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.showcaseCardTitle {
+  font-size: 22px;
+  line-height: 1.2;
+  font-weight: 700;
+  color: #f8fafc;
+  margin-bottom: 14px;
+}
+
+.showcaseList {
+  display: grid;
+  gap: 10px;
+}
+
+.showcaseListItem {
+  padding: 13px 14px;
+  border-radius: 12px;
+  border: 1px solid #1e293b;
+  background: rgb(15 23 42 / 76%);
+  color: #cbd5e1;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.showcaseTopRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.showcaseBadge {
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.showcaseBadgeGreen {
+  color: #86efac;
+  background: rgb(34 197 94 / 12%);
+  border-color: rgb(34 197 94 / 24%);
+}
+
+.showcaseBadgeAmber {
+  color: #fde68a;
+  background: rgb(245 158 11 / 12%);
+  border-color: rgb(245 158 11 / 24%);
+}
+
+.showcaseBadgeSlate {
+  color: #cbd5e1;
+  background: rgb(148 163 184 / 12%);
+  border-color: rgb(148 163 184 / 24%);
+}
+
+.showcaseHeadline {
+  margin: 18px 0 16px;
+  color: #f8fafc;
+  font-size: 20px;
+  line-height: 1.35;
+  font-weight: 700;
+}
+
+.showcaseInsightGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.showcaseInsight {
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid #1e293b;
+  background: rgb(15 23 42 / 74%);
+}
+
+.showcaseInsight span {
+  display: block;
+  margin-bottom: 8px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.showcaseInsight strong {
+  color: #e2e8f0;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.showcaseCompetitors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.showcaseCompetitorChip {
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: rgb(59 130 246 / 10%);
+  border: 1px solid rgb(59 130 246 / 20%);
+  color: #bfdbfe;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.proofStats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.proofStat {
+  border-radius: 14px;
+  border: 1px solid #1e293b;
+  background: #0b1220;
+  padding: 16px;
+  text-align: center;
+}
+
+.proofStatNum {
+  color: #f8fafc;
+  font-size: 28px;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+
+.proofStatLabel {
+  color: #94a3b8;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.showcaseCtaRow {
+  display: flex;
+  justify-content: center;
+  margin-top: 24px;
+}
+
+.ctaLinks {
+  margin-top: 18px;
+  display: flex;
+  justify-content: center;
+}
+
+.ctaInlineLink {
+  color: #86efac;
+  font-size: 14px;
+  font-weight: 600;
+}
+
 .footer {
   padding: 32px;
   text-align: center;
@@ -573,6 +791,18 @@
   .featuresGrid,
   .agentsGrid {
     grid-template-columns: 1fr;
+  }
+
+  .showcaseGrid,
+  .proofStats,
+  .showcaseInsightGrid,
+  .showcaseTopRow {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+
+  .showcaseSection {
+    padding: 64px 16px;
   }
 
   .ctaForm {

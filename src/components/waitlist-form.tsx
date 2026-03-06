@@ -1,6 +1,18 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { track } from "@vercel/analytics";
+
+type WaitlistFormProps = {
+  buttonLabel?: string;
+  busyLabel?: string;
+  successMessage?: string;
+  placeholder?: string;
+  source?: string;
+  projectId?: string | null;
+  metadata?: Record<string, unknown> | null;
+  onSubmitted?: (email: string) => void;
+};
 
 function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
@@ -16,7 +28,16 @@ async function parseResponseJson(response: Response) {
   }
 }
 
-export function WaitlistForm() {
+export function WaitlistForm({
+  buttonLabel = "Join Waitlist",
+  busyLabel = "Submitting...",
+  successMessage = "You are on the list.",
+  placeholder = "you@company.com",
+  source = "landing_page",
+  projectId = null,
+  metadata = null,
+  onSubmitted,
+}: WaitlistFormProps) {
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,12 +53,18 @@ export function WaitlistForm() {
 
     setBusy(true);
     setError(null);
+    track("lead_capture_submitted", { source, has_project_id: Boolean(projectId) });
 
     try {
       const res = await fetch("/api/waitlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: trimmed, source: "landing_page" }),
+        body: JSON.stringify({
+          email: trimmed,
+          source,
+          project_id: projectId,
+          metadata,
+        }),
       });
 
       const json = await parseResponseJson(res);
@@ -47,8 +74,11 @@ export function WaitlistForm() {
 
       setSubmitted(true);
       setEmail("");
+      track("lead_capture_succeeded", { source, has_project_id: Boolean(projectId) });
+      onSubmitted?.(trimmed);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Waitlist submit failed.");
+      track("lead_capture_failed", { source, has_project_id: Boolean(projectId) });
     } finally {
       setBusy(false);
     }
@@ -61,14 +91,14 @@ export function WaitlistForm() {
         type="email"
         value={email}
         onChange={(event) => setEmail(event.target.value)}
-        placeholder="you@company.com"
+        placeholder={placeholder}
         autoComplete="email"
         required
       />
       <button className="waitlist-btn" type="submit" disabled={busy}>
-        {busy ? "Submitting..." : "Join Waitlist"}
+        {busy ? busyLabel : buttonLabel}
       </button>
-      {submitted && <p className="waitlist-success">You are on the list.</p>}
+      {submitted && <p className="waitlist-success">{successMessage}</p>}
       {error && <p className="waitlist-error">{error}</p>}
     </form>
   );

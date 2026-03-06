@@ -11,10 +11,16 @@ const bodySchema = z.object({
   project_id: z.string().uuid().optional(),
   email: z.string().email().max(254),
   source: z.string().min(1).max(64).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
+}
+
+function normalizeMetadata(value: Record<string, unknown> | undefined) {
+  if (!value) return {};
+  return Object.fromEntries(Object.entries(value).slice(0, 20));
 }
 
 function escapeHtml(value: string) {
@@ -92,6 +98,7 @@ export async function POST(req: Request) {
     const email = normalizeEmail(body.email);
     const source = body.source?.trim() || "landing_page";
     const projectId = body.project_id;
+    const metadata = normalizeMetadata(body.metadata);
 
     const db = createServiceSupabase();
     const { error } = await withRetry(() =>
@@ -104,6 +111,7 @@ export async function POST(req: Request) {
             ip: req.headers.get("x-forwarded-for"),
             user_agent: req.headers.get("user-agent"),
             referer: req.headers.get("referer"),
+            ...metadata,
           },
         },
         { onConflict: "email" },
@@ -130,4 +138,3 @@ export async function POST(req: Request) {
     );
   }
 }
-
