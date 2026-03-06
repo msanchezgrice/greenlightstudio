@@ -59,6 +59,13 @@ Artifacts:
 - Upside: Medium
 - Why: the launch polling returned empty task arrays several times immediately after launch. The UI should still preserve a strong sense of progress and route confidence even before the first task event arrives.
 
+## Launch redirect fix verification
+
+- Fixed in `0e24c58` by removing the redirect dependency on initial progress rows and using a deterministic post-launch workspace redirect.
+- Re-verified in production with the live launch runner.
+- Result after fix: `POST /api/projects/b921ade9-04c8-4e96-a7aa-41c7a61b1ac0/launch` returned `200`, and the browser landed on `/projects/b921ade9-04c8-4e96-a7aa-41c7a61b1ac0/phases/0` as expected.
+- The `/progress` endpoint still returned empty task arrays during the first moments after launch, but this no longer blocks the user from reaching the workspace.
+
 ## Additional issues visible after login
 
 ### 1. Buy: the page still looks like preview mode after auth
