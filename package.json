@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:e2e:live-signup": "tsx tests/e2e/live-signup-runner.ts",
+    "test:e2e:live-signin": "tsx tests/e2e/live-signin-runner.ts",
     "worker:build": "tsup",
     "worker:dev": "tsx --watch src/worker/index.ts",
     "worker:start": "node dist/worker/index.mjs"

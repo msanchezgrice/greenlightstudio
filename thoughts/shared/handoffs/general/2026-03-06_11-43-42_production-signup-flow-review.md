@@ -25,6 +25,13 @@ Artifacts:
 | Firefox | Blocked by Turnstile | `/sign-up` | Same blocker |
 | WebKit | Blocked by Turnstile | `/sign-up` | Same blocker |
 
+## Existing account sign-in result
+
+- A real account sign-in with email and password succeeds through primary auth.
+- The next step is a Clerk second-factor email challenge because the automation is treated as a new device.
+- The only alternate method available on the account is the same email code. There is no backup code, TOTP, or passkey path exposed to the runner.
+- Result: existing-account automation is blocked pending the one-time email code, but this is a narrower blocker than the signup Turnstile because it is account-specific rather than universal.
+
 ## Ranked follow-ups
 
 ### 1. Strong Buy: tune or defer the Turnstile challenge on signup
@@ -41,7 +48,7 @@ Artifacts:
 
 - Cost: Low to medium
 - Upside: High
-- Why: current analytics cover the preview flow, but not the exact auth drop-off. Add events for auth page view, submit clicked, Turnstile surfaced, verification started, verification completed, and redirect success.
+- Why: current analytics cover the preview flow, but not the exact auth drop-off. Add events for auth page view, submit clicked, Turnstile surfaced, second factor required, verification started, verification completed, and redirect success.
 
 ### 3. Buy: keep signup in the “save your brief” context
 
@@ -69,6 +76,13 @@ Artifacts:
 - Cost: Medium
 - Upside: Medium
 - Why: if the captcha remains necessary, the page should do more conversion work before asking users to complete it. Trust copy, no-credit-card language, and a short reminder of what gets saved would likely help.
+
+### 7. Hold: create a dedicated E2E auth lane
+
+- Cost: Medium
+- Upside: Medium to high
+- Why: production E2E is currently blocked by two separate trust mechanisms: Turnstile on signup and device verification on existing-account sign-in.
+- Recommendation: use a dedicated Clerk test flow, a trusted-session seed, or an allowlisted automation account so production-smoke auth tests can verify the real redirect chain without relying on inbox polling for a personal mailbox.
 
 ## Bottom line
 
