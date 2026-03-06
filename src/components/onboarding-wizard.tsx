@@ -488,14 +488,15 @@ export function OnboardingWizard({ authEnabled, initialSignedIn }: OnboardingWiz
 
   useEffect(() => {
     if (step !== "launched" || !projectId || !isSignedIn) return;
-    if (!launchProgress.length && launchPolling) return;
 
+    // The project workspace can render before the first progress rows arrive,
+    // so do not block the redirect on polling data.
     const redirectTimer = window.setTimeout(() => {
-      window.location.href = `/projects/${projectId}/phases/0`;
-    }, launchPolling ? 6000 : 2200);
+      window.location.replace(`/projects/${projectId}/phases/0`);
+    }, 2600);
 
     return () => window.clearTimeout(redirectTimer);
-  }, [isSignedIn, launchPolling, launchProgress.length, projectId, step]);
+  }, [isSignedIn, projectId, step]);
 
   const summary = useMemo(() => {
     const scan = form.scan_results;
