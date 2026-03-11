@@ -167,11 +167,6 @@ export async function sendWelcomeDrip(userId: string, email: string, projectName
       to: email,
       subject,
       html,
-      tracking: {
-        userId,
-        deliveryKind: "drip",
-        campaignKey: "welcome",
-      },
     });
     await recordDrip({
       userId,
@@ -246,12 +241,6 @@ export async function sendPhase0ReadyDrip(input: {
       subject,
       html,
       projectId: input.projectId,
-      tracking: {
-        projectId: input.projectId,
-        userId: input.userId,
-        deliveryKind: "drip",
-        campaignKey: "phase0_ready",
-      },
     });
     await recordDrip({
       userId: input.userId,
@@ -322,12 +311,6 @@ export async function sendPhase1ReadyDrip(input: {
       subject,
       html,
       projectId: input.projectId,
-      tracking: {
-        projectId: input.projectId,
-        userId: input.userId,
-        deliveryKind: "drip",
-        campaignKey: "phase1_ready",
-      },
     });
     await recordDrip({
       userId: input.userId,
@@ -479,12 +462,6 @@ export async function processWeeklyDigests(): Promise<{ processed: number; sent:
         to: email,
         subject,
         html,
-        tracking: {
-          userId,
-          clerkUserId: clerkId,
-          deliveryKind: "digest",
-          campaignKey: "weekly_digest",
-        },
       });
       await recordDrip({
         userId,
@@ -598,12 +575,6 @@ export async function processNudgeEmails(): Promise<{
               to: email,
               subject,
               html,
-              tracking: {
-                userId,
-                clerkUserId: clerkId,
-                deliveryKind: "nudge",
-                campaignKey: "nudge_no_reviews",
-              },
             });
             await recordDrip({
               userId,
@@ -696,12 +667,6 @@ export async function processNudgeEmails(): Promise<{
               to: email,
               subject,
               html,
-              tracking: {
-                userId,
-                clerkUserId: clerkId,
-                deliveryKind: "nudge",
-                campaignKey: "nudge_no_signoffs",
-              },
             });
             await recordDrip({
               userId,

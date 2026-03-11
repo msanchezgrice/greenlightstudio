@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { OnboardingWizard } from "@/components/onboarding-wizard";
@@ -62,7 +63,9 @@ export default async function OnboardingPage() {
                 : "Preview mode only in this environment."}
           </span>
         </header>
-        <OnboardingWizard authEnabled={authEnabled} initialSignedIn={Boolean(userId)} />
+        <Suspense fallback={null}>
+          <OnboardingWizard authEnabled={authEnabled} initialSignedIn={Boolean(userId)} />
+        </Suspense>
       </main>
     </>
   );

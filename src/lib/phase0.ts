@@ -3,7 +3,6 @@ import { generatePhase0Packet } from "@/lib/agent";
 import { onboardingSchema, packetSchema, projectAssetSchema, type Packet, type ProjectAsset } from "@/types/domain";
 import { save_packet, log_task } from "@/lib/supabase-mcp";
 import { withRetry } from "@/lib/retry";
-import { capturePosthogServerEvent } from "@/lib/analytics/posthog-server";
 import { sendPhase0ReadyDrip } from "@/lib/drip-emails";
 import { generatePhase0Foundations } from "@/lib/phase0-deliverables";
 import { buildPhase0Summary } from "@/lib/phase0-summary";
@@ -251,14 +250,6 @@ async function runPhase0Inner({ projectId, userId, revisionGuidance, forceNewApp
   }
 
   await withRetry(() => log_task(projectId, "ceo_agent", "phase0_complete", "completed", "Phase 0 pitch deck generated"));
-  capturePosthogServerEvent({
-    event: "brief_ready",
-    distinctId: userId,
-    properties: {
-      project_id: projectId,
-      phase: 0,
-    },
-  }).catch(() => {});
 
   // Fire-and-forget drip notification for first Phase 0 report
   try {
