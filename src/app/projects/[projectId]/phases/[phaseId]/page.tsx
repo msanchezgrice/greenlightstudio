@@ -385,6 +385,11 @@ export default async function ProjectPhaseWorkspacePage({
             <Link href="/inbox" className="btn btn-details">
               Inbox
             </Link>
+            {project.phase >= 1 && (phase === 1 || phase === 3) && (
+              <Link href={`/projects/${projectId}/launch`} className="btn btn-approve">
+                Launch Hub
+              </Link>
+            )}
           </div>
             </div>
 
@@ -875,6 +880,9 @@ export default async function ProjectPhaseWorkspacePage({
                       Open Live Page
                     </a>
                   )}
+                  <Link href={`/projects/${projectId}/launch`} className="btn btn-details btn-sm">
+                    Open Launch Hub
+                  </Link>
                   {landingVariants.map((variant) => {
                     const index = landingVariantIndex(variant.metadata);
                     const score = typeof variant.metadata?.design_score === "number" ? variant.metadata.design_score : null;
@@ -1225,7 +1233,12 @@ export default async function ProjectPhaseWorkspacePage({
         {phase === 3 && packetParse.packet && "architecture_review" in packetParse.packet && (
           <>
             <section className="studio-card">
-              <h2>Go-Live Summary</h2>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                <h2 style={{ margin: 0 }}>Go-Live Summary</h2>
+                <Link href={`/projects/${projectId}/launch`} className="btn btn-details btn-sm">
+                  Open Launch Hub
+                </Link>
+              </div>
               <p className="meta-line">{packetParse.packet.summary}</p>
             </section>
 
@@ -1376,6 +1389,7 @@ export default async function ProjectPhaseWorkspacePage({
               projectId={projectId}
               title="CEO Agent"
               deliverableLinks={phase === 1 ? [
+                { label: "Launch Hub", href: `/projects/${projectId}/launch` },
                 ...(packetDeckHtmlAsset ? [{ label: "Phase Deck", href: `/api/projects/${projectId}/assets/${packetDeckHtmlAsset.id}/preview`, external: true }] : []),
                 ...(packetDeckPptxAsset ? [{ label: "Phase Deck PPTX", href: `/api/projects/${projectId}/assets/${packetDeckPptxAsset.id}/preview`, external: true }] : []),
                 ...(liveUrl ? [{ label: "Landing Page", href: liveUrl, external: true }] : []),
@@ -1391,6 +1405,7 @@ export default async function ProjectPhaseWorkspacePage({
                   })),
                 { label: "Phase 1 Workspace", href: `/projects/${projectId}/phases/1` },
               ] : [
+                ...(project.phase >= 1 ? [{ label: "Launch Hub", href: `/projects/${projectId}/launch` }] : []),
                 ...(packetDeckHtmlAsset ? [{ label: "Phase Deck", href: `/api/projects/${projectId}/assets/${packetDeckHtmlAsset.id}/preview`, external: true }] : []),
                 ...(packetDeckPptxAsset ? [{ label: "Phase Deck PPTX", href: `/api/projects/${projectId}/assets/${packetDeckPptxAsset.id}/preview`, external: true }] : []),
                 ...(phase === 0 && brandBriefHtmlAsset ? [{ label: "Brand Brief", href: `/api/projects/${projectId}/assets/${brandBriefHtmlAsset.id}/preview`, external: true }] : []),

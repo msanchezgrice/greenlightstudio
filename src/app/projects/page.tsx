@@ -80,6 +80,15 @@ export default async function ProjectsPage() {
                             <Link href={`/projects/${project.id}/phases`} className="btn btn-details">
                               Open
                             </Link>
+                            {project.phase >= 1 ? (
+                              <Link href={`/projects/${project.id}/launch`} className="btn btn-preview">
+                                Launch Hub
+                              </Link>
+                            ) : (
+                              <span className="btn btn-preview" style={{ opacity: 0.55, cursor: "not-allowed" }}>
+                                Available after Phase 1
+                              </span>
+                            )}
                             <Link href={`/projects/${project.id}/phases/${phaseRoute(project.phase)}`} className="btn btn-preview">
                               Active Phase
                             </Link>

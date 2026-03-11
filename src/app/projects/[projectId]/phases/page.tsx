@@ -293,6 +293,7 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
   const runningTaskCount = tasks.filter((item) => item.status === "running").length;
   const pendingApprovalCount = approvals.filter((item) => item.status === "pending").length;
   const chatLinks: Array<{ label: string; href: string; external?: boolean }> = [
+    ...(project.phase >= 1 ? [{ label: "Launch Hub", href: `/projects/${projectId}/launch` }] : []),
     { label: "Phase Overview", href: `/projects/${projectId}/phases` },
     { label: "Current Workspace", href: `/projects/${projectId}/phases/${activePhase}` },
     { label: "Approvals Inbox", href: `/inbox?project=${projectId}` },
@@ -329,6 +330,15 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
                 <Link href="/inbox" className="btn btn-preview">
                   Inbox
                 </Link>
+                {project.phase >= 1 ? (
+                  <Link href={`/projects/${projectId}/launch`} className="btn btn-approve">
+                    Launch Hub
+                  </Link>
+                ) : (
+                  <span className="btn btn-details" style={{ opacity: 0.55, cursor: "not-allowed" }}>
+                    Launch Hub after Phase 1
+                  </span>
+                )}
               </div>
             </div>
 
