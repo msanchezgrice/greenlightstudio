@@ -3,8 +3,10 @@ import { generatePhase0Packet } from "@/lib/agent";
 import { onboardingSchema, packetSchema, projectAssetSchema, type Packet, type ProjectAsset } from "@/types/domain";
 import { save_packet, log_task } from "@/lib/supabase-mcp";
 import { withRetry } from "@/lib/retry";
+import { capturePosthogServerEvent } from "@/lib/analytics/posthog-server";
 import { sendPhase0ReadyDrip } from "@/lib/drip-emails";
 import { generatePhase0Foundations } from "@/lib/phase0-deliverables";
+import { buildPhase0Summary } from "@/lib/phase0-summary";
 
 type RunPhase0Options = {
   projectId: string;
@@ -60,6 +62,9 @@ async function runPhase0Inner({ projectId, userId, revisionGuidance, forceNewApp
   const trimmedGuidance = revisionGuidance?.trim() || null;
   const shouldForceNewApproval = Boolean(forceNewApproval);
   let priorPacket: Packet | null = null;
+  let phase0Summary: Awaited<ReturnType<typeof generatePhase0Foundations>>["summary"] | null = null;
+  let finalPacket: Packet | null = null;
+  let projectName = "Project";
 
   try {
     if (trimmedGuidance) {
@@ -84,6 +89,7 @@ async function runPhase0Inner({ projectId, userId, revisionGuidance, forceNewApp
     }
 
     const input = onboardingSchema.parse(project);
+    projectName = String(project.name ?? "Project");
 
     // Fetch uploaded project assets so the agent can analyze them
     let projectAssets: ProjectAsset[] = [];
@@ -138,6 +144,7 @@ async function runPhase0Inner({ projectId, userId, revisionGuidance, forceNewApp
       projectId,
       companyContextSummary ?? null,
     );
+    finalPacket = packet;
     const confidence = packet.reasoning_synopsis.confidence;
     await logPhaseTask(projectId, "research_agent", "phase0_research", "completed", `Research complete (${confidence}/100 confidence)`);
     researchRunning = false;
@@ -148,23 +155,17 @@ async function runPhase0Inner({ projectId, userId, revisionGuidance, forceNewApp
     const packetId = await withRetry(() => save_packet(projectId, 0, packet));
     const risk = confidence < 40 ? "high" : confidence < 70 ? "medium" : "low";
 
-    try {
-      await generatePhase0Foundations({
-        projectId,
-        projectName: String(project.name ?? "Project"),
-        domain: (project.domain as string | null) ?? null,
-        ideaDescription: String(input.idea_description ?? ""),
-        packet,
-        scanResults: (input.scan_results as Record<string, unknown> | null) ?? null,
-        ownerClerkId: userId,
-        mission: String(input.mission ?? ""),
-      });
-    } catch (foundationError) {
-      const detail = foundationError instanceof Error ? foundationError.message : "Phase 0 foundations failed";
-      await logPhaseTask(projectId, "brand_agent", "phase0_brand_foundation", "failed", truncateDetail(detail)).catch(() => {});
-      await logPhaseTask(projectId, "research_agent", "tech_news_refresh", "failed", truncateDetail(detail)).catch(() => {});
-      // Non-fatal: pitch deck + approval should continue even if optional foundation assets fail.
-    }
+    const foundationResult = await generatePhase0Foundations({
+      projectId,
+      projectName,
+      domain: (project.domain as string | null) ?? null,
+      ideaDescription: String(input.idea_description ?? ""),
+      packet,
+      scanResults: (input.scan_results as Record<string, unknown> | null) ?? null,
+      ownerClerkId: userId,
+      mission: String(input.mission ?? ""),
+    });
+    phase0Summary = foundationResult.summary;
 
     if (shouldForceNewApproval) {
       const now = new Date().toISOString();
@@ -250,6 +251,14 @@ async function runPhase0Inner({ projectId, userId, revisionGuidance, forceNewApp
   }
 
   await withRetry(() => log_task(projectId, "ceo_agent", "phase0_complete", "completed", "Phase 0 pitch deck generated"));
+  capturePosthogServerEvent({
+    event: "brief_ready",
+    distinctId: userId,
+    properties: {
+      project_id: projectId,
+      phase: 0,
+    },
+  }).catch(() => {});
 
   // Fire-and-forget drip notification for first Phase 0 report
   try {
@@ -267,6 +276,13 @@ async function runPhase0Inner({ projectId, userId, revisionGuidance, forceNewApp
         .maybeSingle(),
     ]);
     if (ownerRow?.email && projectRow?.name && packetRow) {
+      const summary =
+        phase0Summary ??
+        (finalPacket
+          ? buildPhase0Summary({
+              packet: finalPacket,
+            })
+          : null);
       await sendPhase0ReadyDrip({
         userId: ownerRow.id as string,
         email: ownerRow.email as string,
@@ -274,6 +290,7 @@ async function runPhase0Inner({ projectId, userId, revisionGuidance, forceNewApp
         projectName: projectRow.name as string,
         confidence: (packetRow.confidence_score as number) ?? 50,
         recommendation: (packetRow.ceo_recommendation as string) ?? "revise",
+        summary,
       });
     }
   } catch {

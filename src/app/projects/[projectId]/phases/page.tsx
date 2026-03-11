@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { createServiceSupabase } from "@/lib/supabase";
 import { withRetry } from "@/lib/retry";
 import { StudioNav } from "@/components/studio-nav";
+import { LiveRefresh } from "@/components/live-refresh";
 import { ProjectChatPane } from "@/components/project-chat-pane";
 import { TechNewsRefreshButton } from "@/components/tech-news-refresh-button";
 import { getOwnedProjects, getPendingApprovalsByProject } from "@/lib/studio";
@@ -110,6 +111,18 @@ function renderLinkedText(text: string | null | undefined) {
       </a>
     );
   });
+}
+
+function dedupeLatestTasks(tasks: TaskRow[]) {
+  const seen = new Set<string>();
+  const deduped: TaskRow[] = [];
+  for (const task of tasks) {
+    const key = `${task.agent}:${task.description}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(task);
+  }
+  return deduped;
 }
 
 const phaseColorMap: Record<number, { gradient: string; border: string; glow: string; accent: string }> = {
@@ -270,6 +283,11 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
     tasksByPhase.set(phase, list);
   }
 
+  for (const phase of PHASES) {
+    const list = tasksByPhase.get(phase.id) ?? [];
+    tasksByPhase.set(phase.id, dedupeLatestTasks(list));
+  }
+
   const activePhase = clampPhaseRoute(project.phase);
   const activePacket = packets.find((row) => row.phase === activePhase) ?? null;
   const runningTaskCount = tasks.filter((item) => item.status === "running").length;
@@ -293,6 +311,7 @@ export default async function ProjectPhasesPage({ params }: { params: Promise<{ 
   return (
     <>
       <StudioNav active="board" pendingCount={pendingCount} />
+      <LiveRefresh intervalMs={10000} hasActiveWork={tasks.some((task) => task.status === "running" || task.status === "queued")} activeIntervalMs={3000} />
       <main className="page studio-page studio-page-with-chat">
         <div className="studio-with-chat">
           <div className="studio-main-column">

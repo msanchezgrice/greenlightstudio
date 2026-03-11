@@ -55,10 +55,13 @@ export async function handleResearchTechNewsRefresh(
     projectId,
     jobId: job.id,
     type: "artifact",
-    message: `Tech-news refresh complete (${result.insight.advances.length} advances)`,
+    message: result.insight
+      ? `Tech-news refresh complete (${result.insight.advances.length} advances)`
+      : "Tech-news refresh skipped",
     data: {
-      advances: result.insight.advances.length,
+      advances: result.insight?.advances.length ?? 0,
       asset_id: result.assetId,
+      skipped: result.skipped,
     },
   });
 }

@@ -9,6 +9,7 @@ import {
   nudgeNoReviewsEmail,
   nudgeNoSignoffsEmail,
 } from "@/lib/email-templates";
+import type { Phase0Summary } from "@/lib/phase0-summary";
 
 function normalizeEnvValue(raw: string | undefined): string | null {
   if (!raw) return null;
@@ -162,7 +163,16 @@ export async function sendWelcomeDrip(userId: string, email: string, projectName
   const { subject, html } = welcomeEmail({ projectName, baseUrl });
 
   try {
-    const result = await sendResendEmail({ to: email, subject, html });
+    const result = await sendResendEmail({
+      to: email,
+      subject,
+      html,
+      tracking: {
+        userId,
+        deliveryKind: "drip",
+        campaignKey: "welcome",
+      },
+    });
     await recordDrip({
       userId,
       emailType: "welcome",
@@ -203,6 +213,7 @@ export async function sendPhase0ReadyDrip(input: {
   projectName: string;
   confidence: number;
   recommendation: string;
+  summary?: Phase0Summary | null;
 }): Promise<DripResult> {
   if (!isResendConfigured()) return { sent: false, reason: "resend_not_configured" };
 
@@ -226,10 +237,22 @@ export async function sendPhase0ReadyDrip(input: {
     recommendation: input.recommendation,
     projectId: input.projectId,
     baseUrl,
+    summary: input.summary ?? null,
   });
 
   try {
-    const result = await sendResendEmail({ to: input.email, subject, html });
+    const result = await sendResendEmail({
+      to: input.email,
+      subject,
+      html,
+      projectId: input.projectId,
+      tracking: {
+        projectId: input.projectId,
+        userId: input.userId,
+        deliveryKind: "drip",
+        campaignKey: "phase0_ready",
+      },
+    });
     await recordDrip({
       userId: input.userId,
       emailType: "phase0_ready",
@@ -294,7 +317,18 @@ export async function sendPhase1ReadyDrip(input: {
   });
 
   try {
-    const result = await sendResendEmail({ to: input.email, subject, html });
+    const result = await sendResendEmail({
+      to: input.email,
+      subject,
+      html,
+      projectId: input.projectId,
+      tracking: {
+        projectId: input.projectId,
+        userId: input.userId,
+        deliveryKind: "drip",
+        campaignKey: "phase1_ready",
+      },
+    });
     await recordDrip({
       userId: input.userId,
       emailType: "phase1_ready",
@@ -441,7 +475,17 @@ export async function processWeeklyDigests(): Promise<{ processed: number; sent:
     const { subject, html } = weeklyDigestEmail({ projects: digestProjects, totalPending, baseUrl });
 
     try {
-      const result = await sendResendEmail({ to: email, subject, html });
+      const result = await sendResendEmail({
+        to: email,
+        subject,
+        html,
+        tracking: {
+          userId,
+          clerkUserId: clerkId,
+          deliveryKind: "digest",
+          campaignKey: "weekly_digest",
+        },
+      });
       await recordDrip({
         userId,
         emailType: "weekly_digest",
@@ -550,7 +594,17 @@ export async function processNudgeEmails(): Promise<{
           });
 
           try {
-            const result = await sendResendEmail({ to: email, subject, html });
+            const result = await sendResendEmail({
+              to: email,
+              subject,
+              html,
+              tracking: {
+                userId,
+                clerkUserId: clerkId,
+                deliveryKind: "nudge",
+                campaignKey: "nudge_no_reviews",
+              },
+            });
             await recordDrip({
               userId,
               emailType: "nudge_no_reviews",
@@ -638,7 +692,17 @@ export async function processNudgeEmails(): Promise<{
           });
 
           try {
-            const result = await sendResendEmail({ to: email, subject, html });
+            const result = await sendResendEmail({
+              to: email,
+              subject,
+              html,
+              tracking: {
+                userId,
+                clerkUserId: clerkId,
+                deliveryKind: "nudge",
+                campaignKey: "nudge_no_signoffs",
+              },
+            });
             await recordDrip({
               userId,
               emailType: "nudge_no_signoffs",

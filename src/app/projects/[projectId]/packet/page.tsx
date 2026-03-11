@@ -3,6 +3,7 @@ import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { createServiceSupabase } from "@/lib/supabase";
 import { packetSchema } from "@/types/domain";
+import { LiveRefresh } from "@/components/live-refresh";
 import { PacketActions } from "@/components/packet-actions";
 import { PacketDecisionBar } from "@/components/packet-decision-bar";
 import { ProjectChatPane } from "@/components/project-chat-pane";
@@ -121,10 +122,11 @@ export default async function PacketPage({ params }: { params: Promise<{ project
               <Link href="/board">Board</Link> / <Link href={`/projects/${projectId}`}>{project.name}</Link> / <strong>Phase 0 Pitch Deck</strong>
             </div>
           </div>
-        </nav>
+      </nav>
 
-        <main className="page packet-page">
-          <section className="studio-card">
+      <LiveRefresh intervalMs={9000} hasActiveWork={Boolean(latestRunning) || !packetRow} activeIntervalMs={2500} />
+      <main className="page packet-page">
+        <section className="studio-card">
             <h1 className="page-title">Phase 0 Pitch Deck</h1>
             <p className="meta-line">The pitch deck is not available yet for this project.</p>
 
@@ -197,6 +199,7 @@ export default async function PacketPage({ params }: { params: Promise<{ project
         </div>
       </nav>
 
+      <LiveRefresh intervalMs={9000} hasActiveWork={Boolean(latestRunning)} activeIntervalMs={2500} />
       <main className="page packet-page">
         <div className="packet-header">
           <div className="ph-top">

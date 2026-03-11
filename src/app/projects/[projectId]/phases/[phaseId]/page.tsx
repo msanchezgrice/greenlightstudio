@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { createServiceSupabase } from "@/lib/supabase";
 import { withRetry } from "@/lib/retry";
 import { StudioNav } from "@/components/studio-nav";
+import { LiveRefresh } from "@/components/live-refresh";
 import { ProjectChatPane } from "@/components/project-chat-pane";
 import { RetryTaskButton } from "@/components/retry-task-button";
 import { AgentActivityIndicator } from "@/components/agent-activity";
@@ -10,6 +11,8 @@ import { AgentProcessPanel } from "@/components/agent-process-panel";
 import { PhaseRefineControl } from "@/components/phase-refine-control";
 import { getOwnedProjects, getPendingApprovalsByProject } from "@/lib/studio";
 import { PHASES, phaseStatus, getAgentProfile, humanizeTaskDescription, taskOutputLink, type PhaseId } from "@/lib/phases";
+import { buildPhase0Summary, type Phase0Summary } from "@/lib/phase0-summary";
+import { scanResultSchema, type Packet } from "@/types/domain";
 import { parsePhasePacket, type PhasePacket } from "@/types/phase-packets";
 import { derivePhaseHighlights, readPacketSummaryForPhase } from "@/lib/phase-presentations";
 
@@ -20,6 +23,7 @@ type ProjectRow = {
   phase: number;
   runtime_mode: "shared" | "attached";
   updated_at: string;
+  scan_results?: unknown;
 };
 
 type ApprovalRow = {
@@ -44,6 +48,11 @@ type PacketRow = {
   confidence: number;
   packet: unknown;
   created_at: string;
+};
+
+type Phase0SummaryEventRow = {
+  created_at: string;
+  data: Phase0Summary | null;
 };
 
 function statusClass(status: string) {
@@ -95,6 +104,18 @@ function renderLinkedText(text: string | null | undefined) {
   });
 }
 
+function dedupeLatestTasks(tasks: TaskRow[]) {
+  const seen = new Set<string>();
+  const deduped: TaskRow[] = [];
+  for (const task of tasks) {
+    const key = `${task.agent}:${task.description}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(task);
+  }
+  return deduped;
+}
+
 export default async function ProjectPhaseWorkspacePage({
   params,
 }: {
@@ -121,11 +142,11 @@ export default async function ProjectPhaseWorkspacePage({
   const projectIds = projects.map((entry) => entry.id);
   const { total: pendingCount } = await getPendingApprovalsByProject(projectIds);
 
-  const [projectQuery, packetQuery, approvalsQuery, tasksQuery, deploymentQuery, assetsQuery, brandFallbackAssetsQuery] = await Promise.all([
+  const [projectQuery, packetQuery, approvalsQuery, tasksQuery, deploymentQuery, assetsQuery, brandFallbackAssetsQuery, phase0SummaryEventQuery] = await Promise.all([
     withRetry(() =>
       db
         .from("projects")
-        .select("id,name,domain,phase,runtime_mode,updated_at,live_url")
+        .select("id,name,domain,phase,runtime_mode,updated_at,live_url,scan_results")
         .eq("id", projectId)
         .eq("owner_clerk_id", userId)
         .maybeSingle(),
@@ -184,6 +205,18 @@ export default async function ProjectPhaseWorkspacePage({
             .limit(220),
         )
       : Promise.resolve({ data: [], error: null }),
+    phase === 0
+      ? withRetry(() =>
+          db
+            .from("project_events")
+            .select("created_at,data")
+            .eq("project_id", projectId)
+            .eq("event_type", "phase0.summary_ready")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+        )
+      : Promise.resolve({ data: null, error: null }),
   ]);
 
   if (projectQuery.error || !projectQuery.data) {
@@ -204,8 +237,9 @@ export default async function ProjectPhaseWorkspacePage({
   const packetRow = (packetQuery.data as PacketRow | null) ?? null;
   const approvals = (approvalsQuery.data ?? []) as ApprovalRow[];
   const allTasks = (tasksQuery.data ?? []) as TaskRow[];
-  const phaseTasks = allTasks.filter((task) => task.description.startsWith(`phase${phase}_`)).slice(0, 30);
+  const phaseTasks = dedupeLatestTasks(allTasks.filter((task) => task.description.startsWith(`phase${phase}_`))).slice(0, 18);
   const deployment = deploymentQuery.data as { project_id: string; phase: number; status: string; metadata: Record<string, unknown>; deployed_at: string } | null;
+  const phase0SummaryEvent = (phase0SummaryEventQuery.data as Phase0SummaryEventRow | null) ?? null;
   const assets = ([
     ...((assetsQuery.data ?? []) as Array<{
       id: string;
@@ -302,10 +336,35 @@ export default async function ProjectPhaseWorkspacePage({
   const normalizedPitchSummary = (phasePacketSummary ?? "").replace(/\s+/g, " ").trim();
   const pitchSummaryPreview =
     normalizedPitchSummary.length > 320 ? `${normalizedPitchSummary.slice(0, 320).trimEnd()}…` : normalizedPitchSummary;
+  const validatedScanResults = scanResultSchema.safeParse(project.scan_results ?? null).success
+    ? scanResultSchema.parse(project.scan_results ?? null)
+    : null;
+  const hasActivePhaseWork = phaseTasks.some((task) => task.status === "running" || task.status === "queued");
+  const phase0Summary =
+    phase === 0 && packetParse.packet && "market_sizing" in packetParse.packet
+      ? (phase0SummaryEvent?.data ??
+        buildPhase0Summary({
+          packet: packetParse.packet as Packet,
+          deliverables: [
+            ...(packetDeckHtmlAsset ? [{ kind: "phase0_packet_html", label: "Phase 0 Pitch Deck (HTML)", url: `/api/projects/${projectId}/assets/${packetDeckHtmlAsset.id}/preview` }] : []),
+            ...(packetDeckPptxAsset ? [{ kind: "phase0_packet_pptx", label: "Phase 0 Pitch Deck (PPTX)", url: `/api/projects/${projectId}/assets/${packetDeckPptxAsset.id}/preview` }] : []),
+            ...(brandBriefHtmlAsset ? [{ kind: "phase0_brand_brief_html", label: "Brand Brief (HTML)", url: `/api/projects/${projectId}/assets/${brandBriefHtmlAsset.id}/preview` }] : []),
+            ...(brandBriefPptxAsset ? [{ kind: "phase0_brand_brief_pptx", label: "Brand Brief (PPTX)", url: `/api/projects/${projectId}/assets/${brandBriefPptxAsset.id}/preview` }] : []),
+            ...(techNewsAsset ? [{ kind: "phase0_tech_news", label: "Tech + AI News Brief", url: `/api/projects/${projectId}/assets/${techNewsAsset.id}/preview` }] : []),
+            ...brandImageAssets.slice(0, 8).map((asset) => ({
+              kind: "brand_asset",
+              label: ((asset.metadata?.label as string) ?? asset.filename).slice(0, 48),
+              url: `/api/projects/${projectId}/assets/${asset.id}/preview`,
+            })),
+          ],
+          scanResults: validatedScanResults,
+        }))
+      : null;
 
   return (
     <>
       <StudioNav active="board" pendingCount={pendingCount} />
+      <LiveRefresh intervalMs={9000} hasActiveWork={hasActivePhaseWork} activeIntervalMs={2500} />
       <main className="page studio-page studio-page-with-chat">
         <div className="studio-with-chat">
           <div className="studio-main-column">
@@ -316,6 +375,7 @@ export default async function ProjectPhaseWorkspacePage({
             </h1>
             <p className="meta-line">
               {currentPhaseDefinition.title} · {status} · updated {new Date(project.updated_at).toLocaleString()}
+              {hasActivePhaseWork ? " · auto-updating while agents are running" : ""}
             </p>
           </div>
           <div className="table-actions">
@@ -354,6 +414,67 @@ export default async function ProjectPhaseWorkspacePage({
             <div className="metric-value">{packetRow ? `${packetRow.confidence}/100` : "--"}</div>
           </div>
         </section>
+
+        {phase === 0 && (
+          <section
+            className="studio-card"
+            style={{
+              borderColor: hasActivePhaseWork ? "rgba(34,197,94,.35)" : "var(--border)",
+              background: hasActivePhaseWork
+                ? "linear-gradient(135deg, rgba(34,197,94,.12), rgba(34,197,94,.03))"
+                : "var(--card, rgba(255,255,255,.02))",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
+              <div>
+                <h2 style={{ margin: 0 }}>
+                  {phase0Summary || packetDeckHtmlAsset || brandBriefHtmlAsset ? "New Deliverables Landed" : "Phase 0 Live Status"}
+                </h2>
+                <p className="meta-line" style={{ marginTop: 8, marginBottom: 0, maxWidth: 760 }}>
+                  {phase0Summary || packetDeckHtmlAsset || brandBriefHtmlAsset
+                    ? "The workspace refreshes automatically. Open the deck, brand brief, or research links below as they land."
+                    : hasActivePhaseWork
+                      ? "This page is auto-updating while Phase 0 runs. Market research, deck output, and brand assets will appear here without a manual refresh."
+                      : "Phase 0 is idle right now. When work resumes, this workspace will refresh itself automatically."}
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {packetDeckHtmlAsset && (
+                  <a
+                    href={`/api/projects/${projectId}/assets/${packetDeckHtmlAsset.id}/preview`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-approve btn-sm"
+                  >
+                    Open Deck
+                  </a>
+                )}
+                {brandBriefHtmlAsset && (
+                  <a
+                    href={`/api/projects/${projectId}/assets/${brandBriefHtmlAsset.id}/preview`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-details btn-sm"
+                  >
+                    Open Brand Brief
+                  </a>
+                )}
+                {techNewsAsset && (
+                  <a
+                    href={`/api/projects/${projectId}/assets/${techNewsAsset.id}/preview`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-details btn-sm"
+                  >
+                    Open Research Brief
+                  </a>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+
+        <AgentProcessPanel projectId={projectId} />
 
         <section className="studio-card">
           <h2>Deliverables</h2>
@@ -487,55 +608,136 @@ export default async function ProjectPhaseWorkspacePage({
         {phase === 0 && packetParse.packet && "market_sizing" in packetParse.packet && (
           <>
             <section className="studio-card">
-              <h2>Market + Recommendation Snapshot</h2>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 12 }}>
+                <div>
+                  <h2 style={{ margin: 0 }}>Phase 0 Assets + Conclusions</h2>
+                  <p className="meta-line" style={{ marginTop: 6, marginBottom: 0 }}>
+                    {phase0Summary?.elevator_pitch ?? packetParse.packet.elevator_pitch}
+                  </p>
+                </div>
+                {phase0Summary?.generated_at && (
+                  <div className="meta-line" style={{ whiteSpace: "nowrap" }}>
+                    Updated {new Date(phase0Summary.generated_at).toLocaleString()}
+                  </div>
+                )}
+              </div>
               <div className="project-metrics">
                 <div>
                   <div className="metric-label">Recommendation</div>
-                  <div className="metric-value">{packetParse.packet.recommendation.toUpperCase()}</div>
+                  <div className="metric-value">{(phase0Summary?.recommendation ?? packetParse.packet.recommendation).toUpperCase()}</div>
                 </div>
                 <div>
                   <div className="metric-label">Confidence</div>
-                  <div className="metric-value">{packetParse.packet.reasoning_synopsis.confidence}/100</div>
+                  <div className="metric-value">{phase0Summary?.confidence ?? packetParse.packet.reasoning_synopsis.confidence}/100</div>
                 </div>
                 <div>
                   <div className="metric-label">TAM</div>
-                  <div className="metric-value">{packetParse.packet.market_sizing.tam}</div>
+                  <div className="metric-value">{phase0Summary?.market.tam ?? packetParse.packet.market_sizing.tam}</div>
                 </div>
                 <div>
                   <div className="metric-label">SAM</div>
-                  <div className="metric-value">{packetParse.packet.market_sizing.sam}</div>
+                  <div className="metric-value">{phase0Summary?.market.sam ?? packetParse.packet.market_sizing.sam}</div>
                 </div>
                 <div>
                   <div className="metric-label">SOM</div>
-                  <div className="metric-value">{packetParse.packet.market_sizing.som}</div>
+                  <div className="metric-value">{phase0Summary?.market.som ?? packetParse.packet.market_sizing.som}</div>
                 </div>
                 <div>
                   <div className="metric-label">Persona</div>
-                  <div className="metric-value">{packetParse.packet.target_persona.name}</div>
+                  <div className="metric-value">{phase0Summary?.persona.name ?? packetParse.packet.target_persona.name}</div>
                 </div>
               </div>
-              <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
-                {packetParse.packet.competitor_analysis.slice(0, 6).map((competitor) => (
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginTop: 14 }}>
+                {[
+                  { label: "Why this could work", items: phase0Summary?.rationale ?? packetParse.packet.reasoning_synopsis.rationale.slice(0, 4) },
+                  { label: "Open risks", items: phase0Summary?.risks ?? packetParse.packet.reasoning_synopsis.risks.slice(0, 4) },
+                  { label: "Next actions", items: phase0Summary?.next_actions ?? packetParse.packet.reasoning_synopsis.next_actions.slice(0, 4) },
+                ].map((group) => (
                   <div
-                    key={competitor.name}
+                    key={group.label}
                     style={{
                       border: "1px solid var(--border)",
                       borderRadius: 10,
-                      padding: "10px 12px",
+                      padding: "12px 14px",
                       background: "var(--surface, rgba(255,255,255,.03))",
                     }}
                   >
-                    <div style={{ fontWeight: 600 }}>{competitor.name}</div>
-                    <div className="meta-line">{competitor.positioning}</div>
-                    <div className="meta-line">Gap: {competitor.gap} · Pricing: {competitor.pricing}</div>
+                    <div style={{ fontWeight: 600, marginBottom: 8 }}>{group.label}</div>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {group.items.map((item, index) => (
+                        <div key={`${group.label}-${index}`} className="meta-line" style={{ lineHeight: 1.55 }}>
+                          {item}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>
             </section>
 
             <section className="studio-card">
-              <h2>Phase 0 Foundation Assets</h2>
+              <h2>Branding Snapshot</h2>
+              {phase0Summary?.branding ? (
+                <>
+                  <div className="project-metrics" style={{ marginBottom: 14 }}>
+                    <div>
+                      <div className="metric-label">Voice</div>
+                      <div className="metric-value">{phase0Summary.branding.voice}</div>
+                    </div>
+                    <div>
+                      <div className="metric-label">Typography</div>
+                      <div className="metric-value">{phase0Summary.branding.font_pairing}</div>
+                    </div>
+                    <div>
+                      <div className="metric-label">Palette</div>
+                      <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
+                        {phase0Summary.branding.color_palette.map((color) => (
+                          <div
+                            key={color}
+                            title={color}
+                            style={{
+                              width: 28,
+                              height: 28,
+                              borderRadius: 8,
+                              background: color,
+                              border: "1px solid rgba(255,255,255,.15)",
+                            }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="metric-label">Logo Direction</div>
+                      <div className="metric-value" style={{ fontSize: 13 }}>{phase0Summary.branding.logo_prompt}</div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <p className="meta-line">Brand direction will populate here as Phase 0 assets finish generating.</p>
+              )}
+
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                {brandBriefHtmlAsset && (
+                  <a
+                    href={`/api/projects/${projectId}/assets/${brandBriefHtmlAsset.id}/preview`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-details btn-sm"
+                  >
+                    Brand Brief (HTML)
+                  </a>
+                )}
+                {brandBriefPptxAsset && (
+                  <a
+                    href={`/api/projects/${projectId}/assets/${brandBriefPptxAsset.id}/preview`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-details btn-sm"
+                  >
+                    Brand Brief (PPTX)
+                  </a>
+                )}
                 {brandAssets.map((asset) => (
                   <a
                     key={asset.id}
@@ -558,6 +760,24 @@ export default async function ProjectPhaseWorkspacePage({
                   </a>
                 )}
               </div>
+
+              {phase0Summary?.tech_news?.summary && (
+                <div
+                  style={{
+                    border: "1px solid var(--border)",
+                    borderRadius: 10,
+                    padding: "12px 14px",
+                    background: "var(--surface, rgba(255,255,255,.03))",
+                    marginBottom: 14,
+                  }}
+                >
+                  <div style={{ fontWeight: 600, marginBottom: 6 }}>Tech + AI relevance</div>
+                  <div className="meta-line" style={{ lineHeight: 1.6 }}>
+                    {phase0Summary.tech_news.summary}
+                  </div>
+                </div>
+              )}
+
               <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
                 {brandAssets
                   .filter((asset) => (asset.mime_type ?? "").startsWith("image/"))
@@ -579,6 +799,59 @@ export default async function ProjectPhaseWorkspacePage({
                     </a>
                   ))}
               </div>
+            </section>
+
+            <section className="studio-card">
+              <h2>Competitors + Source Links</h2>
+              <div style={{ display: "grid", gap: 10, marginBottom: 14 }}>
+                {(phase0Summary?.competitors ?? []).map((competitor) => (
+                  <div
+                    key={competitor.name}
+                    style={{
+                      border: "1px solid var(--border)",
+                      borderRadius: 10,
+                      padding: "12px 14px",
+                      background: "var(--surface, rgba(255,255,255,.03))",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+                      <div>
+                        <div style={{ fontWeight: 600 }}>{competitor.name}</div>
+                        <div className="meta-line" style={{ marginTop: 4 }}>{competitor.positioning}</div>
+                        <div className="meta-line" style={{ marginTop: 4 }}>
+                          Gap: {competitor.gap} · Pricing: {competitor.pricing}
+                        </div>
+                      </div>
+                      <a href={competitor.url} target="_blank" rel="noopener noreferrer" className="btn btn-details btn-sm">
+                        Open
+                      </a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {phase0Summary?.evidence?.length ? (
+                <div style={{ display: "grid", gap: 10 }}>
+                  {phase0Summary.evidence.map((item, index) => (
+                    <div
+                      key={`evidence-${index}`}
+                      style={{
+                        border: "1px solid var(--border)",
+                        borderRadius: 10,
+                        padding: "12px 14px",
+                        background: "var(--surface, rgba(255,255,255,.03))",
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, marginBottom: 6 }}>{item.claim}</div>
+                      <a href={item.url} target="_blank" rel="noopener noreferrer" className="meta-line">
+                        {item.source}
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="meta-line">Source links will appear here as research evidence is assembled.</p>
+              )}
             </section>
           </>
         )}
@@ -1009,9 +1282,6 @@ export default async function ProjectPhaseWorkspacePage({
             </section>
           </>
         )}
-
-        <AgentProcessPanel projectId={projectId} />
-
         <section className="studio-card">
           <h2>Latest Tasks</h2>
           {!phaseTasks.length ? (
@@ -1123,6 +1393,18 @@ export default async function ProjectPhaseWorkspacePage({
               ] : [
                 ...(packetDeckHtmlAsset ? [{ label: "Phase Deck", href: `/api/projects/${projectId}/assets/${packetDeckHtmlAsset.id}/preview`, external: true }] : []),
                 ...(packetDeckPptxAsset ? [{ label: "Phase Deck PPTX", href: `/api/projects/${projectId}/assets/${packetDeckPptxAsset.id}/preview`, external: true }] : []),
+                ...(phase === 0 && brandBriefHtmlAsset ? [{ label: "Brand Brief", href: `/api/projects/${projectId}/assets/${brandBriefHtmlAsset.id}/preview`, external: true }] : []),
+                ...(phase === 0 && brandBriefPptxAsset ? [{ label: "Brand Deck (PPTX)", href: `/api/projects/${projectId}/assets/${brandBriefPptxAsset.id}/preview`, external: true }] : []),
+                ...(phase === 0 && techNewsAsset ? [{ label: "Tech + AI News", href: `/api/projects/${projectId}/assets/${techNewsAsset.id}/preview`, external: true }] : []),
+                ...(phase === 0
+                  ? brandImageAssets
+                      .slice(0, 4)
+                      .map((asset) => ({
+                        label: ((asset.metadata?.label as string) ?? asset.filename).slice(0, 36),
+                        href: `/api/projects/${projectId}/assets/${asset.id}/preview`,
+                        external: true,
+                      }))
+                  : []),
                 { label: "Phase Overview", href: `/projects/${projectId}/phases` },
                 { label: "Current Workspace", href: `/projects/${projectId}/phases/${phase}` },
                 ...(liveUrl ? [{ label: "Live Landing", href: liveUrl, external: true }] : []),

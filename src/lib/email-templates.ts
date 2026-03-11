@@ -1,3 +1,5 @@
+import { toAbsoluteAppUrl, type Phase0Summary } from "@/lib/phase0-summary";
+
 type DigestProject = {
   name: string;
   projectId: string;
@@ -113,10 +115,87 @@ export function phase0ReadyEmail(input: {
   recommendation: string;
   projectId: string;
   baseUrl: string;
+  summary?: Phase0Summary | null;
 }) {
   const recLabel = input.recommendation.charAt(0).toUpperCase() + input.recommendation.slice(1);
   const recColor = input.recommendation === "greenlight" ? "#22C55E" : input.recommendation === "revise" ? "#F59E0B" : "#EF4444";
   const subject = `Phase 0 report ready — ${input.projectName}`;
+
+  const summary = input.summary;
+  const assetLinks = summary?.assets
+    .filter((asset) => asset.url)
+    .filter((asset) =>
+      asset.kind.startsWith("phase0_packet") ||
+      asset.kind.startsWith("phase0_brand_brief") ||
+      asset.kind === "phase0_tech_news",
+    )
+    .slice(0, 4)
+    .map((asset) => {
+      const href = toAbsoluteAppUrl(input.baseUrl, asset.url);
+      if (!href) return "";
+      return `<a href="${esc(href)}" style="display:inline-block;margin:0 8px 8px 0;padding:10px 14px;border-radius:8px;border:1px solid #1F2937;color:#CBD5E1;text-decoration:none;font-size:13px">${esc(asset.label)}</a>`;
+    })
+    .filter(Boolean)
+    .join("");
+
+  const brandBlock = summary?.branding
+    ? `<div style="margin:18px 0 0;padding:16px;background:#0A0F1A;border:1px solid #1F2937;border-radius:10px">
+        <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.5px;color:#64748B;margin-bottom:8px">Brand direction</div>
+        <div style="color:#F1F5F9;font-size:14px;font-weight:600;margin-bottom:6px">${esc(summary.branding.voice)}</div>
+        <div style="color:#94A3B8;font-size:13px;line-height:1.55;margin-bottom:8px">Fonts: ${esc(summary.branding.font_pairing)}</div>
+        <div style="margin-bottom:8px">
+          ${summary.branding.color_palette
+            .slice(0, 6)
+            .map(
+              (color) =>
+                `<span style="display:inline-block;width:18px;height:18px;border-radius:6px;margin-right:6px;background:${esc(color)};border:1px solid rgba(255,255,255,.12)"></span>`,
+            )
+            .join("")}
+        </div>
+        <div style="color:#94A3B8;font-size:13px;line-height:1.55">${esc(summary.branding.logo_prompt)}</div>
+      </div>`
+    : "";
+
+  const competitorRows = summary?.competitors?.length
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:14px">
+        ${summary.competitors
+          .slice(0, 4)
+          .map(
+            (competitor) => `<tr>
+              <td style="padding:10px 0;border-bottom:1px solid #1F2937">
+                <a href="${esc(competitor.url)}" style="color:#F1F5F9;font-size:14px;font-weight:600;text-decoration:none">${esc(competitor.name)}</a>
+                <div style="margin-top:4px;color:#94A3B8;font-size:13px;line-height:1.5">${esc(competitor.positioning)}</div>
+                <div style="margin-top:2px;color:#64748B;font-size:12px;line-height:1.5">Gap: ${esc(competitor.gap)} &middot; Pricing: ${esc(competitor.pricing)}</div>
+              </td>
+            </tr>`,
+          )
+          .join("")}
+      </table>`
+    : "";
+
+  const evidenceRows = summary?.evidence?.length
+    ? `<div style="margin-top:14px">
+        ${summary.evidence
+          .slice(0, 3)
+          .map(
+            (item) =>
+              `<div style="margin-bottom:10px;color:#94A3B8;font-size:13px;line-height:1.55">
+                ${esc(item.claim)}<br/>
+                <a href="${esc(item.url)}" style="color:#22C55E;text-decoration:none">${esc(item.source)}</a>
+              </div>`,
+          )
+          .join("")}
+      </div>`
+    : "";
+
+  const conclusionList = summary
+    ? `<ul style="margin:0 0 14px;padding-left:18px;color:#CBD5E1;font-size:14px;line-height:1.55">
+        <li style="margin:0 0 6px">Market: TAM ${esc(summary.market.tam)} &middot; SAM ${esc(summary.market.sam)} &middot; SOM ${esc(summary.market.som)}</li>
+        <li style="margin:0 0 6px">Persona: ${esc(summary.persona.name)} &mdash; ${esc(summary.persona.description)}</li>
+        ${summary.rationale.slice(0, 2).map((line) => `<li style="margin:0 0 6px">${esc(line)}</li>`).join("")}
+      </ul>`
+    : paragraph("Open the report to review market sizing, competitor analysis, target persona, and the full CEO recommendation.");
+
   const body = [
     heading("Your pitch deck is ready"),
     paragraph(
@@ -136,7 +215,11 @@ export function phase0ReadyEmail(input: {
         </td>
       </tr>
     </table>`,
-    paragraph("Open the report to review market sizing, competitor analysis, target persona, and the full CEO recommendation."),
+    conclusionList,
+    brandBlock,
+    summary?.competitors?.length ? `<h2 style="margin:22px 0 10px;font-size:16px;color:#F1F5F9">Competitor watchlist</h2>${competitorRows}` : "",
+    summary?.evidence?.length ? `<h2 style="margin:22px 0 10px;font-size:16px;color:#F1F5F9">Source links</h2>${evidenceRows}` : "",
+    assetLinks ? `<h2 style="margin:22px 0 10px;font-size:16px;color:#F1F5F9">Phase 0 assets</h2><div style="margin-bottom:4px">${assetLinks}</div>` : "",
     btn("Review your report", `${input.baseUrl}/projects/${input.projectId}/phases/0`),
   ].join("");
 
