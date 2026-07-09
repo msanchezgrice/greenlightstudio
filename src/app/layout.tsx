@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
-import Script from "next/script";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
@@ -41,17 +40,14 @@ const fontUrl =
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const publishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
   const themeBootScript = `(function(){try{var t=localStorage.getItem("sm_theme")==="light"?"light":"dark";document.documentElement.dataset.theme=t;document.documentElement.style.colorScheme=t==="light"?"light":"dark";}catch(_){document.documentElement.dataset.theme="dark";document.documentElement.style.colorScheme="dark";}})();`;
-  const ahrefsAnalytics = (
-    <Script
-      src="https://analytics.ahrefs.com/analytics.js"
-      data-key="sfC2zlgd9jKEVrN227+mog"
-      strategy="beforeInteractive"
-      async
-    />
-  );
 
   const head = (
     <>
+      <script
+        src="https://analytics.ahrefs.com/analytics.js"
+        data-key="sfC2zlgd9jKEVrN227+mog"
+        async
+      />
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       <link href={fontUrl} rel="stylesheet" />
@@ -64,7 +60,6 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <html lang="en">
         <head>{head}</head>
         <body>
-          {ahrefsAnalytics}
           {children}
           <Analytics />
           <SpeedInsights />
@@ -78,7 +73,6 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <html lang="en">
         <head>{head}</head>
         <body>
-          {ahrefsAnalytics}
           {children}
           <Analytics />
           <SpeedInsights />
