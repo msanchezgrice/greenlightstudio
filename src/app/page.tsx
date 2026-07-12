@@ -19,6 +19,7 @@ export default async function Home() {
           <a href="#proof">Proof</a>
           <a href="#phases">Phases</a>
           <a href="#features">Features</a>
+          <Link href="/resources">Resources</Link>
           {authEnabled && !userId ? (
             <Link href="/sign-in" className={styles.navSignIn}>Sign In</Link>
           ) : null}
@@ -351,6 +352,8 @@ export default async function Home() {
       <footer className={styles.footer}>
         Startup Machine · Built with Claude Agent SDK · Feb 2026
         <br />
+        <Link href="/resources" className={styles.footerLink}>Founder Resources</Link>
+        <span aria-hidden="true"> · </span>
         <span className={styles.footerMark}>▲</span> By builders, for builders.
       </footer>
     </main>

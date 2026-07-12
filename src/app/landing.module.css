@@ -718,6 +718,14 @@
   color: #22c55e;
 }
 
+.footerLink {
+  color: #94a3b8;
+}
+
+.footerLink:hover {
+  color: #22c55e;
+}
+
 @media (max-width: 1024px) {
   .featuresGrid {
     grid-template-columns: repeat(2, 1fr);
