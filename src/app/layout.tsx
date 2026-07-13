@@ -12,6 +12,7 @@ export const metadata: Metadata = {
     template: "%s | Startup Machine",
   },
   description: "AI startup builder that generates decision-ready packets with market sizing, competitor analysis, and MVP scope.",
+  alternates: { canonical: "/" },
   applicationName: "Startup Machine",
   icons: {
     icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
