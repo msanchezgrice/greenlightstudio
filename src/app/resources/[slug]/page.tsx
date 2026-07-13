@@ -52,6 +52,10 @@ export async function generateMetadata({ params }: ResourcePageProps): Promise<M
 }
 
 function ResourceBlockView({ block }: { block: ResourceBlock }) {
+  if (block.type === "html") {
+    return <div className={styles.editorialBody} dangerouslySetInnerHTML={{ __html: block.html }} />;
+  }
+
   if (block.type === "paragraph") {
     return <p>{block.text}</p>;
   }
@@ -185,7 +189,7 @@ export default async function FounderResourcePage({ params }: ResourcePageProps)
         <p className={styles.lede}>{resource.description}</p>
         <div className={styles.articleMeta}>
           <span>{resource.readingMinutes} minute read</span>
-          <span>Updated July 12, 2026</span>
+          <span>Updated {new Intl.DateTimeFormat("en", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" }).format(new Date(`${resource.updatedAt}T00:00:00Z`))}</span>
           <span>Includes a working template</span>
         </div>
       </header>
