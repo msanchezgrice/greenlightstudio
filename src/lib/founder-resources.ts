@@ -1,3 +1,5 @@
+import { wave2FounderResources } from "./wave2-founder-resources";
+
 export type ResourceTable = {
   headers: string[];
   rows: string[][];
@@ -8,7 +10,8 @@ export type ResourceBlock =
   | { type: "list"; items: string[]; ordered?: boolean }
   | { type: "table"; table: ResourceTable }
   | { type: "callout"; title: string; text: string }
-  | { type: "template"; title: string; lines: string[] };
+  | { type: "template"; title: string; lines: string[] }
+  | { type: "html"; html: string };
 
 export type ResourceSection = {
   id: string;
@@ -29,7 +32,7 @@ export type FounderResource = {
   faqs: Array<{ question: string; answer: string }>;
 };
 
-export const founderResources: FounderResource[] = [
+const coreFounderResources: FounderResource[] = [
   {
     slug: "validate-startup-idea",
     title: "How to Validate a Startup Idea Before You Build",
@@ -766,6 +769,11 @@ export const founderResources: FounderResource[] = [
       },
     ],
   },
+];
+
+export const founderResources: FounderResource[] = [
+  ...coreFounderResources,
+  ...wave2FounderResources,
 ];
 
 export function getFounderResource(slug: string) {

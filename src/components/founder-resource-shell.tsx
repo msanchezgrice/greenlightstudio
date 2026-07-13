@@ -31,6 +31,10 @@ export function FounderResourceFooter() {
       </div>
       <div className={styles.footerLinks}>
         <Link href="/resources">All founder resources</Link>
+        <Link href="/about">About</Link>
+        <Link href="/contact">Contact</Link>
+        <Link href="/privacy">Privacy</Link>
+        <Link href="/terms">Terms</Link>
         <Link href="/onboarding?new=1">Preview a founder brief</Link>
       </div>
     </footer>
