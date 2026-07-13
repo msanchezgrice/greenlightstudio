@@ -3,6 +3,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
+import { PostHogIdentity } from "@/components/posthog-identity";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://startupmachine.ai"),
@@ -73,6 +74,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <html lang="en">
         <head>{head}</head>
         <body>
+          <PostHogIdentity />
           {children}
           <Analytics />
           <SpeedInsights />
