@@ -11,7 +11,7 @@ export const wave2FounderResources: FounderResource[] = (rawPosts as WaveTwoPost
   title: post.title,
   shortTitle: post.title,
   description: post.description,
-  eyebrow: post.pillar ? "2,000+ word founder workbook" : "Evidence-led founder guide",
+  eyebrow: post.pillar ? "Deep founder guide" : "Evidence-led founder guide",
   readingMinutes: post.readingMinutes,
   primaryKeyword: post.tags[0] ?? post.job,
   updatedAt: post.updatedAt,

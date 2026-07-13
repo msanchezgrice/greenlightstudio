@@ -26,12 +26,14 @@ export const metadata: Metadata = {
     siteName: "Startup Machine",
     locale: "en_US",
     type: "website",
+    images: ["/og-image.png"],
   },
   twitter: {
     card: "summary_large_image",
     title: "Startup Machine — AI Startup Builder",
     description:
       "Validate startup ideas with AI-generated decision packets and clear go/no-go recommendations.",
+    images: ["/og-image.png"],
   },
 };
 

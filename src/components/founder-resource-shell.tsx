@@ -36,6 +36,8 @@ export function FounderResourceFooter() {
         <Link href="/privacy">Privacy</Link>
         <Link href="/terms">Terms</Link>
         <Link href="/onboarding?new=1">Preview a founder brief</Link>
+        <a href="https://warmstart.io/resources">Launch planning with WarmStart</a>
+        <a href="https://agentready.me/resources">Agent-ready website guidance</a>
       </div>
     </footer>
   );
