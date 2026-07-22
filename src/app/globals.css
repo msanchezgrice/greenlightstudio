@@ -6329,3 +6329,9 @@ a {
     grid-template-columns: 1fr;
   }
 }
+
+/* Keyboard focus visibility (WCAG 2.4.7) — applies site-wide, no visual change for pointer users */
+:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: 2px;
+}

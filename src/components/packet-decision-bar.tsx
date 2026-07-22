@@ -98,6 +98,8 @@ export function PacketDecisionBar({ projectId, approvalId, approvalVersion, appr
             className="packet-action-btn approve"
             onClick={() => submitDecision("approved")}
             disabled={!canDecide || busy !== null}
+            data-testid="packet-approve-phase"
+            data-agent-action="approve-phase"
           >
             {busy === "approved" ? "Approving..." : "Approve Phase 1"}
           </button>
@@ -117,6 +119,9 @@ export function PacketDecisionBar({ projectId, approvalId, approvalVersion, appr
             className="packet-action-btn kill"
             onClick={() => submitDecision("denied")}
             disabled={!canDecide || busy !== null}
+            data-testid="packet-kill-project"
+            data-agent-danger="true"
+            data-agent-confirm="Destructive and irreversible: denies the Phase 0 packet and stops agent work for this project. Requires explicit human confirmation."
           >
             {busy === "denied" ? "Killing..." : "Kill Project"}
           </button>

@@ -1,0 +1,30 @@
+{
+  "name": "Startup Machine",
+  "description": "AI startup builder: provide a one-line idea, a domain, or a repo, and a fleet of specialized AI agents researches competitors, sizes the market, drafts a pitch deck, and delivers a decision-ready founder brief with a go/no-go recommendation.",
+  "url": "https://startupmachine.ai",
+  "version": "1.0.0",
+  "provider": {
+    "organization": "Startup Machine",
+    "url": "https://startupmachine.ai"
+  },
+  "capabilities": [
+    "startup-idea-validation",
+    "market-sizing",
+    "competitor-analysis",
+    "pitch-deck-generation",
+    "mvp-scoping",
+    "go-no-go-recommendation"
+  ],
+  "skills": [
+    {
+      "id": "founder-brief-preview",
+      "name": "Founder Brief Preview",
+      "description": "Generate an instant recommendation, key risk, and first market read from an idea, domain, or repo. No account required.",
+      "url": "https://startupmachine.ai/onboarding?new=1"
+    }
+  ],
+  "documentation": [
+    "https://startupmachine.ai/llms.txt",
+    "https://startupmachine.ai/agents.md"
+  ]
+}

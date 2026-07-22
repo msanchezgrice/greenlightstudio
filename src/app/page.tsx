@@ -11,26 +11,28 @@ export default async function Home() {
 
   return (
     <main className={styles.page}>
-      <nav className={styles.nav}>
+      <nav className={styles.nav} aria-label="Primary" data-agent-nav="primary">
         <div className={styles.navInner}>
           <div className={styles.navLogo}>▲ Startup Machine</div>
         <div className={styles.navLinks}>
-          <a href="#how">How It Works</a>
-          <a href="#proof">Proof</a>
-          <a href="#phases">Phases</a>
-          <a href="#features">Features</a>
-          <Link href="/resources">Resources</Link>
+          <a href="#how" data-testid="nav-how-it-works">How It Works</a>
+          <a href="#proof" data-testid="nav-proof">Proof</a>
+          <a href="#phases" data-testid="nav-phases">Phases</a>
+          <a href="#features" data-testid="nav-features">Features</a>
+          <Link href="/resources" data-testid="nav-resources">Resources</Link>
           {authEnabled && !userId ? (
-            <Link href="/sign-in" className={styles.navSignIn}>Sign In</Link>
+            <Link href="/sign-in" className={styles.navSignIn} data-testid="nav-sign-in">Sign In</Link>
           ) : null}
           {userId ? (
-            <Link href="/board" className={styles.navCta}>Dashboard</Link>
+            <Link href="/board" className={styles.navCta} data-testid="nav-dashboard">Dashboard</Link>
           ) : (
             <TrackedLinkButton
               href="/onboarding?new=1"
               className={styles.navCta}
               eventName="landing_nav_cta_clicked"
               eventProps={{ placement: "nav" }}
+              testId="cta-nav-preview-brief"
+              agentAction="start-preview"
             >
               Preview My Brief
             </TrackedLinkButton>
@@ -52,10 +54,12 @@ export default async function Home() {
             className={styles.btnPrimary}
             eventName="landing_hero_cta_clicked"
             eventProps={{ placement: "hero" }}
+            testId="cta-hero-preview-brief"
+            agentAction="start-preview"
           >
             Preview My Brief →
           </TrackedLinkButton>
-          <a href="#proof" className={styles.btnSecondary}>
+          <a href="#proof" className={styles.btnSecondary} data-testid="cta-hero-sample-brief">
             See a sample brief
           </a>
         </div>
@@ -343,6 +347,8 @@ export default async function Home() {
             className={styles.ctaInlineLink}
             eventName="landing_footer_cta_clicked"
             eventProps={{ placement: "footer" }}
+            testId="cta-footer-live-preview"
+            agentAction="start-preview"
           >
             Start a live preview instead →
           </TrackedLinkButton>
@@ -353,6 +359,10 @@ export default async function Home() {
         Startup Machine · Built with Claude Agent SDK · Feb 2026
         <br />
         <Link href="/resources" className={styles.footerLink}>Founder Resources</Link>
+        <span aria-hidden="true"> · </span>
+        <a href="/llms.txt" className={styles.footerLink} data-testid="footer-llms-txt">llms.txt</a>
+        <span aria-hidden="true"> · </span>
+        <a href="/agents.md" className={styles.footerLink} data-testid="footer-agents-md">agents.md</a>
         <span aria-hidden="true"> · </span>
         <span className={styles.footerMark}>▲</span> By builders, for builders.
       </footer>
