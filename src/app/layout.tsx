@@ -41,6 +41,26 @@ export const metadata: Metadata = {
 const fontUrl =
   "https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&family=IBM+Plex+Sans:wght@300;400;500;600&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap";
 
+const structuredData = [
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "Startup Machine",
+    url: "https://startupmachine.ai",
+    logo: "https://startupmachine.ai/og-image.png",
+    email: "msanchezgrice@gmail.com",
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "Startup Machine",
+    url: "https://startupmachine.ai",
+    description:
+      "AI startup builder that generates decision-ready packets with market sizing, competitor analysis, and MVP scope.",
+    publisher: { "@type": "Organization", name: "Startup Machine", url: "https://startupmachine.ai" },
+  },
+];
+
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const publishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
   const themeBootScript = `(function(){try{var t=localStorage.getItem("sm_theme")==="light"?"light":"dark";document.documentElement.dataset.theme=t;document.documentElement.style.colorScheme=t==="light"?"light":"dark";}catch(_){document.documentElement.dataset.theme="dark";document.documentElement.style.colorScheme="dark";}})();`;
@@ -56,6 +76,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       <link href={fontUrl} rel="stylesheet" />
       <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData).replace(/</g, "\\u003c") }}
+      />
     </>
   );
 

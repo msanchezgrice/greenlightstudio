@@ -85,7 +85,7 @@ export function WaitlistForm({
   }
 
   return (
-    <form className="waitlist-form" onSubmit={onSubmit}>
+    <form className="waitlist-form" onSubmit={onSubmit} data-agent-form="waitlist" data-testid="waitlist-form">
       <input
         className="waitlist-input"
         type="email"
@@ -93,9 +93,17 @@ export function WaitlistForm({
         onChange={(event) => setEmail(event.target.value)}
         placeholder={placeholder}
         autoComplete="email"
+        aria-label="Email address"
+        data-testid="waitlist-email-input"
         required
       />
-      <button className="waitlist-btn" type="submit" disabled={busy}>
+      <button
+        className="waitlist-btn"
+        type="submit"
+        disabled={busy}
+        data-testid="waitlist-submit"
+        data-agent-action="submit-waitlist"
+      >
         {busy ? busyLabel : buttonLabel}
       </button>
       {submitted && <p className="waitlist-success">{successMessage}</p>}

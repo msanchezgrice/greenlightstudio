@@ -1,0 +1,29 @@
+{
+  "name": "Startup Machine",
+  "description": "AI startup builder that turns a one-line idea, a domain, or a repo into a decision-ready founder brief with market sizing, competitor analysis, MVP scope, and a go/no-go recommendation.",
+  "url": "https://startupmachine.ai",
+  "contact": "msanchezgrice@gmail.com",
+  "docs": [
+    "https://startupmachine.ai/llms.txt",
+    "https://startupmachine.ai/agents.md"
+  ],
+  "guardrails": {
+    "allowed_actions": [
+      "Read and cite any public page (/, /about, /resources, /contact, /privacy, /terms)",
+      "Follow the primary call to action (\"Preview My Brief\", data-agent-action=\"start-preview\") to reach the no-account preview at /onboarding?new=1",
+      "Reference llms.txt, agents.md, and .well-known manifests for discovery"
+    ],
+    "disallowed_actions": [
+      "Creating accounts, signing in, or accessing authenticated routes (/board, /dashboard, /projects, /inbox, /tasks, /chat, /settings, /api)",
+      "Submitting the waitlist email form (data-agent-form=\"waitlist\") on behalf of a real person without their explicit instruction",
+      "Triggering any action marked data-agent-danger (e.g., \"Kill Project\") without explicit human confirmation as described in its data-agent-confirm attribute",
+      "Scraping at a rate that degrades service, or ignoring robots.txt"
+    ],
+    "prohibited_actions": [
+      "Payment, purchase, or subscription actions of any kind on behalf of a user",
+      "Destructive project actions (deny/kill decisions) without explicit human confirmation",
+      "Exfiltrating or inferring other users' private project data"
+    ],
+    "notes": "Agents start read-only by design. Every phase transition in the product requires explicit human approval; there is no public API or MCP server at this time."
+  }
+}

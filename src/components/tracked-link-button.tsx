@@ -10,6 +10,8 @@ type TrackedLinkButtonProps = {
   eventName: string;
   eventProps?: Record<string, string | number | boolean>;
   children: ReactNode;
+  testId?: string;
+  agentAction?: string;
 };
 
 export function TrackedLinkButton({
@@ -18,11 +20,15 @@ export function TrackedLinkButton({
   eventName,
   eventProps,
   children,
+  testId,
+  agentAction,
 }: TrackedLinkButtonProps) {
   return (
     <Link
       href={href}
       className={className}
+      data-testid={testId}
+      data-agent-action={agentAction}
       onClick={() => {
         track(eventName, eventProps);
       }}

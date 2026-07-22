@@ -1,0 +1,28 @@
+# Startup Machine
+
+> Startup Machine is an AI startup builder: you provide a one-line idea, a domain, or a repo, and a fleet of specialized AI agents researches competitors, sizes the market, drafts a pitch deck, and delivers a decision-ready founder brief with a go/no-go recommendation.
+
+## Product
+
+- [Home](https://startupmachine.ai/): Product overview — how it works, phase pipeline, features, and the 8-agent fleet.
+- [About](https://startupmachine.ai/about): About the product and team.
+- [Founder Resources](https://startupmachine.ai/resources): Editorial guides and working templates for startup planning decisions.
+- [Contact](https://startupmachine.ai/contact): Contact the team (email listed on page).
+
+## How it works
+
+- [Start a preview (no account required)](https://startupmachine.ai/onboarding?new=1): Enter an idea, domain, or repo to get an instant recommendation, key risk, and first market read before signing up.
+- Phase pipeline: Pre-Phase 0 asset discovery (read-only scans) → Phase 0 pitch deck (market sizing, competitor analysis, MVP scope, CEO recommendation) → Phase 1 validate → Phase 2 distribute → Phase 3 go live. Every phase has a human approval gate.
+
+## For agents
+
+- [agents.md](https://startupmachine.ai/agents.md): Guidance for autonomous agents interacting with this site.
+- [Agent card](https://startupmachine.ai/.well-known/agent-card.json): A2A-style agent manifest (capabilities).
+- [AI agent manifest](https://startupmachine.ai/.well-known/ai-agent.json): Guardrails, allowed and disallowed actions.
+- [Sitemap](https://startupmachine.ai/sitemap.xml)
+- [robots.txt](https://startupmachine.ai/robots.txt)
+
+## Legal
+
+- [Privacy Policy](https://startupmachine.ai/privacy)
+- [Terms of Service](https://startupmachine.ai/terms)

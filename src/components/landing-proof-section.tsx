@@ -147,6 +147,8 @@ export function LandingProofSection() {
           className={styles.btnPrimary}
           eventName="landing_preview_cta_clicked"
           eventProps={{ placement: "proof_section" }}
+          testId="cta-proof-preview-brief"
+          agentAction="start-preview"
         >
           Preview My Brief →
         </TrackedLinkButton>
