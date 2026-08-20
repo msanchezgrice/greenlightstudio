@@ -4,6 +4,7 @@ import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import { PostHogIdentity } from "@/components/posthog-identity";
+import { GoogleAnalytics } from "@/components/google-analytics";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://startupmachine.ai"),
@@ -89,6 +90,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <head>{head}</head>
         <body>
           {children}
+          <GoogleAnalytics />
           <Analytics />
           <SpeedInsights />
         </body>
@@ -103,6 +105,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <body>
           <PostHogIdentity />
           {children}
+          <GoogleAnalytics />
           <Analytics />
           <SpeedInsights />
         </body>
