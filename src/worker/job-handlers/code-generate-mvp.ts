@@ -5,6 +5,7 @@ import os from "node:os";
 import { emitJobEvent } from "../job-events";
 import { loadMemory, writeMemory, formatMemoryForPrompt } from "../memory";
 import { executeAgentQuery, type StreamEvent } from "@/lib/agent";
+import { githubRepository, gitBranch, gitOperations } from "../git-safe";
 
 const CODE_GEN_PROFILE = {
   name: "code_generator",
@@ -15,40 +16,35 @@ const CODE_GEN_PROFILE = {
   permissionMode: "dontAsk" as const,
 };
 
-function githubAuthUrl(repoUrl: string, token: string) {
-  const cleanToken = token.trim();
-  if (!cleanToken) return null;
-  const encodedToken = encodeURIComponent(cleanToken);
-
-  if (repoUrl.startsWith("https://github.com/")) {
-    return repoUrl.replace("https://github.com/", `https://x-access-token:${encodedToken}@github.com/`);
-  }
-
-  const sshMatch = repoUrl.match(/^git@github\.com:(.+)$/);
-  if (sshMatch) {
-    return `https://x-access-token:${encodedToken}@github.com/${sshMatch[1]}`;
-  }
-
-  return null;
-}
-
 export async function handleCodeGenerateMvp(
   db: SupabaseClient,
   job: { id: string; project_id: string; payload: Record<string, unknown> }
 ) {
   const payload = job.payload ?? {};
-  const projectId = (payload.projectId as string) ?? job.project_id;
+  if (payload.projectId && payload.projectId !== job.project_id) throw new Error("Project does not match job");
+  const projectId = job.project_id;
   const ownerClerkId = payload.ownerClerkId as string;
   const description = payload.description as string;
   const repoUrl = payload.repoUrl as string | undefined;
-  const branch = (payload.branch as string) ?? "greenlight/mvp-v1";
+  const branch = gitBranch(payload.branch ?? "greenlight/mvp-v1");
 
   const project = await db
     .from("projects")
-    .select("id,name,domain,phase,permissions,repo_url,runtime_mode")
+    .select("id,name,domain,phase,permissions,repo_url,runtime_mode,owner_clerk_id")
     .eq("id", projectId)
     .single();
-  if (project.error || !project.data) throw new Error("Project not found");
+  if (project.error || !project.data || !ownerClerkId || project.data.owner_clerk_id !== ownerClerkId) throw new Error("Project not found");
+  // Only a server-owned project repository may be used; payload is not authority.
+  const targetRepo = project.data.repo_url ? githubRepository(project.data.repo_url) : null;
+  if (repoUrl && (!targetRepo || githubRepository(repoUrl) !== targetRepo)) throw new Error("Repository does not match project configuration");
+  const git = gitOperations();
+  const permissions = project.data.permissions as Record<string, unknown> | null;
+  if (targetRepo && permissions?.repo_write === true) {
+    const identityNames = ["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"] as const;
+    if (!process.env.GITHUB_TOKEN?.trim() || identityNames.some(name => !process.env[name]?.trim())) {
+      throw new Error("Repository write is unavailable until its credential and verified Git identity are configured");
+    }
+  }
 
   let latestPacketPayload: unknown = null;
   const latestPacket = await db
@@ -79,6 +75,10 @@ export async function handleCodeGenerateMvp(
     path.join(os.tmpdir(), `greenlight-mvp-${projectId.slice(0, 8)}-`)
   );
 
+  let agentHome: string | undefined;
+  try {
+  agentHome = await fs.mkdtemp(path.join(os.tmpdir(), "greenlight-agent-home-"));
+
   await emitJobEvent(db, {
     projectId,
     jobId: job.id,
@@ -86,24 +86,13 @@ export async function handleCodeGenerateMvp(
     message: "Setting up workspace",
   });
 
-  const targetRepo = repoUrl ?? project.data.repo_url;
   if (targetRepo) {
-    const { execSync } = await import("node:child_process");
-    const githubToken = process.env.GITHUB_TOKEN?.trim();
-    const cloneRepoUrl = githubToken ? githubAuthUrl(targetRepo, githubToken) ?? targetRepo : targetRepo;
     try {
-      execSync(
-        `git clone --depth 1 "${cloneRepoUrl}" "${workDir}" 2>&1`,
-        { timeout: 60_000, env: { ...process.env } }
-      );
-      execSync(`git checkout -b "${branch}"`, { cwd: workDir, timeout: 10_000 });
-    } catch (e) {
-      await emitJobEvent(db, {
-        projectId,
-        jobId: job.id,
-        type: "log",
-        message: `Git clone failed; starting from empty dir: ${(e as Error).message}`,
-      });
+      await git.clone(targetRepo, workDir, process.env.GITHUB_TOKEN?.trim());
+      await git.checkout(workDir, branch);
+    } catch {
+      await fs.rm(workDir, { recursive: true, force: true });
+      throw new Error("Git setup failed");
     }
   }
 
@@ -170,7 +159,7 @@ export async function handleCodeGenerateMvp(
       CODE_GEN_PROFILE,
       "phase0",
       hooks,
-      { cwd: workDir }
+      { cwd: workDir, codegenEnvironmentHome: agentHome }
     );
   } catch (agentErr) {
     try { await fs.rm(workDir, { recursive: true, force: true }); } catch {}
@@ -200,60 +189,21 @@ export async function handleCodeGenerateMvp(
     message: `Generated ${generatedFiles.length} files`,
   });
 
-  if (targetRepo && process.env.GITHUB_TOKEN) {
+  if (targetRepo && process.env.GITHUB_TOKEN && permissions?.repo_write === true) {
     try {
-      const { execSync } = await import("node:child_process");
-      const authRemote = githubAuthUrl(targetRepo, process.env.GITHUB_TOKEN);
-      if (authRemote) {
-        execSync(`git remote set-url origin "${authRemote}"`, {
-          cwd: workDir,
-          timeout: 10_000,
-          env: { ...process.env },
-        });
-      }
-
-      execSync("git add -A", {
-        cwd: workDir,
-        timeout: 15_000,
-        env: { ...process.env },
-      });
-      try {
-        execSync("git commit -m 'Greenlight MVP generation'", {
-          cwd: workDir,
-          timeout: 30_000,
-          env: { ...process.env },
-        });
-      } catch (commitErr) {
-        const commitMessage = commitErr instanceof Error ? commitErr.message : "";
-        if (!commitMessage.toLowerCase().includes("nothing to commit")) {
-          throw commitErr;
-        }
-      }
-
-      execSync(`git push origin "${branch}" --force`, {
-        cwd: workDir,
-        timeout: 60_000,
-        env: { ...process.env },
-      });
-
+      await git.push(workDir, targetRepo, branch, process.env.GITHUB_TOKEN);
       await emitJobEvent(db, {
-        projectId,
-        jobId: job.id,
-        type: "artifact",
-        message: `Code pushed to ${targetRepo} on branch ${branch}`,
+        projectId, jobId: job.id, type: "artifact",
+        message: "Code pushed to the configured repository",
         data: { repoUrl: targetRepo, branch, fileCount: generatedFiles.length },
       });
-    } catch (e) {
-      await emitJobEvent(db, {
-        projectId,
-        jobId: job.id,
-        type: "log",
-        message: `Git push failed: ${(e as Error).message}`,
-      });
+    } catch {
+      await emitJobEvent(db, { projectId, jobId: job.id, type: "log", message: "Git push failed" });
+      await fs.rm(workDir, { recursive: true, force: true });
+      throw new Error("Git push failed");
     }
   }
 
-  const permissions = project.data.permissions as Record<string, unknown> | null;
   if (permissions?.deploy && process.env.VERCEL_DEPLOY_HOOK_URL) {
     try {
       await fetch(process.env.VERCEL_DEPLOY_HOOK_URL, {
@@ -296,7 +246,8 @@ export async function handleCodeGenerateMvp(
     },
   ]);
 
-  try {
-    await fs.rm(workDir, { recursive: true, force: true });
-  } catch {}
+  } finally {
+    try { await fs.rm(workDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    if (agentHome) try { await fs.rm(agentHome, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
 }

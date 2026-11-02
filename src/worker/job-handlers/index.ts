@@ -23,6 +23,8 @@ export type JobRow = {
   payload: Record<string, unknown>;
   attempts: number;
   max_attempts: number;
+  locked_at: string | null;
+  locked_by: string | null;
 };
 
 export type JobHandler = (db: SupabaseClient, job: JobRow) => Promise<void>;

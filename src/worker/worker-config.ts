@@ -1,10 +1,9 @@
 export function getWorkerConfig() {
-  const requestedConcurrency = Number(process.env.WORKER_CONCURRENCY ?? 3);
-  const concurrency = Math.max(2, Number.isFinite(requestedConcurrency) ? requestedConcurrency : 3);
-  const requestedClaimBatch = Number(process.env.WORKER_CLAIM_BATCH ?? concurrency * 2);
-  const claimBatch = Math.max(concurrency, Number.isFinite(requestedClaimBatch) ? requestedClaimBatch : concurrency * 2);
-  const requestedHeavyConcurrency = Number(process.env.WORKER_HEAVY_CONCURRENCY ?? 1);
-  const heavyConcurrency = Math.max(1, Number.isFinite(requestedHeavyConcurrency) ? requestedHeavyConcurrency : 1);
+  // One claim at a time prevents claimed-but-not-started jobs from aging out.
+  // This intentionally reduces throughput until renewable leases are implemented.
+  const concurrency = 1;
+  const claimBatch = 1;
+  const heavyConcurrency = 1;
   return {
     workerId: process.env.WORKER_ID ?? "worker-local",
     workerServiceName: process.env.WORKER_SERVICE_NAME?.trim() || "greenlight-worker",

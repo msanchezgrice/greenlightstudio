@@ -2,20 +2,18 @@ import { createAdminSupabase } from "./supabase-admin";
 import { getWorkerConfig } from "./worker-config";
 import { getHandler, type JobRow } from "./job-handlers";
 import { emitJobEvent } from "./job-events";
+import { quarantineAttempt, transitionOwnedJob, uncertainFailurePayload, runWithTimeoutQuarantine, QuarantinedTimeout } from "./job-timeout";
+import { reclaimSnapshots, type StaleJobSnapshot } from "./reclaim-fallback";
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
 let shuttingDown = false;
+let recycleRequested = false;
+let uncertainStopRequested = false;
 
 class FatalWorkerError extends Error {}
-class JobTimeoutError extends Error {
-  constructor(jobId: string, timeoutMs: number) {
-    super(`Job ${jobId} timed out after ${Math.round(timeoutMs / 1000)}s`);
-    this.name = "JobTimeoutError";
-  }
-}
 
 const HEAVY_JOB_TYPES = new Set([
   "phase0.generate_packet",
@@ -28,25 +26,6 @@ const HEAVY_JOB_TYPES = new Set([
 ]);
 
 const REALTIME_JOB_TYPES = new Set(["chat.reply"]);
-
-async function finalizeJob(
-  db: ReturnType<typeof createAdminSupabase>,
-  jobId: string,
-  status: "completed" | "failed" | "canceled",
-  error: string | null,
-) {
-  const payload: Record<string, unknown> = {
-    status,
-    last_error: error,
-    locked_at: null,
-    locked_by: null,
-    completed_at: new Date().toISOString(),
-  };
-  const result = await db.from("agent_jobs").update(payload).eq("id", jobId);
-  if (result.error) {
-    throw new Error(`finalize job failed: ${result.error.message}`);
-  }
-}
 
 function formatMemorySnapshot() {
   const usage = process.memoryUsage();
@@ -114,7 +93,7 @@ async function reclaimStaleJobsFallback(
 
   const stale = await db
     .from("agent_jobs")
-    .select("id,attempts,max_attempts")
+    .select("id,attempts,max_attempts,locked_at,locked_by")
     .eq("status", "running")
     .lt("locked_at", cutoff)
     .limit(Math.max(100, cfg.claimBatch * 10));
@@ -122,50 +101,9 @@ async function reclaimStaleJobsFallback(
     throw new Error(`fallback stale query failed: ${stale.error.message}`);
   }
 
-  const rows = (stale.data ?? []) as Array<{ id: string; attempts: number; max_attempts: number }>;
-  if (!rows.length) return 0;
+  const rows = (stale.data ?? []) as StaleJobSnapshot[];
+  return reclaimSnapshots(db, rows, cutoff);
 
-  const retriableIds = rows.filter((row) => row.attempts < row.max_attempts).map((row) => row.id);
-  const exhaustedIds = rows.filter((row) => row.attempts >= row.max_attempts).map((row) => row.id);
-  let reclaimed = 0;
-
-  if (retriableIds.length) {
-    const runAfter = new Date(Date.now() + 15_000).toISOString();
-    const retriableUpdate = await db
-      .from("agent_jobs")
-      .update({
-        status: "queued",
-        run_after: runAfter,
-        locked_at: null,
-        locked_by: null,
-        last_error: "reclaimed: stale running job recovered by worker fallback",
-        completed_at: null,
-      })
-      .in("id", retriableIds);
-    if (retriableUpdate.error) {
-      throw new Error(`fallback reclaim retriable failed: ${retriableUpdate.error.message}`);
-    }
-    reclaimed += retriableIds.length;
-  }
-
-  if (exhaustedIds.length) {
-    const exhaustedUpdate = await db
-      .from("agent_jobs")
-      .update({
-        status: "failed",
-        locked_at: null,
-        locked_by: null,
-        last_error: "reclaimed: stale running job exceeded max attempts (worker fallback)",
-        completed_at: new Date().toISOString(),
-      })
-      .in("id", exhaustedIds);
-    if (exhaustedUpdate.error) {
-      throw new Error(`fallback reclaim exhausted failed: ${exhaustedUpdate.error.message}`);
-    }
-    reclaimed += exhaustedIds.length;
-  }
-
-  return reclaimed;
 }
 
 async function runOnce(cfg: ReturnType<typeof getWorkerConfig>) {
@@ -218,13 +156,15 @@ async function runOnce(cfg: ReturnType<typeof getWorkerConfig>) {
 
       try {
         if (!handler) {
-          await emitJobEvent(db, {
-            projectId: job.project_id,
-            jobId: job.id,
-            type: "status",
-            message: `failed: unknown job_type ${job.job_type}`,
-          });
-          await finalizeJob(db, job.id, "failed", `Unknown job_type ${job.job_type}`);
+          let changed = false;
+          try { changed = await transitionOwnedJob(db, job, cfg.workerId, {
+            status: "failed", last_error: "Unknown job type", locked_at: null,
+            locked_by: null, completed_at: new Date().toISOString(),
+          }); } catch { shuttingDown = true; console.error("[worker] job transition failed; draining"); }
+          if (changed) {
+            try { await emitJobEvent(db, { projectId: job.project_id, jobId: job.id, type: "status", message: "failed: unknown job type" }); }
+            catch { console.error("[worker] job event unavailable"); }
+          } else console.warn("[worker] unknown job no longer owned; no transition");
           continue;
         }
 
@@ -235,65 +175,49 @@ async function runOnce(cfg: ReturnType<typeof getWorkerConfig>) {
           message: "running",
         });
 
-        let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-        try {
-          await Promise.race([
-            handler(db, job),
-            new Promise<never>((_, reject) => {
-              timeoutHandle = setTimeout(() => {
-                reject(new JobTimeoutError(job.id, cfg.jobTimeoutMs));
-              }, cfg.jobTimeoutMs);
-            }),
-          ]);
-        } finally {
-          if (timeoutHandle) clearTimeout(timeoutHandle);
-        }
+        await runWithTimeoutQuarantine(
+          () => handler(db, job),
+          cfg.jobTimeoutMs,
+          async () => {
+            try { await quarantineAttempt(db, job, cfg.workerId); }
+            catch { shuttingDown = true; throw new Error("Job quarantine failed"); }
+          },
+        );
 
-        await emitJobEvent(db, {
-          projectId: job.project_id,
-          jobId: job.id,
-          type: "status",
-          message: "completed",
-        });
-        await finalizeJob(db, job.id, "completed", null);
+        let completed = false;
+        try { completed = await transitionOwnedJob(db, job, cfg.workerId, {
+          status: "completed", last_error: null, locked_at: null, locked_by: null,
+          completed_at: new Date().toISOString(),
+        }); } catch { shuttingDown = true; console.error("[worker] completion transition failed; draining"); }
+        if (completed) {
+          try { await emitJobEvent(db, { projectId: job.project_id, jobId: job.id, type: "status", message: "completed" }); }
+          catch { console.error("[worker] job event unavailable"); }
+        } else console.warn("[worker] completed job no longer owned; no transition");
       } catch (err: unknown) {
-        const msg =
-          err instanceof Error ? err.message : "Job failed with unknown error";
-
-        await emitJobEvent(db, {
-          projectId: job.project_id,
-          jobId: job.id,
-          type: "status",
-          message: "failed",
-          data: { error: msg },
-        });
-
-        const retriable = job.attempts < job.max_attempts;
-        if (retriable) {
-          const backoffMs = 30_000 * Math.max(1, job.attempts);
-          const runAfter = new Date(Date.now() + backoffMs).toISOString();
-          await db
-            .from("agent_jobs")
-            .update({
-              status: "queued",
-              run_after: runAfter,
-              locked_at: null,
-              locked_by: null,
-              last_error: msg,
-              completed_at: null,
-            })
-            .eq("id", job.id);
-        } else {
-          await finalizeJob(db, job.id, "failed", msg);
+        if (err instanceof QuarantinedTimeout) {
+          if (err.quarantineFailed) {
+            // The status could not be fenced. Stop claiming after other workers drain.
+            shuttingDown = true;
+            console.error("[worker] timeout quarantine failed; draining");
+          } else {
+            console.warn("[worker] timed-out job quarantined; reconcile before retry");
+          }
+          shuttingDown = true;
+          uncertainStopRequested = true;
+          continue;
         }
+        const msg = "Job failed; outcome may be uncertain. Reconcile before retry.";
 
-        if (err instanceof JobTimeoutError) {
-          // Do not crash the entire worker on a single timed-out job.
-          // The job is already marked/requeued above; keep polling remaining jobs.
-          console.error(
-            `[worker] timed out job ${job.id}; continuing without process recycle`,
-          );
-        }
+        // Any handler failure may follow an external side effect. Never auto-replay it.
+        const payload = uncertainFailurePayload();
+        let changed = false;
+        try { changed = await transitionOwnedJob(db, job, cfg.workerId, payload); }
+        catch { shuttingDown = true; console.error("[worker] job transition failed; draining"); }
+        if (changed) {
+          try { await emitJobEvent(db, { projectId: job.project_id, jobId: job.id, type: "status", message: "failed", data: { error: msg } }); }
+          catch { console.error("[worker] job event unavailable"); }
+        } else console.warn("[worker] failed job no longer owned or transition unavailable");
+
       } finally {
         if (isHeavy) {
           heavyInFlight = Math.max(0, heavyInFlight - 1);
@@ -315,9 +239,17 @@ async function main() {
   const startedAtIso = new Date().toISOString();
   let heartbeatStatus: WorkerHeartbeatStatus = "running";
   let lastHeartbeatAt = 0;
-  console.log(
-    `[worker] starting id=${cfg.workerId} service=${cfg.workerServiceName} concurrency=${cfg.concurrency} heavyConcurrency=${cfg.heavyConcurrency} pollMs=${cfg.pollMs} timeoutMs=${cfg.jobTimeoutMs} maxJobs=${cfg.maxJobsPerProcess} maxRssMb=${cfg.maxRssMb}`
-  );
+  const renderCommit = process.env.RENDER_GIT_COMMIT;
+  console.log(JSON.stringify({
+    event: "worker_startup",
+    node_version: process.version,
+    render_git_commit: renderCommit && /^[0-9a-f]{40}$/i.test(renderCommit) ? renderCommit : null,
+    worker_id: cfg.workerId,
+    concurrency: cfg.concurrency,
+    claim_batch: cfg.claimBatch,
+    heavy_concurrency: cfg.heavyConcurrency,
+    max_jobs_per_process: cfg.maxJobsPerProcess,
+  }));
 
   await writeWorkerHeartbeat(heartbeatDb, cfg, {
     status: "running",
@@ -424,16 +356,11 @@ async function main() {
         console.log(`[worker] processed ${ran} jobs`);
       }
       if (cfg.maxJobsPerProcess > 0 && processedJobs >= cfg.maxJobsPerProcess) {
-        console.warn(`[worker] soft recycle threshold reached after ${processedJobs} jobs`);
-        // Prefer an in-process recycle over fatal exit so single-instance workers stay available.
-        if (typeof global.gc === "function") {
-          try {
-            global.gc();
-          } catch {
-            // Ignore gc failures and continue polling.
-          }
-        }
-        processedJobs = 0;
+        console.warn(`[worker] scheduled recycle after ${processedJobs} jobs`);
+        // runOnce has joined all handlers, including timed-out work.
+        shuttingDown = true;
+        heartbeatStatus = "draining";
+        recycleRequested = true;
       }
     } catch (e) {
       if (e instanceof FatalWorkerError) {
@@ -463,17 +390,24 @@ async function main() {
     await sleep(nextSleepMs);
   }
 
+  if (uncertainStopRequested) {
+    // Do not let an unavailable heartbeat DB prevent bounded process shutdown.
+    await Promise.race([
+      writeWorkerHeartbeat(heartbeatDb, cfg, {
+        status: "error", startedAt: startedAtIso, jobsProcessed: processedJobs,
+        consecutivePollErrors, details: { event: "uncertain_timeout" },
+      }).catch(() => {}),
+      sleep(2_000),
+    ]);
+    process.exit(1);
+  }
   await writeWorkerHeartbeat(heartbeatDb, cfg, {
-    status: "stopped",
-    startedAt: startedAtIso,
-    jobsProcessed: processedJobs,
-    consecutivePollErrors,
-    details: {
-      event: "shutdown",
-    },
+    status: "stopped", startedAt: startedAtIso, jobsProcessed: processedJobs,
+    consecutivePollErrors, details: { event: "shutdown" },
   });
 
   console.log("[worker] shutdown complete");
+  if (recycleRequested) process.exit(0);
 }
 
 main().catch(async (e) => {

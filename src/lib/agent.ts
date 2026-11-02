@@ -1,3 +1,4 @@
+import { codegenAgentEnvironment } from "./agent-env";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenAI } from "@google/genai";
@@ -540,6 +541,7 @@ export type AgentQueryHooks = {
 
 export type AgentQueryOptions = {
   cwd?: string;
+  codegenEnvironmentHome?: string;
 };
 
 export async function executeAgentQuery(
@@ -564,7 +566,7 @@ export async function executeAgentQuery(
     prompt,
     options: {
       model: "sonnet",
-      env: sdkEnv(),
+      env: options?.codegenEnvironmentHome ? codegenAgentEnvironment(process.env, options.codegenEnvironmentHome) : sdkEnv(),
       pathToClaudeCodeExecutable: executablePath,
       maxTurns: agentProfile.maxTurns,
       includePartialMessages: hasStreamEventHooks,
