@@ -15,7 +15,7 @@
     "test:e2e:live-manual-launch": "tsx tests/e2e/live-manual-launch-runner.ts",
     "worker:build": "tsup",
     "worker:dev": "tsx --watch src/worker/index.ts",
-    "worker:start": "node dist/worker/index.mjs"
+    "worker:start": "node scripts/worker-supervisor.mjs"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.59",

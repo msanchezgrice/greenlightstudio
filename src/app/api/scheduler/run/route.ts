@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { enqueueJob } from "@/lib/jobs/enqueue";
 import { JOB_TYPES, AGENT_KEYS, PRIORITY, SYSTEM_PROJECT_ID } from "@/lib/jobs/constants";
+import { createServiceSupabase } from "@/lib/supabase";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -29,6 +30,21 @@ async function scheduleRun(req: Request) {
   }
 
   const minute = new Date().toISOString().slice(0, 16);
+
+  // A scheduler tick checks what is due now; an older pending tick can do the
+  // same work. Preserve existing work instead of adding another minute of debt.
+  const db = createServiceSupabase();
+  const pending = await db.from("agent_jobs").select("id")
+    .eq("project_id", SYSTEM_PROJECT_ID)
+    .eq("job_type", JOB_TYPES.SCHEDULER_RUN_RECURRING)
+    .in("status", ["queued", "running"])
+    .order("created_at", { ascending: true }).limit(1).maybeSingle();
+  if (pending.error) {
+    return NextResponse.json({ error: "Scheduler availability check failed" }, { status: 503 });
+  }
+  if (pending.data?.id) {
+    return NextResponse.json({ ok: true, jobId: pending.data.id, minute, coalesced: true });
+  }
 
   const jobId = await enqueueJob({
     projectId: SYSTEM_PROJECT_ID,

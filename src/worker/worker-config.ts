@@ -15,8 +15,9 @@ export function getWorkerConfig() {
     jobTimeoutMs: Math.max(60_000, Number(process.env.WORKER_JOB_TIMEOUT_MS ?? 900_000)),
     maxConsecutivePollErrors: Math.max(0, Number(process.env.WORKER_MAX_CONSECUTIVE_POLL_ERRORS ?? 0)),
     pollErrorBackoffMaxMs: Math.max(1_000, Number(process.env.WORKER_POLL_ERROR_BACKOFF_MAX_MS ?? 30_000)),
-    // Disabled by default to avoid intentional process exits that trigger host-level crash alerts.
-    maxJobsPerProcess: Math.max(0, Number(process.env.WORKER_MAX_JOBS_PER_PROCESS ?? 0)),
+    // The stable supervisor replaces clean worker generations without exiting
+    // the service. Keep the existing bounded generation size for memory safety.
+    maxJobsPerProcess: Math.max(0, Number(process.env.WORKER_MAX_JOBS_PER_PROCESS ?? 12)),
     maxRssMb: Math.max(0, Number(process.env.WORKER_MAX_RSS_MB ?? 700)),
     memoryLogIntervalMs: Math.max(10_000, Number(process.env.WORKER_MEMORY_LOG_INTERVAL_MS ?? 60_000)),
     heartbeatIntervalMs: Math.max(5_000, Number(process.env.WORKER_HEARTBEAT_INTERVAL_MS ?? 15_000)),
