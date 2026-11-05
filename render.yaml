@@ -39,9 +39,9 @@ services:
       - key: WORKER_ID
         value: render-worker-1
       - key: WORKER_CONCURRENCY
-        value: "2"
+        value: "1"
       - key: WORKER_CLAIM_BATCH
-        value: "4"
+        value: "1"
       - key: WORKER_HEAVY_CONCURRENCY
         value: "1"
       - key: WORKER_POLL_MS
@@ -53,7 +53,7 @@ services:
       - key: WORKER_POLL_ERROR_BACKOFF_MAX_MS
         value: "30000"
       - key: WORKER_MAX_JOBS_PER_PROCESS
-        value: "0"
+        value: "12"
       - key: WORKER_MAX_RSS_MB
         value: "1700"
       - key: WORKER_MEMORY_LOG_INTERVAL_MS

@@ -407,7 +407,19 @@ async function main() {
   });
 
   console.log("[worker] shutdown complete");
-  if (recycleRequested) process.exit(0);
+  if (recycleRequested) {
+    if (process.send && process.connected) {
+      // Flush the joined-generation acknowledgement before exiting. The stable
+      // supervisor replaces only acknowledged clean exits, never failures.
+      await new Promise<void>((resolve, reject) => {
+        process.send!({ type: "greenlight.worker.recycle.v1" }, (error: Error | null) => {
+          if (error) reject(new Error("Worker recycle acknowledgement failed"));
+          else resolve();
+        });
+      });
+    }
+    process.exit(0);
+  }
 }
 
 main().catch(async (e) => {
